@@ -7,6 +7,7 @@ import (
 
 	"github.com/creasty/defaults"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
+	"github.com/ethpandaops/cbt/pkg/models"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,6 +28,9 @@ type CLIConfig struct {
 	Redis struct {
 		URL string `yaml:"url"`
 	} `yaml:"redis,omitempty"`
+
+	// Models configuration
+	Models models.PathConfig `yaml:"models"`
 }
 
 // Validate validates the CLI configuration
@@ -45,6 +49,9 @@ func (c *CLIConfig) Validate() error {
 	if c.ClickHouse.KeepAlive == 0 {
 		c.ClickHouse.KeepAlive = 30 * time.Second
 	}
+
+	// Set model path defaults
+	c.Models.SetDefaults()
 
 	return nil
 }

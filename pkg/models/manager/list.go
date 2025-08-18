@@ -14,7 +14,7 @@ import (
 // ListModels returns a list of all discovered models with their metadata
 func (m *Manager) ListModels(ctx context.Context) ([]ModelInfo, error) {
 	// Load all models using the consolidated loader
-	modelConfigs, err := models.LoadAllModels(m.logger)
+	modelConfigs, err := models.LoadAllModels(m.logger, m.pathConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load models: %w", err)
 	}
@@ -96,7 +96,7 @@ func (m *Manager) formatModelInfo(ctx context.Context, modelID string, modelConf
 }
 
 // LoadModels loads and returns all model configurations
-func LoadModels(log *logrus.Entry) (map[string]models.ModelConfig, error) {
+func LoadModels(log *logrus.Entry, pathConfig *models.PathConfig) (map[string]models.ModelConfig, error) {
 	// Use the consolidated loader
-	return models.LoadAllModels(log)
+	return models.LoadAllModels(log, pathConfig)
 }

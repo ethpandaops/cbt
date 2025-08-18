@@ -11,5 +11,4 @@ CREATE TABLE IF NOT EXISTS admin.cbt (
     INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
 )
 ENGINE = ReplacingMergeTree(updated_date_time)
-ORDER BY (database, table, position)
-SETTINGS index_granularity = 8192;
+ORDER BY (database, table, position);

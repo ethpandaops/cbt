@@ -33,7 +33,15 @@ func TestModelDiscovery_DiscoverAll(t *testing.T) {
 	}
 
 	// Test discovery
-	discovery := NewModelDiscovery(tmpDir)
+	pathConfig := &PathConfig{
+		External: PathsConfig{
+			Paths: []string{filepath.Join(tmpDir, "external")},
+		},
+		Transformations: PathsConfig{
+			Paths: []string{filepath.Join(tmpDir, "transformations")},
+		},
+	}
+	discovery := NewModelDiscovery(pathConfig)
 	models, err := discovery.DiscoverAll()
 
 	assert.NoError(t, err)
@@ -57,7 +65,15 @@ func TestModelDiscovery_MissingDirectories(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Don't create subdirectories
-	discovery := NewModelDiscovery(tmpDir)
+	pathConfig := &PathConfig{
+		External: PathsConfig{
+			Paths: []string{filepath.Join(tmpDir, "external")},
+		},
+		Transformations: PathsConfig{
+			Paths: []string{filepath.Join(tmpDir, "transformations")},
+		},
+	}
+	discovery := NewModelDiscovery(pathConfig)
 	models, err := discovery.DiscoverAll()
 
 	// Should not error on missing directories

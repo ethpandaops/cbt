@@ -23,7 +23,7 @@ A simplified, ClickHouse-focused data transformation tool that provides idempote
 │   Coordinator   │◄──►│      Redis      │◄──►│     Worker      │
 │  (+ Scheduler)  │    │ (Queue + Sched) │    │                 │
 └─────┬───────────┘    └─────────────────┘    └─────┬───────────┘
-      │                                              │
+      │                                             │
       │                ┌─────────────────┐          │
       └───────────────►│   ClickHouse    │◄─────────┘
                        │  (Data + Admin) │
@@ -36,9 +36,8 @@ A simplified, ClickHouse-focused data transformation tool that provides idempote
 
 ## Requirements
 
-- ClickHouse 21.8+ (ReplacingMergeTree, FINAL queries)
-- Redis 6.0+ (task queue)
-- Go 1.21+ (for building from source)
+- ClickHouse
+- Redis
 
 ## Installation
 
@@ -49,42 +48,88 @@ cd cbt
 make build
 ```
 
-### Docker
-```bash
-docker pull ghcr.io/ethpandaops/cbt:latest
-```
-
 ## Configuration
+
+CBT uses a single configuration file by default (`config.yaml`), with each component using only the sections it needs. This keeps configuration simple while allowing flexible deployment patterns.
+
+### Default Configuration
 
 Copy `config.example.yaml` to `config.yaml` and adjust for your environment:
 
 ```yaml
+# Shared settings
 logging: info
-metricsAddr: :9090
+metricsAddr: ":9090"
 
+# ClickHouse configuration (used by all components)
 clickhouse:
-  url: http://localhost:8123
-  # For cluster deployments:
-  # cluster: my_cluster
-  # local_suffix: _local
+  url: "clickhouse://localhost:9000"
+  # Optional cluster configuration:
+  # cluster: "default"
+  # localSuffix: "_local"
+  # admin_database: admin  # Default: "admin"
+  # admin_table: cbt       # Default: "cbt"
 
+# Redis configuration (used by coordinator, worker, and rerun command)
 redis:
-  url: redis://localhost:6379/0
+  url: "redis://localhost:6379/0"
 
-coordinator:
-  enabled: true
+# Coordinator-specific settings (ignored by worker and CLI)
+scheduling:
+  interval: 1m
+  maxConcurrentSchedules: 10
+  batchSize: 100
 
+# Worker-specific settings (ignored by coordinator and CLI)
 worker:
-  enabled: true
   queues:
-    - "*"
+    - "default"
+    - "high_priority"
   concurrency: 10
   # Optional: Filter models by tags
-  # model_tags:
-  #   include: [batch, analytics]  # Process models with any of these tags
-  #   exclude: [realtime]         # Skip models with any of these tags
-  #   require: [production]       # Only process models with all of these tags
+  modelTags:
+    include: [batch, analytics]
+    exclude: [experimental]
+    require: [production]
 ```
+
+### Setting Up Configuration
+
+```bash
+# Copy and customize the example config
+cp config.example.yaml config.yaml
+# Edit config.yaml with your ClickHouse and Redis settings
+```
+
+The `--config` flag is optional and defaults to `config.yaml` in the current directory:
+```bash
+cbt coordinator                    # Uses config.yaml
+cbt worker                         # Uses config.yaml
+cbt models list                    # Uses config.yaml
+cbt coordinator --config prod.yaml # Uses prod.yaml
+```
+
+### Advanced: Split Configuration
+
+For complex deployments where components run on different machines or require different security contexts, you can use separate configuration files:
+
+```bash
+# Create component-specific configs
+cp coordinator.example.yaml coordinator.yaml
+cp worker.example.yaml worker.yaml
+cp cli.example.yaml cli.yaml
+
+# Run with specific configs
+cbt coordinator --config coordinator.yaml
+cbt worker --config worker.yaml
+cbt models list --config cli.yaml
+```
+
+This approach is useful when:
+- Running components on different machines
+- Components need different logging levels
+- Minimizing configuration exposure for security
+- Using different metrics ports per component
 
 ## Model Definition
 
@@ -96,6 +141,31 @@ models/
 ├── external/         # External data source definitions
 └── transformations/  # Data transformation pipelines
 ```
+
+### Configurable Model Paths
+
+By default, CBT looks for models in `models/external` and `models/transformations`. You can configure multiple paths for each model type in your `config.yaml`:
+
+```yaml
+models:
+  external:
+    paths:
+      - "models/external"           # Default path
+      - "/shared/models/external"   # Additional shared models
+      - "/team/models/external"     # Team-specific models
+  transformations:
+    paths:
+      - "models/transformations"    # Default path
+      - "/shared/transformations"   # Shared transformations
+```
+
+This is useful for:
+- Sharing common models across multiple deployments
+- Organizing models by team or project
+- Separating test and production models
+- Mounting models from different repositories or volumes
+
+If not configured, CBT defaults to the standard paths: `models/external` and `models/transformations`.
 
 ### External Models
 
@@ -248,13 +318,12 @@ open http://localhost:8080  # Asynqmon dashboard
 
 #### Testing Tag-Based Filtering
 
-Modify `example/config.yaml` to test worker filtering:
+Modify `example/worker.yaml` to test worker filtering:
 
 ```yaml
 worker:
-  enabled: true
   concurrency: 10
-  model_tags:
+  modelTags:
     include: [python]  # Only process Python models
     # Or try: exclude: [aggregation]
     # Or try: require: [batch]
@@ -270,22 +339,27 @@ docker-compose -f example/docker-compose.yml restart worker
 # 1. Build CBT
 make build
 
-# 2. Copy and customize config
+# 2. Set up the admin table in ClickHouse
+# See "Admin Table Setup" section above for SQL commands
+
+# 3. Copy and customize config
 cp config.example.yaml config.yaml
 # Edit config.yaml with your ClickHouse and Redis settings
 
-# 3. Create your models directory
+# 4. Create your models directory
 mkdir -p models/external models/transformations
 # Add your model definitions
 
-# 4. Run CBT
-./bin/cbt coordinator --config config.yaml  # In one terminal
-./bin/cbt worker --config config.yaml      # In another terminal
+# 5. Run CBT (config.yaml is used by default)
+./bin/cbt coordinator  # In one terminal
+./bin/cbt worker      # In another terminal
 ```
 
 ## Usage
 
 ### CLI Commands
+
+All commands default to `config.yaml` if `--config` is not specified:
 
 ```bash
 # List all models with metadata
@@ -308,10 +382,14 @@ cbt rerun --model analytics.block_propagation \
           --start 1704067200 --end 1704070800
 
 # Start coordinator service
-cbt coordinator --config config.yaml
+cbt coordinator
 
 # Start worker service
-cbt worker --config config.yaml
+cbt worker
+
+# Use a different config file
+cbt coordinator --config production.yaml
+cbt worker --config production.yaml
 ```
 
 ## Template Variables
@@ -328,22 +406,131 @@ Models support Go template syntax with the following variables:
 - `{{ .task.start }}` - Task start timestamp
 - `{{ index .dep "db" "table" "field" }}` - Access dependency configuration
 
-## Admin Table
+## Admin Table Setup
 
-CBT tracks completed transformations in `admin.cbt` for idempotency and gap detection:
+CBT tracks completed transformations in an admin table for idempotency and gap detection. This table must be created before running CBT.
 
-```sql
-CREATE TABLE admin.cbt (
-    updated_date_time DateTime(3),
-    database LowCardinality(String),
-    table LowCardinality(String), 
-    position UInt64,
-    interval UInt64
-) ENGINE = ReplacingMergeTree(updated_date_time)
-ORDER BY (database, table, position, interval)
+### Configuration
+
+The admin table location is configurable in your `config.yaml`:
+
+```yaml
+clickhouse:
+  url: http://localhost:8123
+  # Optional: Custom admin table (defaults shown)
+  admin_database: admin  # Default: "admin"
+  admin_table: cbt       # Default: "cbt"
 ```
 
-Query this table to monitor progress, find gaps, or debug processing issues.
+This allows running multiple CBT instances on the same cluster (e.g., `dev_admin.cbt`, `prod_admin.cbt`).
+
+### Single-Node Setup
+
+For single-node ClickHouse deployments:
+
+```sql
+-- Create admin database
+CREATE DATABASE IF NOT EXISTS admin;
+
+-- Create admin tracking table
+CREATE TABLE IF NOT EXISTS admin.cbt (
+    updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
+    database LowCardinality(String) COMMENT 'The database name',
+    table LowCardinality(String) COMMENT 'The table name', 
+    position UInt64 COMMENT 'The starting position of the processed interval',
+    interval UInt64 COMMENT 'The size of the interval processed',
+    INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
+) ENGINE = ReplacingMergeTree(updated_date_time)
+ORDER BY (database, table, position);
+```
+
+### Clustered Setup
+
+For ClickHouse clusters with replication:
+
+```sql
+-- Create admin database on all nodes
+CREATE DATABASE IF NOT EXISTS admin ON CLUSTER '{cluster}';
+
+-- Create local table on each node
+CREATE TABLE IF NOT EXISTS admin.cbt_local ON CLUSTER '{cluster}' (
+    updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
+    database LowCardinality(String) COMMENT 'The database name',
+    table LowCardinality(String) COMMENT 'The table name',
+    position UInt64 COMMENT 'The starting position of the processed interval',
+    interval UInt64 COMMENT 'The size of the interval processed',
+    INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
+) ENGINE = ReplicatedReplacingMergeTree(
+    '/clickhouse/{installation}/{cluster}/{database}/tables/{table}/{shard}',
+    '{replica}',
+    updated_date_time
+)
+ORDER BY (database, table, position);
+
+-- Create distributed table for querying
+CREATE TABLE IF NOT EXISTS admin.cbt ON CLUSTER '{cluster}' AS admin.cbt_local
+ENGINE = Distributed(
+    '{cluster}',
+    'admin',
+    'cbt_local',
+    cityHash64(database, table)
+);
+```
+
+**Note**: Replace `{cluster}`, `{shard}`, and `{replica}` with your actual cluster configuration values.
+
+### Using Custom Admin Tables
+
+If you need to use a different database or table name:
+
+1. Update your `config.yaml`:
+```yaml
+clickhouse:
+  admin_database: custom_admin
+  admin_table: custom_tracking
+```
+
+2. Create the tables using your custom names:
+```sql
+CREATE DATABASE IF NOT EXISTS custom_admin;
+CREATE TABLE IF NOT EXISTS custom_admin.custom_tracking (
+    -- Same schema as above
+);
+```
+
+### Monitoring Admin Table
+
+Query the admin table to monitor progress, find gaps, or debug processing issues:
+
+```sql
+-- View model processing status
+SELECT 
+    database,
+    table,
+    count(*) as intervals_processed,
+    min(position) as earliest_position,
+    max(position + interval) as latest_position
+FROM admin.cbt FINAL
+GROUP BY database, table;
+
+-- Find gaps in processing
+WITH intervals AS (
+    SELECT 
+        database,
+        table,
+        position,
+        position + interval as end_pos,
+        lead(position) OVER (PARTITION BY database, table ORDER BY position) as next_position
+    FROM admin.cbt FINAL
+)
+SELECT 
+    database,
+    table,
+    end_pos as gap_start,
+    next_position as gap_end
+FROM intervals
+WHERE next_position > end_pos;
+```
 
 ## Development
 
@@ -363,7 +550,7 @@ cbt/
 ├── models/
 │   ├── external/          # External model definitions
 │   └── transformations/   # Transformation model definitions
-└── config.yaml            # Configuration file
+└── config.yaml            # Configuration file (default)
 ```
 
 ### Building from Source

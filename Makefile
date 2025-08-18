@@ -1,10 +1,9 @@
 .PHONY: build test clean run lint fmt vet install
 
 # Configuration Note:
-# CBT uses separate config files for each component:
-# - coordinator.yaml: Coordinator service configuration
-# - worker.yaml: Worker service configuration  
-# - cli.yaml: CLI commands configuration (models, rerun, etc.)
+# CBT uses a single config.yaml file by default for all components.
+# Each component (coordinator, worker, CLI) reads the same file but only uses
+# the sections relevant to its operation. You can override with --config flag.
 
 # Variables
 BINARY_NAME=cbt
@@ -46,11 +45,11 @@ run: build
 
 run-coordinator: build
 	@echo "Running coordinator..."
-	@$(BUILD_DIR)/$(BINARY_NAME) coordinator --config coordinator.yaml
+	@$(BUILD_DIR)/$(BINARY_NAME) coordinator
 
 run-worker: build
 	@echo "Running worker..."
-	@$(BUILD_DIR)/$(BINARY_NAME) worker --config worker.yaml
+	@$(BUILD_DIR)/$(BINARY_NAME) worker
 
 # Run linter
 lint:
@@ -115,25 +114,25 @@ example-status:
 
 example-models-status:
 	@echo "Checking example models status..."
-	@docker exec cbt-coordinator /app/cbt models status --config /app/cli.yaml || echo "Error: Is the example running? Try 'make example-up' first"
+	@docker exec cbt-coordinator /app/cbt models status --config /app/config.yaml || echo "Error: Is the example running? Try 'make example-up' first"
 
 example-models-list:
 	@echo "Listing example models..."
-	@docker exec cbt-coordinator /app/cbt models list --config /app/cli.yaml || echo "Error: Is the example running? Try 'make example-up' first"
+	@docker exec cbt-coordinator /app/cbt models list --config /app/config.yaml || echo "Error: Is the example running? Try 'make example-up' first"
 
 example-models-validate:
 	@echo "Validating example models..."
-	@docker exec cbt-coordinator /app/cbt models validate --config /app/cli.yaml || echo "Error: Is the example running? Try 'make example-up' first"
+	@docker exec cbt-coordinator /app/cbt models validate --config /app/config.yaml || echo "Error: Is the example running? Try 'make example-up' first"
 
 example-models-dag:
 	@echo "Showing example models DAG..."
-	@docker exec cbt-coordinator /app/cbt models dag --config /app/cli.yaml || echo "Error: Is the example running? Try 'make example-up' first"
+	@docker exec cbt-coordinator /app/cbt models dag --config /app/config.yaml || echo "Error: Is the example running? Try 'make example-up' first"
 
 example-models-dag-dot:
-	@docker exec cbt-coordinator /app/cbt models dag --config /app/cli.yaml --dot 2>/dev/null | sed -n '/^digraph models {/,/^}/p' || echo "Error: Is the example running? Try 'make example-up' first"
+	@docker exec cbt-coordinator /app/cbt models dag --config /app/config.yaml --dot --show-schedule --show-interval --show-backfill --show-tags --color-by-level || echo "Error: Is the example running? Try 'make example-up' first"
 
 example-rerun:
-	@docker exec cbt-coordinator /app/cbt rerun --config /app/cli.yaml $(ARGS)
+	@docker exec cbt-coordinator /app/cbt rerun --config /app/config.yaml $(ARGS)
 
 example-rebuild:
 	@echo "Rebuilding containers with latest code changes..."
@@ -189,7 +188,7 @@ help:
 	@echo "  example-models-list - List example models"
 	@echo "  example-models-validate - Validate example models"
 	@echo "  example-models-dag - Show example models dependency graph"
-	@echo "  example-models-dag-dot - Generate Graphviz DOT format of DAG"
+	@echo "  example-models-dag-dot - Generate styled Graphviz DOT format with all features"
 	@echo "  example-rerun - Run rerun command (use ARGS= to pass arguments)"
 	@echo "                  Example: make example-rerun ARGS=\"--model analytics.block_propagation --start 1755444000 --end 1755444600\""
 	@echo "  example-rebuild - Rebuild and restart containers with latest code changes"

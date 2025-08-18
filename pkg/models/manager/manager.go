@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
+	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/sirupsen/logrus"
 )
 
@@ -12,11 +13,12 @@ import (
 type Manager struct {
 	chClient     clickhouse.ClientInterface
 	adminManager *clickhouse.AdminTableManager
+	pathConfig   *models.PathConfig
 	logger       *logrus.Entry
 }
 
 // NewManager creates a new models manager
-func NewManager(chConfig *clickhouse.Config, logger *logrus.Logger) (*Manager, error) {
+func NewManager(chConfig *clickhouse.Config, pathConfig *models.PathConfig, logger *logrus.Logger) (*Manager, error) {
 	log := logger.WithField("component", "models-manager")
 
 	// Initialize ClickHouse client with admin manager
@@ -28,6 +30,7 @@ func NewManager(chConfig *clickhouse.Config, logger *logrus.Logger) (*Manager, e
 	return &Manager{
 		chClient:     chClient,
 		adminManager: adminManager,
+		pathConfig:   pathConfig,
 		logger:       log,
 	}, nil
 }

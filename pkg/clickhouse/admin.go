@@ -15,16 +15,40 @@ var (
 
 // AdminTableManager manages the admin tracking table for completed transformations
 type AdminTableManager struct {
-	client  ClientInterface
-	cluster string
+	client        ClientInterface
+	cluster       string
+	localSuffix   string
+	adminDatabase string
+	adminTable    string
 }
 
 // NewAdminTableManager creates a new admin table manager
-func NewAdminTableManager(client ClientInterface, cluster string) *AdminTableManager {
-	return &AdminTableManager{
-		client:  client,
-		cluster: cluster,
+func NewAdminTableManager(client ClientInterface, cluster, localSuffix, adminDatabase, adminTable string) *AdminTableManager {
+	// Set defaults if empty
+	if adminDatabase == "" {
+		adminDatabase = "admin"
 	}
+	if adminTable == "" {
+		adminTable = "cbt"
+	}
+
+	return &AdminTableManager{
+		client:        client,
+		cluster:       cluster,
+		localSuffix:   localSuffix,
+		adminDatabase: adminDatabase,
+		adminTable:    adminTable,
+	}
+}
+
+// GetAdminDatabase returns the admin database name
+func (a *AdminTableManager) GetAdminDatabase() string {
+	return a.adminDatabase
+}
+
+// GetAdminTable returns the admin table name
+func (a *AdminTableManager) GetAdminTable() string {
+	return a.adminTable
 }
 
 // RecordCompletion records a completed transformation in the admin table
@@ -37,9 +61,9 @@ func (a *AdminTableManager) RecordCompletion(ctx context.Context, modelID string
 	// Using string formatting with proper escaping
 	// In production, consider using parameterized queries for better security
 	query := fmt.Sprintf(`
-		INSERT INTO admin.cbt (updated_date_time, database, table, position, interval)
+		INSERT INTO %s.%s (updated_date_time, database, table, position, interval)
 		VALUES (now(), '%s', '%s', %d, %d)
-	`, parts[0], parts[1], position, interval)
+	`, a.adminDatabase, a.adminTable, parts[0], parts[1], position, interval)
 
 	return a.client.Execute(ctx, query)
 }
@@ -53,9 +77,9 @@ func (a *AdminTableManager) GetFirstPosition(ctx context.Context, modelID string
 
 	query := fmt.Sprintf(`
 		SELECT coalesce(min(position), 0) as first_pos
-		FROM admin.cbt FINAL
+		FROM %s.%s FINAL
 		WHERE database = '%s' AND table = '%s'
-	`, parts[0], parts[1])
+	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
 
 	var result struct {
 		FirstPos uint64 `json:"first_pos,string"`
@@ -81,9 +105,9 @@ func (a *AdminTableManager) GetLastPosition(ctx context.Context, modelID string)
 
 	query := fmt.Sprintf(`
 		SELECT coalesce(max(position + interval), 0) as last_pos
-		FROM admin.cbt FINAL
+		FROM %s.%s FINAL
 		WHERE database = '%s' AND table = '%s'
-	`, parts[0], parts[1])
+	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
 
 	var result struct {
 		LastPos uint64 `json:"last_pos,string"`
@@ -110,7 +134,7 @@ func (a *AdminTableManager) GetCoverage(ctx context.Context, modelID string, sta
 	query := fmt.Sprintf(`
 		WITH coverage AS (
 			SELECT position, position + interval as end_pos
-			FROM admin.cbt FINAL
+			FROM %s.%s FINAL
 			WHERE database = '%s' AND table = '%s'
 			  AND position < %d
 			  AND position + interval > %d
@@ -120,7 +144,7 @@ func (a *AdminTableManager) GetCoverage(ctx context.Context, modelID string, sta
 			THEN 1 ELSE 0 
 		END as fully_covered
 		FROM coverage
-	`, parts[0], parts[1], endPos, startPos, startPos, endPos)
+	`, a.adminDatabase, a.adminTable, parts[0], parts[1], endPos, startPos, startPos, endPos)
 
 	var result struct {
 		FullyCovered int `json:"fully_covered"`
@@ -151,7 +175,7 @@ func (a *AdminTableManager) FindGaps(ctx context.Context, modelID string, minPos
 				position,
 				position + interval as end_pos,
 				lead(position) OVER (ORDER BY position) as next_position
-			FROM admin.cbt FINAL
+			FROM %s.%s FINAL
 			WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position <= %d
 			ORDER BY position
@@ -163,7 +187,7 @@ func (a *AdminTableManager) FindGaps(ctx context.Context, modelID string, minPos
 		WHERE next_position > end_pos
 		  AND next_position - end_pos >= %d
 		ORDER BY gap_start
-	`, parts[0], parts[1], minPos, maxPos, interval)
+	`, a.adminDatabase, a.adminTable, parts[0], parts[1], minPos, maxPos, interval)
 
 	var gapResults []struct {
 		GapStart uint64 `json:"gap_start,string"`
@@ -186,10 +210,10 @@ func (a *AdminTableManager) FindGaps(ctx context.Context, modelID string, minPos
 	// Also check for a gap at the beginning
 	firstPosQuery := fmt.Sprintf(`
 		SELECT min(position) as first_pos
-		FROM admin.cbt FINAL
+		FROM %s.%s FINAL
 		WHERE database = '%s' AND table = '%s'
 		  AND position >= %d
-	`, parts[0], parts[1], minPos)
+	`, a.adminDatabase, a.adminTable, parts[0], parts[1], minPos)
 
 	var firstPosResult struct {
 		FirstPos *uint64 `json:"first_pos,string"`
@@ -218,17 +242,21 @@ func (a *AdminTableManager) DeleteRange(ctx context.Context, modelID string, sta
 	// Use ALTER TABLE DELETE for immediate deletion in ReplacingMergeTree
 	var query string
 	if a.cluster != "" {
+		tableName := fmt.Sprintf("%s.%s", a.adminDatabase, a.adminTable)
+		if a.localSuffix != "" {
+			tableName = fmt.Sprintf("%s.%s%s", a.adminDatabase, a.adminTable, a.localSuffix)
+		}
 		query = fmt.Sprintf(`
-			ALTER TABLE admin.cbt_local ON CLUSTER '%s'
+			ALTER TABLE %s ON CLUSTER '%s'
 			DELETE WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position < %d
-		`, a.cluster, parts[0], parts[1], startPos, endPos)
+		`, tableName, a.cluster, parts[0], parts[1], startPos, endPos)
 	} else {
 		query = fmt.Sprintf(`
-			ALTER TABLE admin.cbt
+			ALTER TABLE %s.%s
 			DELETE WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position < %d
-		`, parts[0], parts[1], startPos, endPos)
+		`, a.adminDatabase, a.adminTable, parts[0], parts[1], startPos, endPos)
 	}
 
 	return a.client.Execute(ctx, query)

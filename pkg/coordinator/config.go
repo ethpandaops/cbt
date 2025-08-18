@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
+	"github.com/ethpandaops/cbt/pkg/models"
 )
 
 var (
@@ -32,6 +33,9 @@ type Config struct {
 
 	// Coordinator specific
 	Scheduling SchedulingConfig `yaml:"scheduling"`
+
+	// Models configuration
+	Models models.PathConfig `yaml:"models"`
 }
 
 // RedisConfig represents Redis connection configuration
@@ -63,6 +67,9 @@ func (c *Config) Validate() error {
 	if c.Scheduling.MaxConcurrentSchedules <= 0 {
 		return ErrInvalidMaxConcurrentSchedules
 	}
+
+	// Set model path defaults
+	c.Models.SetDefaults()
 
 	return nil
 }

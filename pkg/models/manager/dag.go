@@ -8,7 +8,7 @@ import (
 // GetDAGInfo returns DAG visualization information
 func (m *Manager) GetDAGInfo() (*dependencies.DAGInfo, error) {
 	// Load all models
-	modelConfigs, err := LoadModels(m.logger)
+	modelConfigs, err := LoadModels(m.logger, m.pathConfig)
 	if err != nil {
 		return nil, err
 	}

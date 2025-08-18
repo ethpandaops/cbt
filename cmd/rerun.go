@@ -68,7 +68,7 @@ func runRerun(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Create rerun manager
-	manager, err := operations.NewManager(&cfg.ClickHouse, logger)
+	manager, err := operations.NewManager(&cfg.ClickHouse, &cfg.Models, logger)
 	if err != nil {
 		return err
 	}

@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS ethereum.beacon_blocks
 ENGINE = ReplacingMergeTree(updated_date_time)
 PARTITION BY toYYYYMM(slot_start_date_time)
 ORDER BY (slot_start_date_time, slot, meta_client_name, block_root)
-SETTINGS index_granularity = 8192;
+;
 
 -- Create validator_entity table (maps validator indexes to entity names)
 CREATE TABLE IF NOT EXISTS ethereum.validator_entity
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS ethereum.validator_entity
 ENGINE = ReplacingMergeTree(updated_date_time)
 PARTITION BY toYYYYMM(slot_start_date_time)
 ORDER BY (slot_start_date_time, slot, validator_index)
-SETTINGS index_granularity = 8192;
+;
 
 -- Create example block_propagation table (destination for transformation)
 -- Aggregated propagation statistics per block
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS analytics.block_propagation
 ENGINE = ReplacingMergeTree(updated_date_time)
 PARTITION BY toYYYYMM(slot_start_date_time)
 ORDER BY (slot_start_date_time, slot, block_root, position)
-SETTINGS index_granularity = 8192;
+;
 
 -- Create block_entity table (aggregated block production by entity)
 CREATE TABLE IF NOT EXISTS analytics.block_entity
@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS analytics.block_entity
 ENGINE = ReplacingMergeTree(updated_date_time)
 PARTITION BY toYYYYMM(slot_start_date_time)
 ORDER BY (slot_start_date_time, slot, entity_name, position)
-SETTINGS index_granularity = 8192;
+;
 
 -- Create entity_network_effects table (aggregated entity performance metrics)
 CREATE TABLE IF NOT EXISTS analytics.entity_network_effects
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS analytics.entity_network_effects
 ENGINE = ReplacingMergeTree(updated_date_time)
 PARTITION BY toYYYYMM(slot_start_date_time)
 ORDER BY (slot_start_date_time, entity_name, interval)
-SETTINGS index_granularity = 8192;
+;
 
 -- Create entity_changes table (for Python transformation model example)
 CREATE TABLE IF NOT EXISTS analytics.entity_changes
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS analytics.entity_changes
 ENGINE = ReplacingMergeTree(updated_date_time)
 PARTITION BY toYYYYMM(hour_start)
 ORDER BY (hour_start, entity_name, position)
-SETTINGS index_granularity = 8192;
+;
 
 -- Create hourly_block_stats table (nested directory model example)
 CREATE TABLE IF NOT EXISTS analytics.hourly_block_stats
@@ -131,6 +131,6 @@ CREATE TABLE IF NOT EXISTS analytics.hourly_block_stats
 ENGINE = ReplacingMergeTree(updated_date_time)
 PARTITION BY toYYYYMM(hour_start)
 ORDER BY (hour_start, position)
-SETTINGS index_granularity = 8192;
+;
 
 -- No initial data - the data generator will create all sample data

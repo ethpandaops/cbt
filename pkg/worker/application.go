@@ -157,7 +157,7 @@ func (a *Application) setupClickHouse() error {
 func (a *Application) loadModels() error {
 	// Load all models using the consolidated loader
 	logger := logrus.NewEntry(a.logger)
-	allModelConfigMap, err := models.LoadAllModels(logger)
+	allModelConfigMap, err := models.LoadAllModels(logger, &a.config.Models)
 	if err != nil {
 		return err
 	}

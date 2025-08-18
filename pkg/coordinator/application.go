@@ -174,7 +174,7 @@ func (a *Application) setupClients() (*redis.Options, clickhouse.ClientInterface
 func (a *Application) loadModels() ([]models.ModelConfig, error) {
 	// Load all models using the consolidated loader
 	logger := logrus.NewEntry(a.logger)
-	modelConfigMap, err := models.LoadAllModels(logger)
+	modelConfigMap, err := models.LoadAllModels(logger, &a.config.Models)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load models: %w", err)
 	}

@@ -8,6 +8,9 @@ import (
 
 // SetupClientWithAdmin creates and starts a ClickHouse client with admin table manager
 func SetupClientWithAdmin(chConfig *Config, logger *logrus.Logger) (ClientInterface, *AdminTableManager, error) {
+	// Ensure defaults are set
+	chConfig.SetDefaults()
+
 	// Create ClickHouse client
 	chClient, err := New(&Config{
 		URL: chConfig.URL,
@@ -22,7 +25,7 @@ func SetupClientWithAdmin(chConfig *Config, logger *logrus.Logger) (ClientInterf
 	}
 
 	// Create admin table manager
-	adminManager := NewAdminTableManager(chClient, chConfig.Cluster)
+	adminManager := NewAdminTableManager(chClient, chConfig.Cluster, chConfig.LocalSuffix, chConfig.AdminDatabase, chConfig.AdminTable)
 
 	return chClient, adminManager, nil
 }

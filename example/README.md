@@ -6,9 +6,7 @@ This directory contains an example deployment configuration for the ClickHouse B
 
 ```
 example/
-├── coordinator.yaml      # Coordinator service configuration
-├── worker.yaml          # Worker service configuration
-├── cli.yaml            # CLI commands configuration
+├── config.yaml          # Single configuration file for all services
 ├── docker-compose.yml   # Docker Compose orchestration
 ├── init-clickhouse/     # ClickHouse initialization scripts
 └── models/             # Example data models
@@ -44,29 +42,27 @@ example/
 
 - **ClickHouse** (port 8123): Data warehouse
 - **Redis** (port 6379): Task queue backend
-- **Coordinator**: Schedules and manages tasks (health check on port 8081)
-- **Workers** (2 instances): Process transformation tasks in parallel (health check on port 8082)
+- **Coordinator**: Schedules and manages tasks (health check on port 8080)
+- **Workers** (2 instances): Process transformation tasks in parallel (health check on port 8080)
 - **Data Generator**: Simulates blockchain data with backfill and real-time generation
 - **Asynqmon** (port 8080): Task queue monitoring UI
 
+All services use the same `config.yaml` file, with each component using only the configuration sections it needs.
+
 ## Configuration
 
-CBT uses separate configuration files for each component:
+The example uses a single `config.yaml` file for all components, which simplifies deployment and ensures consistency. The configuration includes:
 
-- `coordinator.yaml`: Configuration for the coordinator service
-- `worker.yaml`: Configuration for worker instances
-- `cli.yaml`: Configuration for CLI commands (models, rerun, etc.)
+- **ClickHouse connection** (uses Docker service name `clickhouse`)
+- **Redis connection** (uses Docker service name `redis`)
+- **Coordinator settings**: Scheduling intervals, batch sizes
+- **Worker settings**: Queue configuration, concurrency limits
+- **Logging levels**: Set to `debug` for detailed output
 
-Each configuration file contains settings specific to that component, including:
-- ClickHouse connection details
-- Redis connection for task queue
-- Component-specific settings (scheduling, concurrency, etc.)
-
-The `config.yaml` file contains settings for:
-- ClickHouse connection (uses Docker service name `clickhouse`)
-- Redis connection (uses Docker service name `redis`)
-- Coordinator and Worker settings
-- Logging levels
+Each component (coordinator, worker, CLI) reads the same configuration file but only uses the sections relevant to its operation. This approach:
+- Ensures all components use the same database connections
+- Simplifies configuration management
+- Makes it easier to deploy and maintain
 
 ### Data Generator Configuration
 

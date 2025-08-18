@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
+	"github.com/ethpandaops/cbt/pkg/models"
 )
 
 var (
@@ -31,6 +32,9 @@ type Config struct {
 
 	// Worker specific settings
 	Worker Settings `yaml:"worker"`
+
+	// Models configuration
+	Models models.PathConfig `yaml:"models"`
 }
 
 // RedisConfig represents Redis connection configuration
@@ -84,6 +88,9 @@ func (c *Config) Validate() error {
 			return ErrInvalidConcurrency
 		}
 	}
+
+	// Set model path defaults
+	c.Models.SetDefaults()
 
 	return nil
 }

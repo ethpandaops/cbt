@@ -26,7 +26,7 @@ type Options struct {
 }
 
 // NewManager creates a new rerun manager
-func NewManager(chConfig *clickhouse.Config, logger *logrus.Logger) (*Manager, error) {
+func NewManager(chConfig *clickhouse.Config, pathConfig *models.PathConfig, logger *logrus.Logger) (*Manager, error) {
 	log := logger.WithField("component", "rerun-manager")
 
 	// Initialize ClickHouse client with admin manager
@@ -36,7 +36,7 @@ func NewManager(chConfig *clickhouse.Config, logger *logrus.Logger) (*Manager, e
 	}
 
 	// Load model configurations
-	modelConfigs, err := models.LoadAllModels(log)
+	modelConfigs, err := models.LoadAllModels(log, pathConfig)
 	if err != nil {
 		_ = chClient.Stop()
 		return nil, err

@@ -6,9 +6,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// LoadAllModels discovers and parses all model configurations from the models directory
-func LoadAllModels(logger *logrus.Entry) (map[string]ModelConfig, error) {
-	discovery := NewModelDiscovery("./models")
+// LoadAllModels discovers and parses all model configurations from the configured paths
+func LoadAllModels(logger *logrus.Entry, pathConfig *PathConfig) (map[string]ModelConfig, error) {
+	discovery := NewModelDiscovery(pathConfig)
 	modelFiles, err := discovery.DiscoverAll()
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover models: %w", err)
@@ -31,8 +31,8 @@ func LoadAllModels(logger *logrus.Entry) (map[string]ModelConfig, error) {
 }
 
 // LoadModelsForDiscovery is a simplified model loader that doesn't require a logger
-func LoadModelsForDiscovery() (map[string]ModelConfig, error) {
-	discovery := NewModelDiscovery("./models")
+func LoadModelsForDiscovery(pathConfig *PathConfig) (map[string]ModelConfig, error) {
+	discovery := NewModelDiscovery(pathConfig)
 	modelFiles, err := discovery.DiscoverAll()
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover models: %w", err)

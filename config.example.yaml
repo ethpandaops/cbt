@@ -1,0 +1,113 @@
+# CBT Configuration
+# This single configuration file is used by all components (CLI, Coordinator, Worker)
+# Each component only uses the sections it needs and ignores the rest
+
+# Logging level: panic, fatal, warn, info, debug, trace
+# CLI typically uses "error" for minimal output
+# Services typically use "info" for operational logging
+logging: info
+
+# Metrics server address
+# Used by coordinator and worker services
+metricsAddr: ":9090"
+
+# Health check server address (optional)
+# Used by coordinator and worker services
+healthCheckAddr: ":8080"
+
+# Pprof server address for profiling (optional)
+# Uncomment to enable profiling
+# pprofAddr: ":6060"
+
+# ClickHouse configuration (used by all components)
+clickhouse:
+  # Connection URL (required)
+  url: "clickhouse://localhost:9000"
+  
+  # Cluster configuration (optional, for distributed deployments)
+  # cluster: "default"
+  # localSuffix: "_local"
+  
+  # Admin table configuration (optional)
+  # Defaults to admin.cbt if not specified
+  # admin_database: admin
+  # admin_table: cbt
+  
+  # Query timeout
+  queryTimeout: 30s
+  
+  # Insert timeout
+  insertTimeout: 60s
+  
+  # Enable debug logging for queries
+  debug: false
+  
+  # Keep-alive interval
+  keepAlive: 30s
+
+# Redis configuration (used by coordinator, worker, and rerun command)
+redis:
+  # Redis connection URL (required)
+  url: "redis://localhost:6379/0"
+
+# Coordinator-specific settings (ignored by worker and CLI)
+scheduling:
+  # How often to check for tasks to schedule
+  interval: 1m
+  
+  # Maximum number of concurrent scheduling operations
+  maxConcurrentSchedules: 10
+  
+  # Batch size for processing tasks
+  batchSize: 100
+
+# Worker-specific settings (ignored by coordinator and CLI)
+worker:
+  # Queues to listen on
+  queues:
+    - "default"
+    - "high_priority"
+    - "low_priority"
+  
+  # Number of concurrent tasks to process
+  concurrency: 10
+  
+  # Model tags for filtering which models this worker processes (optional)
+  # Useful for running specialized workers for specific model types
+  # modelTags:
+  #   # Include models with any of these tags (OR logic)
+  #   include:
+  #     - "batch"
+  #     - "analytics"
+  #   
+  #   # Exclude models with any of these tags
+  #   exclude:
+  #     - "experimental"
+  #   
+  #   # Require models to have ALL of these tags (AND logic)
+  #   require:
+  #     - "production"
+  
+  # Advanced queue configuration with pattern matching (optional)
+  # Allows different concurrency for specific queue patterns
+  # advanced:
+  #   - pattern: "high_priority*"
+  #     concurrency: 20
+  #   - pattern: "low_priority*"
+  #     concurrency: 5
+  
+  # Seconds to wait for graceful shutdown
+  shutdownTimeout: 30
+
+# Model paths configuration (optional)
+# Configure where to find external and transformation models
+# Defaults to models/external and models/transformations if not specified
+# models:
+#   external:
+#     paths:
+#       - "models/external"
+#       - "/additional/external/models"
+#   transformations:
+#     paths:
+#       - "models/transformations"
+#       - "/additional/transformation/models"

@@ -15,7 +15,7 @@ import (
 // GetModelStatuses returns status information for all models
 func (m *Manager) GetModelStatuses(ctx context.Context) (statusMap map[string]ModelStatus, allModels map[string]models.ModelConfig, err error) {
 	// Query the admin table for last run information
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			database,
 			table,
@@ -24,10 +24,10 @@ func (m *Manager) GetModelStatuses(ctx context.Context) (statusMap map[string]Mo
 			max(position + interval) as next_position,
 			max(updated_date_time) as last_run,
 			count(DISTINCT position) as total_runs
-		FROM admin.cbt FINAL
+		FROM %s.%s FINAL
 		GROUP BY database, table
 		ORDER BY database, table
-	`
+	`, m.adminManager.GetAdminDatabase(), m.adminManager.GetAdminTable())
 
 	var results []ModelStatus
 	err = m.chClient.QueryMany(ctx, query, &results)
@@ -37,7 +37,7 @@ func (m *Manager) GetModelStatuses(ctx context.Context) (statusMap map[string]Mo
 	}
 
 	// Also discover all models to show ones that haven't run yet
-	allModels, err = LoadModels(m.logger)
+	allModels, err = LoadModels(m.logger, m.pathConfig)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -127,7 +127,7 @@ func (m *Manager) queryIntervals(ctx context.Context, database, table string) *I
 			SELECT DISTINCT
 				position,
 				interval
-			FROM admin.cbt FINAL
+			FROM %s.%s FINAL
 			WHERE database = '%s' AND table = '%s'
 			ORDER BY position
 		)
@@ -138,7 +138,7 @@ func (m *Manager) queryIntervals(ctx context.Context, database, table string) *I
 			groupArray(position) as positions,
 			any(interval) as interval_size
 		FROM intervals
-	`, database, table)
+	`, m.adminManager.GetAdminDatabase(), m.adminManager.GetAdminTable(), database, table)
 
 	var result IntervalResult
 	err := m.chClient.QueryOne(ctx, query, &result)
@@ -264,6 +264,6 @@ func FormatPositions(firstPosition, lastPosition, nextPosition uint64) (firstPos
 }
 
 // CreateAdminTableManager creates an admin table manager
-func CreateAdminTableManager(chClient clickhouse.ClientInterface, cluster string) *clickhouse.AdminTableManager {
-	return clickhouse.NewAdminTableManager(chClient, cluster)
+func CreateAdminTableManager(chClient clickhouse.ClientInterface, cluster, localSuffix, adminDatabase, adminTable string) *clickhouse.AdminTableManager {
+	return clickhouse.NewAdminTableManager(chClient, cluster, localSuffix, adminDatabase, adminTable)
 }

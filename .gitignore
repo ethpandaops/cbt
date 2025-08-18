@@ -36,9 +36,6 @@ cbt
 /models/
 /config.yaml
 /config.local.yaml
-/coordinator.yaml
-/worker.yaml
-/cli.yaml
 *.db
 
 # lib build artifacts

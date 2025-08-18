@@ -20,6 +20,8 @@ type Config struct {
 	InsertTimeout time.Duration `yaml:"insert_timeout"`
 	Debug         bool          `yaml:"debug"`
 	KeepAlive     time.Duration `yaml:"keep_alive"`
+	AdminDatabase string        `yaml:"admin_database"`
+	AdminTable    string        `yaml:"admin_table"`
 }
 
 // Validate checks if the configuration is valid
@@ -43,5 +45,13 @@ func (c *Config) SetDefaults() {
 
 	if c.KeepAlive == 0 {
 		c.KeepAlive = 30 * time.Second
+	}
+
+	if c.AdminDatabase == "" {
+		c.AdminDatabase = "admin"
+	}
+
+	if c.AdminTable == "" {
+		c.AdminTable = "cbt"
 	}
 }

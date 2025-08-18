@@ -22,7 +22,7 @@ var (
 // ValidateModels validates all model configurations
 func (m *Manager) ValidateModels(ctx context.Context) (*ValidationResult, error) {
 	// Discover models
-	discovery := models.NewModelDiscovery("./models")
+	discovery := models.NewModelDiscovery(m.pathConfig)
 	modelFiles, err := discovery.DiscoverAll()
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover models: %w", err)

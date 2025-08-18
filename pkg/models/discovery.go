@@ -16,34 +16,40 @@ type ModelFile struct {
 
 // ModelDiscovery handles discovering model files from the filesystem
 type ModelDiscovery struct {
-	modelsDir string
+	pathConfig *PathConfig
 }
 
 // NewModelDiscovery creates a new model discovery instance
-func NewModelDiscovery(modelsDir string) *ModelDiscovery {
-	return &ModelDiscovery{modelsDir: modelsDir}
+func NewModelDiscovery(pathConfig *PathConfig) *ModelDiscovery {
+	// Ensure defaults are set
+	if pathConfig == nil {
+		pathConfig = &PathConfig{}
+	}
+	pathConfig.SetDefaults()
+	return &ModelDiscovery{pathConfig: pathConfig}
 }
 
-// DiscoverAll discovers all model files in the models directory
+// DiscoverAll discovers all model files in the configured paths
 func (d *ModelDiscovery) DiscoverAll() ([]ModelFile, error) {
 	var models []ModelFile
 
-	externalPath := filepath.Join(d.modelsDir, "external")
-	transformationPath := filepath.Join(d.modelsDir, "transformations")
-
-	// Discover external models
-	externalModels, err := d.discoverInPath(externalPath, true)
-	if err != nil {
-		return nil, fmt.Errorf("failed to discover external models: %w", err)
+	// Discover external models from all configured paths
+	for _, path := range d.pathConfig.GetExternalPaths() {
+		externalModels, err := d.discoverInPath(path, true)
+		if err != nil {
+			return nil, fmt.Errorf("failed to discover external models in %s: %w", path, err)
+		}
+		models = append(models, externalModels...)
 	}
-	models = append(models, externalModels...)
 
-	// Discover transformation models
-	transformationModels, err := d.discoverInPath(transformationPath, false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to discover transformation models: %w", err)
+	// Discover transformation models from all configured paths
+	for _, path := range d.pathConfig.GetTransformationPaths() {
+		transformationModels, err := d.discoverInPath(path, false)
+		if err != nil {
+			return nil, fmt.Errorf("failed to discover transformation models in %s: %w", path, err)
+		}
+		models = append(models, transformationModels...)
 	}
-	models = append(models, transformationModels...)
 
 	return models, nil
 }

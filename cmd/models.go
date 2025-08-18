@@ -81,8 +81,13 @@ func init() {
 	modelsCmd.AddCommand(dagCmd)
 	modelsCmd.AddCommand(statusCmd)
 
-	// Add dot flag to dag command
+	// Add flags to dag command
 	dagCmd.Flags().Bool("dot", false, "Output in DOT format for graphviz")
+	dagCmd.Flags().Bool("show-schedule", false, "Include schedule information in DOT output")
+	dagCmd.Flags().Bool("show-interval", false, "Include interval information in DOT output")
+	dagCmd.Flags().Bool("show-backfill", false, "Show backfill indicator in DOT output")
+	dagCmd.Flags().Bool("show-tags", false, "Include model tags in DOT output")
+	dagCmd.Flags().Bool("color-by-level", false, "Color nodes by dependency level in DOT output")
 }
 
 func runModelsList(cmd *cobra.Command, _ []string) error {
@@ -100,7 +105,7 @@ func runModelsList(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Create manager
-	mgr, err := manager.NewManager(&cfg.ClickHouse, logger)
+	mgr, err := manager.NewManager(&cfg.ClickHouse, &cfg.Models, logger)
 	if err != nil {
 		return err
 	}
@@ -145,7 +150,7 @@ func runModelsValidate(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Create manager
-	mgr, err := manager.NewManager(&cfg.ClickHouse, logger)
+	mgr, err := manager.NewManager(&cfg.ClickHouse, &cfg.Models, logger)
 	if err != nil {
 		return err
 	}
@@ -193,7 +198,7 @@ func runModelsDAG(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Create manager
-	mgr, err := manager.NewManager(&cfg.ClickHouse, logger)
+	mgr, err := manager.NewManager(&cfg.ClickHouse, &cfg.Models, logger)
 	if err != nil {
 		return err
 	}
@@ -211,8 +216,6 @@ func runModelsDAG(cmd *cobra.Command, _ []string) error {
 
 	// Generate DOT format if requested
 	if dotFlag, _ := cmd.Flags().GetBool("dot"); dotFlag {
-		fmt.Println("DOT Format:")
-		fmt.Println("===========")
 		// Create dependency graph for DOT generation
 		configList := make([]models.ModelConfig, 0, len(dagInfo.ModelConfigs))
 		for id := range dagInfo.ModelConfigs {
@@ -220,7 +223,23 @@ func runModelsDAG(cmd *cobra.Command, _ []string) error {
 		}
 		depGraph := dependencies.NewDependencyGraph()
 		_ = depGraph.BuildGraph(configList) // Error already handled in GetDAGInfo
-		fmt.Println(depGraph.GenerateDOTFormat())
+
+		// Get styling options from flags
+		showSchedule, _ := cmd.Flags().GetBool("show-schedule")
+		showInterval, _ := cmd.Flags().GetBool("show-interval")
+		showBackfill, _ := cmd.Flags().GetBool("show-backfill")
+		showTags, _ := cmd.Flags().GetBool("show-tags")
+		colorByLevel, _ := cmd.Flags().GetBool("color-by-level")
+
+		opts := dependencies.DOTOptions{
+			IncludeSchedule: showSchedule,
+			IncludeInterval: showInterval,
+			ShowBackfill:    showBackfill,
+			ShowTags:        showTags,
+			ColorByLevel:    colorByLevel,
+		}
+
+		fmt.Println(depGraph.GenerateDOTFormatWithOptions(opts))
 		return nil
 	}
 
@@ -254,7 +273,7 @@ func runModelsStatus(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Create manager
-	mgr, err := manager.NewManager(&cfg.ClickHouse, logger)
+	mgr, err := manager.NewManager(&cfg.ClickHouse, &cfg.Models, logger)
 	if err != nil {
 		return err
 	}
