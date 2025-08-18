@@ -1,0 +1,198 @@
+services:
+  # ClickHouse database
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: cbt-clickhouse
+    ports:
+      - "8123:8123"  # HTTP interface
+      - "9000:9000"  # Native protocol
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./init-clickhouse:/docker-entrypoint-initdb.d
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - cbt_network
+
+  # Redis for task queue
+  redis:
+    image: redis:7-alpine
+    container_name: cbt-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - cbt_network
+
+  # CBT Coordinator
+  coordinator:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    container_name: cbt-coordinator
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./coordinator.yaml:/app/coordinator.yaml:ro
+      - ./cli.yaml:/app/cli.yaml:ro
+      - ./models:/app/models:ro
+      - ./scripts:/app/scripts:ro
+      - ./data-generator:/app/data-generator:ro
+    environment:
+      - CBT_LOG_LEVEL=debug
+    command: ["coordinator", "--config", "/app/coordinator.yaml"]
+    restart: unless-stopped
+    networks:
+      - cbt_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    develop:
+      watch:
+        - action: rebuild
+          path: ../
+          ignore:
+            - .git/
+            - bin/
+            - example/
+            - models/
+
+  # CBT Worker (scaled to 2 instances)
+  worker:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      coordinator:
+        condition: service_healthy
+    volumes:
+      - ./worker.yaml:/app/worker.yaml:ro
+      - ./cli.yaml:/app/cli.yaml:ro
+      - ./models:/app/models:ro
+      - ./scripts:/app/scripts:ro
+      - ./data-generator:/app/data-generator:ro
+    environment:
+      - CBT_LOG_LEVEL=debug
+    command: ["worker", "--config", "/app/worker.yaml"]
+    restart: unless-stopped
+    networks:
+      - cbt_network
+    deploy:
+      replicas: 2
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8082/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    develop:
+      watch:
+        - action: rebuild
+          path: ../
+          ignore:
+            - .git/
+            - bin/
+            - example/
+            - models/
+
+  # Data generator - simulates external data source
+  data-generator:
+    build:
+      context: ./data-generator
+      dockerfile: Dockerfile
+    container_name: cbt-data-generator
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      coordinator:
+        condition: service_healthy
+    environment:
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=
+      - INTERVAL_SECONDS=12
+      - BACKFILL_HOURS=4
+    restart: unless-stopped
+    networks:
+      - cbt_network
+    develop:
+      watch:
+        - action: rebuild
+          path: ./data-generator
+          ignore:
+            - __pycache__/
+            - "*.pyc"
+
+  # Chaos generator - randomly drops transformation tracking data to test gap detection and backfill
+  chaos-generator:
+    build:
+      context: ./chaos-generator
+      dockerfile: Dockerfile
+    container_name: cbt-chaos-generator
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=
+      - CHAOS_INTERVAL_SECONDS=30
+      - CHAOS_PROBABILITY=0.5
+    restart: unless-stopped
+    networks:
+      - cbt_network
+    develop:
+      watch:
+        - action: rebuild
+          path: ./chaos-generator
+          ignore:
+            - __pycache__/
+            - "*.pyc"
+
+  # Asynq monitoring UI for task queue visibility
+  asynqmon:
+    image: hibiken/asynqmon:latest
+    container_name: cbt-asynqmon
+    ports:
+      - "8080:8080"
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    command: ["--redis-url", "redis://redis:6379", "--enable-metrics-exporter"]
+    networks:
+      - cbt_network
+
+networks:
+  cbt_network:
+    driver: bridge
+
+volumes:
+  clickhouse_data:
+  redis_data:

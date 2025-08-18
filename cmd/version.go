@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//nolint:gochecknoglobals // Build-time variables for version info
 var (
 	// Release is the current release version
 	Release = "dev"
@@ -18,13 +19,12 @@ var (
 	GOARCH = runtime.GOARCH
 )
 
+//nolint:gochecknoglobals // Cobra commands are typically global
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Prints the version of cbt.",
 	Long:  `Prints the version of cbt.`,
 	Run: func(_ *cobra.Command, _ []string) {
-		initCommon()
-
 		fmt.Printf("Version: %s\nCommit: %s\nOS/Arch: %s/%s\n",
 			Release, GitCommit, GOOS, GOARCH)
 	},

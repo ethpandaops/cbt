@@ -12,6 +12,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+//nolint:gochecknoglobals // Singleton pattern for metrics server
 var (
 	metricsServerInstance *http.Server
 	once                  sync.Once

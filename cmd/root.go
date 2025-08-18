@@ -1,102 +1,67 @@
-// Package cmd provides CLI commands
+// Package cmd contains the CLI commands for CBT
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 
-	"github.com/creasty/defaults"
-	"github.com/ethpandaops/cbt/pkg/server"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
+//nolint:gochecknoglobals // Global vars needed for cobra CLI
 var (
-	log              = logrus.New()
-	serverConfigFile string
+	cfgFile string
+	logger  *logrus.Logger
 )
 
-// rootCmd represents the base command when called without any subcommands
+// rootCmd represents the base command
+//
+//nolint:gochecknoglobals // Cobra commands are typically global
 var rootCmd = &cobra.Command{
 	Use:   "cbt",
-	Short: "Runs Clickhouse Build Tool.",
-	Long:  `Runs Clickhouse Build Tool.`,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		initCommon()
-
-		return runServer(cmd.Context())
-	},
+	Short: "ClickHouse Build Tool - Manage data transformations in ClickHouse",
+	Long: `CBT (ClickHouse Build Tool) is a simplified, ClickHouse-focused data 
+transformation tool that provides idempotent transformations, DAG-based 
+dependency management, and interval-based processing.`,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
 		os.Exit(1)
 	}
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&serverConfigFile, "config", "", "config file (default is ./config.yaml)")
+	cobra.OnInitialize(initConfig)
+
+	// Global flags
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./config.yaml)")
+	rootCmd.PersistentFlags().String("log-level", "info", "log level (debug, info, warn, error, fatal, panic)")
+
+	// Initialize logger
+	logger = logrus.New()
+	logger.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+	})
 }
 
-func initCommon() {
-
-}
-
-func runServer(ctx context.Context) error {
-	config, err := loadServerConfigFromFile(serverConfigFile)
-	if err != nil {
-		return fmt.Errorf("failed to load server config: %w", err)
+func initConfig() {
+	if cfgFile == "" {
+		cfgFile = "./config.yaml"
 	}
 
-	level, err := logrus.ParseLevel(config.LoggingLevel)
+	// Set log level
+	logLevel, err := rootCmd.PersistentFlags().GetString("log-level")
 	if err != nil {
-		log.WithError(err).Warn("Invalid logging level, using info")
-
+		logLevel = "info" // Default to info if error
+	}
+	level, parseErr := logrus.ParseLevel(logLevel)
+	if parseErr != nil {
+		logger.WithError(parseErr).Warn("Invalid log level, defaulting to info")
 		level = logrus.InfoLevel
 	}
-
-	log.SetLevel(level)
-
-	srv, err := server.NewServer(ctx, log, "cbt", config)
-	if err != nil {
-		return fmt.Errorf("failed to create server: %w", err)
-	}
-
-	if err := srv.Start(ctx); err != nil {
-		return fmt.Errorf("server failed to start: %w", err)
-	}
-
-	log.Info("cbt server exited - cya!")
-
-	return nil
-}
-
-func loadServerConfigFromFile(file string) (*server.Config, error) {
-	if file == "" {
-		file = "config.yaml"
-	}
-
-	config := &server.Config{}
-
-	if err := defaults.Set(config); err != nil {
-		return nil, err
-	}
-
-	yamlFile, err := os.ReadFile(file) // #nosec G304 -- file path is from config flag
-	if err != nil {
-		return nil, err
-	}
-
-	type plain server.Config
-
-	if err := yaml.Unmarshal(yamlFile, (*plain)(config)); err != nil {
-		return nil, err
-	}
-
-	return config, nil
+	logger.SetLevel(level)
 }

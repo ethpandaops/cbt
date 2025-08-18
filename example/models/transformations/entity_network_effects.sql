@@ -1,0 +1,54 @@
+---
+database: analytics
+table: entity_network_effects
+partition: slot_start_date_time
+interval: 300
+schedule: "@every 30s"
+backfill: true
+tags:
+  - aggregation
+  - entity
+  - network
+dependencies:
+  - analytics.block_entity
+  - analytics.block_propagation
+---
+INSERT INTO
+  `{{ .self.database }}`.`{{ .self.table }}`
+SELECT 
+    fromUnixTimestamp({{ .task.start }}) as updated_date_time,
+    now64(3) as event_date_time,
+    fromUnixTimestamp({{ .range.start }}) as slot_start_date_time,
+    
+    -- Entity identifier
+    be.entity_name,
+    
+    -- Aggregated metrics for this entity in this interval
+    count() as blocks_in_window,
+    avg(bp.avg_propagation) as entity_avg_propagation,
+    median(bp.avg_propagation) as entity_median_propagation,
+    min(bp.avg_propagation) as entity_min_propagation,
+    max(bp.avg_propagation) as entity_max_propagation,
+    stddevPop(bp.avg_propagation) as entity_propagation_stddev,
+    
+    -- Interval tracking
+    {{ .self.interval }} as interval
+    
+FROM `{{ index .dep "analytics" "block_entity" "database" }}`.`{{ index .dep "analytics" "block_entity" "table" }}` be
+INNER JOIN `{{ index .dep "analytics" "block_propagation" "database" }}`.`{{ index .dep "analytics" "block_propagation" "table" }}` bp
+    ON be.slot = bp.slot 
+    AND be.block_root = bp.block_root
+WHERE be.{{ index .dep "analytics" "block_entity" "partition" }} BETWEEN fromUnixTimestamp({{ .range.start }}) AND fromUnixTimestamp({{ .range.end }})
+  AND bp.{{ index .dep "analytics" "block_propagation" "partition" }} BETWEEN fromUnixTimestamp({{ .range.start }}) AND fromUnixTimestamp({{ .range.end }})
+GROUP BY be.entity_name
+HAVING blocks_in_window > 0;
+
+-- Delete old rows
+DELETE FROM
+  `{{ .self.database }}`.`{{ .self.table }}{{ if .clickhouse.cluster }}{{ .clickhouse.local_suffix }}{{ end }}`
+{{ if .clickhouse.cluster }}
+  ON CLUSTER '{{ .clickhouse.cluster }}'
+{{ end }}
+WHERE
+  {{ .self.partition }} BETWEEN fromUnixTimestamp({{ .range.start }}) AND fromUnixTimestamp({{ .range.end }})
+  AND updated_date_time != fromUnixTimestamp({{ .task.start }});

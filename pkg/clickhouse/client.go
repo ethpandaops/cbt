@@ -23,11 +23,6 @@ var (
 	ErrClickHouseResponse       = errors.New("clickhouse error")
 )
 
-const (
-	statusSuccess = "success"
-	statusFailed  = "failed"
-)
-
 // client implements the ClientInterface using HTTP
 type client struct {
 	log        logrus.FieldLogger
@@ -38,7 +33,7 @@ type client struct {
 }
 
 // New creates a new HTTP-based ClickHouse client
-func New(cfg *Config) (ClientInterface, error) {
+func New(cfg *Config, logger *logrus.Logger) (ClientInterface, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
@@ -60,7 +55,7 @@ func New(cfg *Config) (ClientInterface, error) {
 	}
 
 	c := &client{
-		log:        logrus.WithField("component", "clickhouse-http"),
+		log:        logger.WithField("component", "clickhouse-http"),
 		httpClient: httpClient,
 		baseURL:    strings.TrimRight(cfg.URL, "/"),
 		debug:      cfg.Debug,
@@ -345,56 +340,4 @@ func (c *client) IsStorageEmpty(ctx context.Context, table string, conditions ma
 	}
 
 	return result.Count == 0, nil
-}
-
-// extractTableName attempts to extract the table name from various SQL query patterns
-func extractTableName(query string) string {
-	// Work with original query to preserve case
-	trimmedQuery := strings.TrimSpace(query)
-	upperQuery := strings.ToUpper(trimmedQuery)
-
-	// Handle INSERT INTO queries
-	if strings.HasPrefix(upperQuery, "INSERT INTO") {
-		parts := strings.Fields(trimmedQuery)
-		if len(parts) >= 3 {
-			// Return the third part which should be the table name
-			// Handle cases where table name might have backticks or quotes
-			return strings.Trim(parts[2], "`'\"")
-		}
-	}
-
-	// Handle SELECT ... FROM queries
-	if idx := strings.Index(upperQuery, "FROM"); idx != -1 {
-		// Get the substring after FROM from the original query
-		afterFrom := strings.TrimSpace(trimmedQuery[idx+4:])
-		parts := strings.Fields(afterFrom)
-
-		if len(parts) > 0 {
-			// Return the first part which should be the table name
-			// Remove any trailing keywords like WHERE, ORDER BY, etc.
-			tableName := parts[0]
-			// Handle FINAL keyword (e.g., "FROM table FINAL")
-			if !strings.EqualFold(tableName, "FINAL") {
-				return strings.Trim(tableName, "`'\"")
-			}
-		}
-	}
-
-	// Handle CREATE TABLE queries
-	if strings.HasPrefix(upperQuery, "CREATE TABLE") {
-		parts := strings.Fields(trimmedQuery)
-		if len(parts) >= 3 {
-			return strings.Trim(parts[2], "`'\"")
-		}
-	}
-
-	// Handle DROP TABLE queries
-	if strings.HasPrefix(upperQuery, "DROP TABLE") {
-		parts := strings.Fields(trimmedQuery)
-		if len(parts) >= 3 {
-			return strings.Trim(parts[2], "`'\"")
-		}
-	}
-
-	return ""
 }

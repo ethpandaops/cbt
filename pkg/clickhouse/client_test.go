@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -68,14 +69,16 @@ func TestHTTPClient_QueryOne(t *testing.T) {
 				assert.Contains(t, r.Header.Get("Content-Type"), "text/plain")
 
 				w.WriteHeader(tt.serverStatus)
-				w.Write([]byte(tt.serverResponse))
+				_, _ = w.Write([]byte(tt.serverResponse))
 			}))
 			defer server.Close()
 
 			// Create client
+			logger := logrus.New()
+			logger.SetLevel(logrus.ErrorLevel)
 			client, err := New(&Config{
 				URL: server.URL,
-			})
+			}, logger)
 			require.NoError(t, err)
 
 			// Execute query
@@ -111,14 +114,16 @@ func TestHTTPClient_QueryMany(t *testing.T) {
 			"rows_read": 3
 		}`
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(response))
+		_, _ = w.Write([]byte(response))
 	}))
 	defer server.Close()
 
 	// Create client
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 	client, err := New(&Config{
 		URL: server.URL,
-	})
+	}, logger)
 	require.NoError(t, err)
 
 	// Execute query
@@ -147,18 +152,20 @@ func TestHTTPClient_BulkInsert(t *testing.T) {
 
 		// Read body
 		body := make([]byte, r.ContentLength)
-		r.Body.Read(body)
+		_, _ = r.Body.Read(body)
 		receivedBody = string(body)
 
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Ok."))
+		_, _ = w.Write([]byte("Ok."))
 	}))
 	defer server.Close()
 
 	// Create client
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 	client, err := New(&Config{
 		URL: server.URL,
-	})
+	}, logger)
 	require.NoError(t, err)
 
 	// Test data
@@ -189,14 +196,16 @@ func TestHTTPClient_Execute(t *testing.T) {
 	// Create test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Ok."))
+		_, _ = w.Write([]byte("Ok."))
 	}))
 	defer server.Close()
 
 	// Create client
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 	client, err := New(&Config{
 		URL: server.URL,
-	})
+	}, logger)
 	require.NoError(t, err)
 
 	// Execute command
@@ -213,10 +222,12 @@ func TestHTTPClient_Timeouts(t *testing.T) {
 	defer server.Close()
 
 	// Create client with short timeout
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 	client, err := New(&Config{
 		URL:          server.URL,
 		QueryTimeout: 100 * time.Millisecond,
-	})
+	}, logger)
 	require.NoError(t, err)
 
 	// Execute query - should timeout
@@ -231,14 +242,16 @@ func TestHTTPClient_StartStop(t *testing.T) {
 	// Create test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Ok."))
+		_, _ = w.Write([]byte("Ok."))
 	}))
 	defer server.Close()
 
 	// Create client
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
 	client, err := New(&Config{
 		URL: server.URL,
-	})
+	}, logger)
 	require.NoError(t, err)
 
 	// Start should succeed
@@ -299,15 +312,17 @@ func TestHTTPClient_DebugLogging(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := `{"data": [{"value": 1}], "meta": [], "rows": 1}`
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(response))
+		_, _ = w.Write([]byte(response))
 	}))
 	defer server.Close()
 
 	// Create client with debug enabled
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
 	client, err := New(&Config{
 		URL:   server.URL,
 		Debug: true,
-	})
+	}, logger)
 	require.NoError(t, err)
 
 	// Execute query - debug logging should not cause errors

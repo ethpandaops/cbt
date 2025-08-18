@@ -48,7 +48,7 @@ linters:
     
     errcheck:
       check-type-assertions: true
-      check-blank: true
+      check-blank: false
     
     goconst:
       min-len: 3

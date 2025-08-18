@@ -1,0 +1,80 @@
+# CBT Worker Configuration
+# This file configures the worker service which processes transformation tasks
+
+# Logging level: panic, fatal, warn, info, debug, trace
+logging: info
+
+# Metrics server address
+metricsAddr: ":9091"
+
+# Health check server address (optional)
+healthCheckAddr: ":8081"
+
+# Pprof server address for profiling (optional)
+# pprofAddr: ":6061"
+
+# ClickHouse configuration
+clickhouse:
+  # Connection URL (required)
+  url: "clickhouse://localhost:9000"
+  
+  # Cluster name (optional, for distributed queries)
+  cluster: "default"
+  
+  # Local table suffix for cluster mode
+  localSuffix: "_local"
+  
+  # Query timeout
+  queryTimeout: 30s
+  
+  # Insert timeout
+  insertTimeout: 60s
+  
+  # Enable debug logging for queries
+  debug: false
+  
+  # Keep-alive interval
+  keepAlive: 30s
+
+# Redis configuration for task queue
+redis:
+  # Redis connection URL (required)
+  url: "redis://localhost:6379/0"
+
+# Worker specific settings
+worker:
+  # Queues to listen on (default: ["default"])
+  queues:
+    - "default"
+    - "high_priority"
+    - "low_priority"
+  
+  # Number of concurrent tasks to process
+  concurrency: 10
+  
+  # Model tags for filtering which models this worker processes (optional)
+  # Useful for running specialized workers for specific model types
+  modelTags:
+    # Include models with any of these tags (OR logic)
+    include:
+      - "ethereum"
+      - "metrics"
+    
+    # Exclude models with any of these tags (AND logic)
+    exclude:
+      - "experimental"
+    
+    # Require models to have ALL of these tags (AND logic)
+    require:
+      - "production"
+  
+  # Advanced queue configuration with pattern matching (optional)
+  # Allows different concurrency for specific queue patterns
+  advanced:
+    - pattern: "high_priority*"
+      concurrency: 20
+    - pattern: "low_priority*"
+      concurrency: 5
+  
+  # Seconds to wait for graceful shutdown
+  shutdownTimeout: 30

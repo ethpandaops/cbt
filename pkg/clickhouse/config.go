@@ -11,9 +11,11 @@ var (
 	ErrURLRequired = errors.New("URL is required")
 )
 
-// Config holds ClickHouse client configuration
+// Config contains ClickHouse connection and cluster settings
 type Config struct {
-	URL           string        `yaml:"url"`
+	URL           string        `yaml:"url" validate:"required,url"`
+	Cluster       string        `yaml:"cluster"`
+	LocalSuffix   string        `yaml:"local_suffix"`
 	QueryTimeout  time.Duration `yaml:"query_timeout"`
 	InsertTimeout time.Duration `yaml:"insert_timeout"`
 	Debug         bool          `yaml:"debug"`
