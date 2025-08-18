@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/ethpandaops/cbt/pkg/models"
@@ -72,9 +71,6 @@ func (d *DependencyGraph) BuildGraph(modelList []models.ModelConfig) error {
 			}
 		}
 	}
-
-	// Calculate lookback inheritance after graph is built
-	d.calculateLookbackInheritance()
 
 	return nil
 }
@@ -149,25 +145,6 @@ func (d *DependencyGraph) GetAllDependencies(modelID string) []string {
 	}
 
 	return allDependencies
-}
-
-// GetTopologicalOrder returns models in topological order
-func (d *DependencyGraph) GetTopologicalOrder() ([]string, error) {
-	d.mutex.RLock()
-	defer d.mutex.RUnlock()
-
-	// The heimdalr/dag GetOrder() returns the number of vertices
-	// We need to iterate through all vertices to get the order
-	vertices := d.dag.GetVertices()
-
-	orderedIDs := make([]string, 0, len(vertices))
-	for id := range vertices {
-		orderedIDs = append(orderedIDs, id)
-	}
-
-	// Sort to ensure consistent ordering
-	sort.Strings(orderedIDs)
-	return orderedIDs, nil
 }
 
 // IsPathBetween checks if there's a path from one model to another
@@ -249,77 +226,4 @@ func (d *DependencyGraph) GetExternalModels() []string {
 
 	sort.Strings(modelList) // Ensure consistent ordering
 	return modelList
-}
-
-// calculateLookbackInheritance computes inherited lookback for all models
-func (d *DependencyGraph) calculateLookbackInheritance() {
-	// Calculate levels first (no lock needed, we're already locked from BuildGraph)
-	levels := d.calculateModelLevels()
-
-	// Find max level
-	maxLevel := 0
-	for _, level := range levels {
-		if level > maxLevel {
-			maxLevel = level
-		}
-	}
-
-	// Process models level by level to ensure dependencies are calculated first
-	for level := 0; level <= maxLevel; level++ {
-		for modelID, modelLevel := range levels {
-			if modelLevel != level {
-				continue
-			}
-
-			config := d.modelConfigs[modelID]
-
-			if config.External {
-				// External models use their configured lookback
-				if config.Lookback > 0 {
-					config.InheritedLookback = config.Lookback
-					config.LookbackSources = map[string]uint64{
-						modelID: config.Lookback,
-					}
-					config.LookbackReason = fmt.Sprintf("External model lookback: %d", config.Lookback)
-				}
-			} else {
-				// Transformation models inherit max lookback from dependencies
-				sources := make(map[string]uint64)
-				maxLookback := uint64(0)
-
-				for _, depID := range config.Dependencies {
-					depConfig := d.modelConfigs[depID]
-					if depConfig.InheritedLookback > maxLookback {
-						maxLookback = depConfig.InheritedLookback
-					}
-					// Merge lookback sources from dependency
-					for source, value := range depConfig.LookbackSources {
-						sources[source] = value
-					}
-				}
-
-				config.InheritedLookback = maxLookback
-				config.LookbackSources = sources
-				config.LookbackReason = d.buildLookbackReason(sources)
-			}
-
-			// Update the config in the map
-			d.modelConfigs[modelID] = config
-		}
-	}
-}
-
-// buildLookbackReason creates a human-readable reason for lookback inheritance
-func (d *DependencyGraph) buildLookbackReason(sources map[string]uint64) string {
-	if len(sources) == 0 {
-		return "No lookback required"
-	}
-
-	parts := []string{}
-	for model, lookback := range sources {
-		parts = append(parts, fmt.Sprintf("%s:%d", model, lookback))
-	}
-	sort.Strings(parts) // Consistent ordering
-
-	return fmt.Sprintf("Inherited from: %s", strings.Join(parts, ", "))
 }

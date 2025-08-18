@@ -17,10 +17,6 @@ var (
 	ErrCircularDependency = errors.New("circular dependency detected")
 	// ErrTableNotFound indicates table does not exist
 	ErrTableNotFound = errors.New("table does not exist")
-	// ErrLookbackOnTransformation indicates lookback is configured on a transformation model
-	ErrLookbackOnTransformation = errors.New("lookback can only be configured on external models, not transformation models")
-	// ErrLookbackTooLarge indicates lookback value exceeds maximum allowed
-	ErrLookbackTooLarge = errors.New("lookback value is too large")
 )
 
 // ValidateModels validates all model configurations
@@ -49,13 +45,6 @@ func (m *Manager) ValidateModels(ctx context.Context) (*ValidationResult, error)
 
 		modelID := fmt.Sprintf("%s.%s", modelConfig.Database, modelConfig.Table)
 		modelConfigs[modelID] = modelConfig
-
-		// Validate lookback configuration
-		if err := m.validateLookback(&modelConfig); err != nil {
-			validationErrors[modelID] = err
-			errorCount++
-			continue
-		}
 
 		// Validate external models
 		if modelConfig.External {
@@ -87,20 +76,6 @@ func (m *Manager) ValidateModels(ctx context.Context) (*ValidationResult, error)
 		ErrorCount:   errorCount + len(depErrors),
 		ModelConfigs: genericConfigs,
 	}, nil
-}
-
-func (m *Manager) validateLookback(modelConfig *models.ModelConfig) error {
-	// Lookback should only be set on external models
-	if modelConfig.Lookback > 0 && !modelConfig.External {
-		return ErrLookbackOnTransformation
-	}
-
-	// Lookback should be reasonable (not too large)
-	if modelConfig.Lookback > 100 {
-		return fmt.Errorf("%w: value=%d, max=100", ErrLookbackTooLarge, modelConfig.Lookback)
-	}
-
-	return nil
 }
 
 func (m *Manager) validateExternalModel(ctx context.Context, modelConfig *models.ModelConfig) error {

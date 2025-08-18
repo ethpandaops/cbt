@@ -389,27 +389,3 @@ func TestDependencyManager_GetTransformationModels(t *testing.T) {
 	transformations := dm.GetTransformationModels()
 	assert.Equal(t, []string{"db.transform1", "db.transform2"}, transformations)
 }
-
-func TestDependencyManager_GetTopologicalOrder(t *testing.T) {
-	dm := NewDependencyGraph()
-
-	testModels := []models.ModelConfig{
-		{Database: "db", Table: "c", Dependencies: []string{"db.b"}},
-		{Database: "db", Table: "b", Dependencies: []string{"db.a"}},
-		{Database: "db", Table: "a"},
-		{Database: "db", Table: "d"},
-	}
-
-	err := dm.BuildGraph(testModels)
-	require.NoError(t, err)
-
-	order, err := dm.GetTopologicalOrder()
-	require.NoError(t, err)
-
-	// Should contain all models
-	assert.Len(t, order, 4)
-	assert.Contains(t, order, "db.a")
-	assert.Contains(t, order, "db.b")
-	assert.Contains(t, order, "db.c")
-	assert.Contains(t, order, "db.d")
-}

@@ -76,37 +76,19 @@ func (a *Application) Start() error {
 		return fmt.Errorf("failed to load models: %w", err)
 	}
 
-	// Build dependency graph (also calculates lookback inheritance)
+	// Build dependency graph
 	depManager := dependencies.NewDependencyGraph()
 	if err := depManager.BuildGraph(modelConfigs); err != nil {
 		return fmt.Errorf("failed to build dependency graph: %w", err)
 	}
 
-	// Update modelConfigs with lookback-enriched versions from the graph
-	modelsWithLookbackCount := 0
+	// Update modelConfigs from the graph (ensures consistency)
 	for i := range modelConfigs {
 		modelID := fmt.Sprintf("%s.%s", modelConfigs[i].Database, modelConfigs[i].Table)
 		if enrichedConfig, exists := depManager.GetModelConfig(modelID); exists {
 			modelConfigs[i] = enrichedConfig
-
-			// Count models with lookback
-			if enrichedConfig.GetEffectiveLookback() > 0 {
-				modelsWithLookbackCount++
-			}
-
-			// Log lookback inheritance for visibility
-			if !enrichedConfig.External && enrichedConfig.InheritedLookback > 0 {
-				a.logger.WithFields(logrus.Fields{
-					"model_id":           modelID,
-					"inherited_lookback": enrichedConfig.InheritedLookback,
-					"reason":             enrichedConfig.LookbackReason,
-				}).Info("Model inherited lookback from external dependencies")
-			}
 		}
 	}
-
-	// Record the total number of models with lookback
-	observability.SetModelsWithLookback(float64(modelsWithLookbackCount))
 
 	a.modelConfigs = modelConfigs
 
@@ -218,8 +200,14 @@ func (a *Application) createManagers(opt *redis.Options, chClient clickhouse.Cli
 	// Create Asynq Inspector for monitoring completed tasks
 	inspector := asynq.NewInspector(asynqRedis)
 
-	// Create external model executor
-	externalExecutor := validation.NewExternalModelExecutor(chClient, a.logger)
+	// Create Redis client for cache
+	redisClient := redis.NewClient(opt)
+
+	// Create cache manager
+	cacheManager := models.NewExternalCacheManager(redisClient)
+
+	// Create external model executor with cache support
+	externalExecutor := validation.NewExternalModelExecutor(chClient, a.logger, cacheManager)
 
 	// Create dependency validator
 	validator := validation.NewDependencyValidator(

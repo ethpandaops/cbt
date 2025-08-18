@@ -204,37 +204,6 @@ func (c *Coordinator) checkAndEnqueueModel(modelID string) {
 	nextPos := lastPos
 	c.checkAndEnqueuePosition(modelID, nextPos, modelConfig.Interval)
 
-	// Process lookback intervals if configured (using inherited lookback for transformation models)
-	effectiveLookback := modelConfig.GetEffectiveLookback()
-	if effectiveLookback > 0 && lastPos > modelConfig.Interval {
-		c.logger.WithFields(logrus.Fields{
-			"model_id":           modelID,
-			"effective_lookback": effectiveLookback,
-			"lookback_reason":    modelConfig.LookbackReason,
-		}).Debug("Processing lookback intervals")
-
-		// Record lookback metric
-		isInherited := !modelConfig.External && effectiveLookback > 0
-		observability.RecordModelLookback(modelID, float64(effectiveLookback), isInherited)
-
-		for i := uint64(1); i <= effectiveLookback; i++ {
-			// Check if we would underflow
-			if i*modelConfig.Interval > lastPos {
-				break
-			}
-			lookbackPos := lastPos - (i * modelConfig.Interval)
-			c.logger.WithFields(logrus.Fields{
-				"model_id":          modelID,
-				"lookback_pos":      lookbackPos,
-				"lookback_interval": i,
-			}).Debug("Processing lookback interval")
-			c.checkAndEnqueuePosition(modelID, lookbackPos, modelConfig.Interval)
-
-			// Record that we processed a lookback interval
-			observability.RecordLookbackIntervalProcessed(modelID)
-		}
-	}
-
 	// Check backfill if enabled
 	if modelConfig.Backfill {
 		c.checkBackfillOpportunities(modelID, &modelConfig)

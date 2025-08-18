@@ -120,15 +120,12 @@ func runModelsList(cmd *cobra.Command, _ []string) error {
 
 	// Print table
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "MODEL ID\tTYPE\tSCHEDULE\tINTERVAL\tLOOKBACK\tDEPS\tSTATUS")
+	_, _ = fmt.Fprintln(w, "MODEL ID\tTYPE\tSCHEDULE\tINTERVAL\tLAG\tDEPS\tSTATUS")
 	for _, m := range modelList {
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			m.ID, m.Type, m.Schedule, m.Interval, m.Lookback, m.Deps, m.Status)
+			m.ID, m.Type, m.Schedule, m.Interval, m.Lag, m.Deps, m.Status)
 	}
 	_ = w.Flush()
-
-	// Add legend for lookback
-	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "\n* = inherited lookback from external dependencies")
 
 	return nil
 }
@@ -320,21 +317,15 @@ func printModelInfo(modelID string, dagInfo *dependencies.DAGInfo) {
 	}
 
 	fmt.Printf("  • %s (%s)", modelID, modelType)
-	printLookbackInfo(&modelConfig)
+
+	// Show lag for external models
+	if modelConfig.External && modelConfig.Lag > 0 {
+		fmt.Printf(" [lag: %ds]", modelConfig.Lag)
+	}
+
 	printDependencyInfo(&modelConfig)
 	printDependentsInfo(modelID, dagInfo)
 	fmt.Println()
-}
-
-func printLookbackInfo(modelConfig *models.ModelConfig) {
-	effectiveLookback := modelConfig.GetEffectiveLookback()
-	if effectiveLookback > 0 {
-		if modelConfig.External {
-			fmt.Printf(" [lookback: %d]", effectiveLookback)
-		} else {
-			fmt.Printf(" [lookback: %d*]", effectiveLookback)
-		}
-	}
 }
 
 func printDependencyInfo(modelConfig *models.ModelConfig) {
@@ -344,20 +335,11 @@ func printDependencyInfo(modelConfig *models.ModelConfig) {
 }
 
 func printDependentsInfo(modelID string, dagInfo *dependencies.DAGInfo) {
-	dependents := findDependents(modelID, dagInfo)
+	// Use precomputed dependents from DAGInfo
+	dependents := dagInfo.Dependents[modelID]
 	if len(dependents) > 0 {
 		fmt.Printf("\n    → used by: %s", strings.Join(dependents, ", "))
 	}
-}
-
-func findDependents(modelID string, dagInfo *dependencies.DAGInfo) []string {
-	configList := make([]models.ModelConfig, 0, len(dagInfo.ModelConfigs))
-	for id := range dagInfo.ModelConfigs {
-		configList = append(configList, dagInfo.ModelConfigs[id])
-	}
-	depGraph := dependencies.NewDependencyGraph()
-	_ = depGraph.BuildGraph(configList)
-	return depGraph.FindDependents(modelID)
 }
 
 func formatModelStatusWithGaps(w io.Writer, modelID string, modelConfig *models.ModelConfig, statusMap map[string]manager.ModelStatus, gapMap map[string]manager.GapInfo) {

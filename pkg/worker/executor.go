@@ -46,24 +46,11 @@ func (e *ModelExecutor) Execute(ctx context.Context, taskCtxInterface interface{
 		return ErrInvalidTaskContext
 	}
 
-	// Create log fields with basic info
-	logFields := logrus.Fields{
+	e.logger.WithFields(logrus.Fields{
 		"model_id": fmt.Sprintf("%s.%s", taskCtx.ModelConfig.Database, taskCtx.ModelConfig.Table),
 		"position": taskCtx.Position,
 		"interval": taskCtx.Interval,
-	}
-
-	// Add lookback information if present
-	effectiveLookback := taskCtx.ModelConfig.GetEffectiveLookback()
-	if effectiveLookback > 0 {
-		logFields["lookback"] = effectiveLookback
-		if !taskCtx.ModelConfig.External {
-			logFields["lookback_inherited"] = true
-			logFields["lookback_reason"] = taskCtx.ModelConfig.LookbackReason
-		}
-	}
-
-	e.logger.WithFields(logFields).Info("Executing model transformation")
+	}).Info("Executing model transformation")
 
 	if taskCtx.ModelConfig.Exec != "" {
 		return e.executeCommand(ctx, taskCtx)
@@ -141,20 +128,12 @@ func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskConte
 		}
 	}
 
-	logFields := logrus.Fields{
+	e.logger.WithFields(logrus.Fields{
 		"model_id":   fmt.Sprintf("%s.%s", taskCtx.ModelConfig.Database, taskCtx.ModelConfig.Table),
 		"position":   taskCtx.Position,
 		"interval":   taskCtx.Interval,
 		"statements": len(statements),
-	}
-
-	// Add lookback information to completion log
-	effectiveLookback := taskCtx.ModelConfig.GetEffectiveLookback()
-	if effectiveLookback > 0 {
-		logFields["lookback"] = effectiveLookback
-	}
-
-	e.logger.WithFields(logFields).Info("Model transformation completed successfully")
+	}).Info("Model transformation completed successfully")
 
 	return nil
 }
@@ -178,19 +157,11 @@ func (e *ModelExecutor) executeCommand(ctx context.Context, taskCtx *tasks.TaskC
 		return fmt.Errorf("command execution failed: %w", err)
 	}
 
-	logFields := logrus.Fields{
+	e.logger.WithFields(logrus.Fields{
 		"model_id": fmt.Sprintf("%s.%s", taskCtx.ModelConfig.Database, taskCtx.ModelConfig.Table),
 		"position": taskCtx.Position,
 		"interval": taskCtx.Interval,
-	}
-
-	// Add lookback information to completion log
-	effectiveLookback := taskCtx.ModelConfig.GetEffectiveLookback()
-	if effectiveLookback > 0 {
-		logFields["lookback"] = effectiveLookback
-	}
-
-	e.logger.WithFields(logFields).Info("Model command executed successfully")
+	}).Info("Model command executed successfully")
 
 	return nil
 }

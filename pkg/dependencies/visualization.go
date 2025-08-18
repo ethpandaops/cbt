@@ -15,6 +15,7 @@ type DAGInfo struct {
 	RootNodes    []string
 	TotalModels  int
 	ModelConfigs map[string]models.ModelConfig
+	Dependents   map[string][]string // Precomputed dependents for each model
 }
 
 // GetDAGInfo returns DAG visualization information
@@ -43,12 +44,22 @@ func (d *DependencyGraph) GetDAGInfo() *DAGInfo {
 	// Find root nodes
 	rootNodes := d.findRootNodes()
 
+	// Precompute dependents for all models using the efficient GetDependents
+	// Note: We need to unlock before calling GetDependents to avoid nested locks
+	d.mutex.RUnlock()
+	dependents := make(map[string][]string)
+	for modelID := range d.modelConfigs {
+		dependents[modelID] = d.GetDependents(modelID)
+	}
+	d.mutex.RLock()
+
 	return &DAGInfo{
 		Levels:       levelGroups,
 		MaxLevel:     maxLevel,
 		RootNodes:    rootNodes,
 		TotalModels:  len(d.modelConfigs),
 		ModelConfigs: d.modelConfigs,
+		Dependents:   dependents,
 	}
 }
 
@@ -99,25 +110,6 @@ func (d *DependencyGraph) findRootNodes() []string {
 	}
 	sort.Strings(roots)
 	return roots
-}
-
-// FindDependents finds all models that directly depend on the given model
-func (d *DependencyGraph) FindDependents(modelID string) []string {
-	d.mutex.RLock()
-	defer d.mutex.RUnlock()
-
-	var dependents []string
-	for id := range d.modelConfigs {
-		modelCfg := d.modelConfigs[id]
-		for _, dep := range modelCfg.Dependencies {
-			if dep == modelID {
-				dependents = append(dependents, id)
-				break
-			}
-		}
-	}
-	sort.Strings(dependents)
-	return dependents
 }
 
 // CalculateDepth calculates the maximum depth from a model to its furthest dependent

@@ -31,6 +31,7 @@ type Application struct {
 	filteredModels map[string]models.ModelConfig
 	healthServer   *http.Server
 	pprofServer    *http.Server
+	redisOptions   *redis.Options
 }
 
 // NewApplication creates a new worker application
@@ -133,6 +134,9 @@ func (a *Application) setupRedis() (asynq.RedisClientOpt, error) {
 	if err != nil {
 		return asynq.RedisClientOpt{}, err
 	}
+
+	// Store Redis options for cache manager
+	a.redisOptions = opt
 
 	return asynq.RedisClientOpt{
 		Addr: opt.Addr,
@@ -237,8 +241,16 @@ func (a *Application) createTaskHandler() (*tasks.TaskHandler, error) {
 		return nil, err
 	}
 
-	// Create executors and validators
-	externalExecutor := validation.NewExternalModelExecutor(a.chClient, a.logger)
+	// Create cache manager - Redis is always available since it's required for task queue
+	var cacheManager clickhouse.ExternalModelCacheManager
+	if a.redisOptions != nil {
+		redisClient := redis.NewClient(a.redisOptions)
+		cacheManager = models.NewExternalCacheManager(redisClient)
+	}
+
+	// Create external model executor with optional cache support
+	externalExecutor := validation.NewExternalModelExecutor(a.chClient, a.logger, cacheManager)
+
 	validator := validation.NewDependencyValidator(a.adminManager, externalExecutor, depManager, a.logger)
 	modelExecutor := NewTransformationModelExecutor(&a.config.ClickHouse, &a.config.Worker, a.chClient, templateEngine, a.adminManager, a.logger)
 

@@ -12,6 +12,7 @@ A simplified, ClickHouse-focused data transformation tool that provides idempote
 - **Hybrid Push-Pull Scheduling**: Event-driven dependent processing with scheduled sweeps for reliability
 - **Tag-based Worker Filtering**: Workers can selectively process models based on tags for multi-tenant or specialized processing
 - **External Script Support**: Models can execute Python or other scripts for complex transformations beyond SQL
+- **Lag Support for External Models**: Configure lag to ignore recent data that may still be arriving (e.g., `lag: 30` ignores last 30 seconds)
 
 ## Architecture
 
@@ -105,6 +106,7 @@ table: beacon_blocks
 partition: slot_start_date_time
 external: true
 ttl: 60s
+lag: 30  # Optional: ignore last 30 seconds of data
 ---
 SELECT 
     min(slot_start_date_time) as min,
@@ -375,9 +377,41 @@ CBT uses Unix timestamps as "positions" to track progress. Each task processes d
 - `interval`: Processing window size in seconds
 - `schedule`: How often to check for new data (cron or `@every` format)
 - `backfill`: Enable automatic gap filling
-- `lookback`: Number of intervals to reprocess on each run
-- `ttl`: Cache duration for external model bounds
+- `ttl`: Cache duration for external model bounds (reduces ClickHouse queries)
+- `lag`: Seconds to subtract from max for external models (handles late-arriving data)
 - `exec`: Command to execute instead of SQL
+
+### TTL Caching for External Models
+
+CBT supports TTL-based caching of external model boundaries to improve performance:
+
+#### How It Works
+1. When `ttl` is configured on an external model, CBT caches the min/max boundaries in Redis
+2. Subsequent queries within the TTL period use cached values instead of querying ClickHouse
+3. After TTL expires, the next query refreshes the cache
+4. The `lag` configuration is applied to cached values dynamically
+
+#### Benefits
+- **Reduced ClickHouse Load**: Fewer queries for frequently-checked external models
+- **Faster Validation**: Dependency checks complete faster using cached boundaries
+- **Configurable Trade-off**: Balance between data freshness and performance
+
+#### Example Configuration
+```yaml
+---
+database: ethereum
+table: beacon_blocks
+partition: slot_start_date_time
+external: true
+ttl: 60s  # Cache boundaries for 60 seconds
+lag: 30   # Ignore last 30 seconds of data
+---
+```
+
+#### Monitoring
+CBT exposes Prometheus metrics for cache performance:
+- `cbt_external_cache_hits_total`: Number of cache hits per model
+- `cbt_external_cache_misses_total`: Number of cache misses per model
 
 ### When to Use CBT
 ✅ **Good for:**
@@ -407,6 +441,8 @@ CBT uses comprehensive dependency validation to ensure data consistency across y
 │                                                      │
 │  Is it External?                                     │
 │    ├─ YES → Check min/max bounds                     │
+│    │         ├─ Apply lag if configured              │
+│    │         │   (max = max - lag seconds)           │
 │    │         ├─ Outside bounds? → FAIL ❌            │
 │    │         └─ Within bounds?                       │
 │    │              └─ Check actual data exists        │
@@ -427,6 +463,7 @@ CBT uses comprehensive dependency validation to ensure data consistency across y
 
 - **Pull-through validation**: Workers always verify dependencies at execution time, not just at scheduling
 - **Two-phase external validation**: For external models, CBT checks both data bounds AND actual data existence to handle sparse datasets
+- **Lag handling**: External models with `lag` configured have their max boundary adjusted during validation to ignore recent, potentially incomplete data
 - **Coverage tracking**: The admin table tracks all completed intervals, enabling precise dependency validation
 - **Automatic retry**: Failed validations are automatically retried on the next schedule cycle
 - **Cascade triggering**: When a model completes, all dependent models are immediately checked for processing
@@ -452,7 +489,6 @@ This validation system ensures that:
 
 **Performance tips:**
 - Use appropriate intervals (too small = overhead, too large = memory)
-- Enable `lookback` for frequently updated data
 - Use tags to distribute models across specialized workers
 
 ### Monitoring
@@ -462,6 +498,7 @@ CBT exposes Prometheus metrics on `:9090/metrics`:
 - Model execution success/failure rates
 - Dependency validation metrics
 - Worker pool utilization
+- External model cache hit/miss rates (when TTL is configured)
 
 ## License
 

@@ -19,7 +19,7 @@ func (m *Manager) ListModels(ctx context.Context) ([]ModelInfo, error) {
 		return nil, fmt.Errorf("failed to load models: %w", err)
 	}
 
-	// Build dependency graph to calculate lookback inheritance
+	// Build dependency graph for consistency
 	modelConfigList := make([]models.ModelConfig, 0, len(modelConfigs))
 	for id := range modelConfigs {
 		modelConfigList = append(modelConfigList, modelConfigs[id])
@@ -73,16 +73,10 @@ func (m *Manager) formatModelInfo(ctx context.Context, modelID string, modelConf
 		interval = fmt.Sprintf("%d", modelConfig.Interval)
 	}
 
-	// Format lookback
-	lookback := "-"
-	effectiveLookback := modelConfig.GetEffectiveLookback()
-	if effectiveLookback > 0 {
-		if modelConfig.External {
-			lookback = fmt.Sprintf("%d", effectiveLookback)
-		} else {
-			// Show inherited lookback with a marker
-			lookback = fmt.Sprintf("%d*", effectiveLookback)
-		}
+	// Format lag (external models only)
+	lag := "-"
+	if modelConfig.External && modelConfig.Lag > 0 {
+		lag = fmt.Sprintf("%ds", modelConfig.Lag)
 	}
 
 	modelType := ModelTypeTransformation
@@ -95,7 +89,7 @@ func (m *Manager) formatModelInfo(ctx context.Context, modelID string, modelConf
 		Type:     modelType,
 		Schedule: schedule,
 		Interval: interval,
-		Lookback: lookback,
+		Lag:      lag,
 		Deps:     deps,
 		Status:   status,
 	}

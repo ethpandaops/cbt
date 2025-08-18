@@ -17,7 +17,7 @@ type ModelInfo struct {
 	Type     string
 	Schedule string
 	Interval string
-	Lookback string
+	Lag      string
 	Deps     string
 	Status   string
 }

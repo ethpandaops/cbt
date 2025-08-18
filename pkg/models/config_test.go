@@ -161,6 +161,52 @@ INSERT INTO table`,
 			expectedError: ErrTransformationNoTTL,
 		},
 		{
+			name: "valid external model with lag",
+			content: `---
+database: mydb
+table: external_with_lag
+partition: timestamp
+ttl: 1h
+lag: 30
+---
+SELECT * FROM source_table`,
+			isExternal:    true,
+			expectedError: nil,
+			validate: func(t *testing.T, config ModelConfig) {
+				assert.Equal(t, "mydb", config.Database)
+				assert.Equal(t, "external_with_lag", config.Table)
+				assert.Equal(t, uint64(30), config.Lag)
+				assert.True(t, config.External)
+			},
+		},
+		{
+			name: "transformation model with lag should fail",
+			content: `---
+database: mydb
+table: bad_transform
+partition: timestamp
+interval: 3600
+schedule: "@every 1h"
+lag: 30
+---
+INSERT INTO table`,
+			isExternal:    false,
+			expectedError: ErrTransformationNoLag,
+		},
+		{
+			name: "external model with excessive lag should fail",
+			content: `---
+database: mydb
+table: bad_external
+partition: timestamp
+ttl: 1h
+lag: 100000
+---
+SELECT * FROM source`,
+			isExternal:    true,
+			expectedError: ErrLagTooLarge,
+		},
+		{
 			name: "missing database should fail",
 			content: `---
 table: no_database

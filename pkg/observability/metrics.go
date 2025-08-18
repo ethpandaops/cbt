@@ -190,30 +190,22 @@ var (
 		[]string{"component", "error_type"},
 	)
 
-	// ModelLookback tracks the effective lookback value for each model
-	ModelLookback = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cbt_model_lookback",
-			Help: "Effective lookback value for the model (number of intervals)",
-		},
-		[]string{"model", "type"}, // type: configured, inherited
-	)
-
-	// LookbackIntervalsProcessed counts lookback intervals processed
-	LookbackIntervalsProcessed = promauto.NewCounterVec(
+	// ExternalCacheHits tracks cache hits for external model bounds
+	ExternalCacheHits = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "cbt_lookback_intervals_processed_total",
-			Help: "Total number of lookback intervals processed",
+			Name: "cbt_external_cache_hits_total",
+			Help: "Total number of cache hits for external model bounds",
 		},
 		[]string{"model"},
 	)
 
-	// ModelsWithLookback tracks the number of models with lookback configured
-	ModelsWithLookback = promauto.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "cbt_models_with_lookback_total",
-			Help: "Total number of models with lookback configured or inherited",
+	// ExternalCacheMisses tracks cache misses for external model bounds
+	ExternalCacheMisses = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "cbt_external_cache_misses_total",
+			Help: "Total number of cache misses for external model bounds",
 		},
+		[]string{"model"},
 	)
 )
 
@@ -256,21 +248,12 @@ func RecordError(component, errorType string) {
 	ErrorsTotal.WithLabelValues(component, errorType).Inc()
 }
 
-// RecordModelLookback records the effective lookback value for a model
-func RecordModelLookback(model string, lookbackValue float64, isInherited bool) {
-	lookbackType := "configured"
-	if isInherited {
-		lookbackType = "inherited"
-	}
-	ModelLookback.WithLabelValues(model, lookbackType).Set(lookbackValue)
+// RecordExternalCacheHit records a cache hit for external model bounds
+func RecordExternalCacheHit(model string) {
+	ExternalCacheHits.WithLabelValues(model).Inc()
 }
 
-// RecordLookbackIntervalProcessed records a lookback interval being processed
-func RecordLookbackIntervalProcessed(model string) {
-	LookbackIntervalsProcessed.WithLabelValues(model).Inc()
-}
-
-// SetModelsWithLookback sets the total number of models with lookback
-func SetModelsWithLookback(count float64) {
-	ModelsWithLookback.Set(count)
+// RecordExternalCacheMiss records a cache miss for external model bounds
+func RecordExternalCacheMiss(model string) {
+	ExternalCacheMisses.WithLabelValues(model).Inc()
 }

@@ -33,6 +33,10 @@ var (
 	ErrTransformationContentRequired = errors.New("transformation models must have SQL content or exec command")
 	// ErrTransformationNoTTL is returned when transformation model has TTL
 	ErrTransformationNoTTL = errors.New("transformation models cannot have TTL")
+	// ErrTransformationNoLag is returned when transformation model has lag
+	ErrTransformationNoLag = errors.New("lag can only be configured on external models")
+	// ErrLagTooLarge is returned when lag value is unreasonably large
+	ErrLagTooLarge = errors.New("lag value is too large (max: 86400 seconds / 24 hours)")
 )
 
 // ModelParser parses model files and extracts configuration
@@ -136,6 +140,10 @@ func (p *ModelParser) validateExternalModel(config *ModelConfig) error {
 	if len(config.Dependencies) > 0 {
 		return ErrExternalNoDependencies
 	}
+	// Validate lag if configured
+	if config.Lag > 86400 { // Max 24 hours
+		return ErrLagTooLarge
+	}
 	return nil
 }
 
@@ -152,6 +160,9 @@ func (p *ModelParser) validateTransformationModel(config *ModelConfig) error {
 	}
 	if config.TTL != 0 {
 		return ErrTransformationNoTTL
+	}
+	if config.Lag != 0 {
+		return ErrTransformationNoLag
 	}
 	return nil
 }
