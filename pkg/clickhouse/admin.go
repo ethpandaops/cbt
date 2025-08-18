@@ -215,21 +215,20 @@ func (a *AdminTableManager) DeleteRange(ctx context.Context, modelID string, sta
 		return ErrInvalidModelID
 	}
 
+	// Use ALTER TABLE DELETE for immediate deletion in ReplacingMergeTree
 	var query string
 	if a.cluster != "" {
 		query = fmt.Sprintf(`
-			DELETE FROM admin.cbt_local ON CLUSTER '%s'
-			WHERE database = '%s' AND table = '%s'
+			ALTER TABLE admin.cbt_local ON CLUSTER '%s'
+			DELETE WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position < %d
-			  AND position + interval > %d
-		`, a.cluster, parts[0], parts[1], startPos, endPos, startPos)
+		`, a.cluster, parts[0], parts[1], startPos, endPos)
 	} else {
 		query = fmt.Sprintf(`
-			DELETE FROM admin.cbt
-			WHERE database = '%s' AND table = '%s'
+			ALTER TABLE admin.cbt
+			DELETE WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position < %d
-			  AND position + interval > %d
-		`, parts[0], parts[1], startPos, endPos, startPos)
+		`, parts[0], parts[1], startPos, endPos)
 	}
 
 	return a.client.Execute(ctx, query)

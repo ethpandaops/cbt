@@ -4,7 +4,9 @@ table: entity_network_effects
 partition: slot_start_date_time
 interval: 300
 schedule: "@every 30s"
-backfill: true
+backfill:
+  enabled: true
+  schedule: "@every 30s"
 tags:
   - aggregation
   - entity

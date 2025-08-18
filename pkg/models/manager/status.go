@@ -255,25 +255,11 @@ func calculateNextRun(schedule string, lastRunTime time.Time) string {
 	return fmt.Sprintf("in %ds", int(timeUntil.Seconds()))
 }
 
-// FormatPositions formats position timestamps
-func FormatPositions(firstPosition, lastPosition, nextPosition uint64, modelConfig *models.ModelConfig) (firstPosStr, lastPosStr, nextPosStr string) {
+// FormatPositions formats position values as raw numbers
+func FormatPositions(firstPosition, lastPosition, nextPosition uint64) (firstPosStr, lastPosStr, nextPosStr string) {
 	firstPosStr = fmt.Sprintf("%d", firstPosition)
 	lastPosStr = fmt.Sprintf("%d", lastPosition)
 	nextPosStr = fmt.Sprintf("%d", nextPosition)
-
-	if modelConfig.Partition != "" && lastPosition > 1000000000 {
-		// Likely a Unix timestamp
-		if firstPosition <= math.MaxInt64 {
-			firstPosStr = time.Unix(int64(firstPosition), 0).Format("2006-01-02 15:04:05")
-		}
-		if lastPosition <= math.MaxInt64 {
-			lastPosStr = time.Unix(int64(lastPosition), 0).Format("2006-01-02 15:04:05")
-		}
-		if nextPosition <= math.MaxInt64 {
-			nextPosStr = time.Unix(int64(nextPosition), 0).Format("2006-01-02 15:04:05")
-		}
-	}
-
 	return firstPosStr, lastPosStr, nextPosStr
 }
 

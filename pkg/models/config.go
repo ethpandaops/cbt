@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -37,6 +38,14 @@ var (
 	ErrTransformationNoLag = errors.New("lag can only be configured on external models")
 	// ErrLagTooLarge is returned when lag value is unreasonably large
 	ErrLagTooLarge = errors.New("lag value is too large (max: 86400 seconds / 24 hours)")
+	// ErrBackfillScheduleRequired is returned when backfill is enabled but no schedule is provided
+	ErrBackfillScheduleRequired = errors.New("backfill.schedule is required when backfill.enabled is true")
+	// ErrBackfillInvalidSchedule is returned when backfill schedule format is invalid
+	ErrBackfillInvalidSchedule = errors.New("backfill.schedule must be a valid cron expression or @every format")
+	// ErrBackfillInvalidDuration is returned when @every duration is invalid
+	ErrBackfillInvalidDuration = errors.New("invalid @every duration format")
+	// ErrBackfillInvalidCron is returned when cron expression is invalid
+	ErrBackfillInvalidCron = errors.New("cron expression should have 5 or 6 fields")
 )
 
 // ModelParser parses model files and extracts configuration
@@ -164,6 +173,65 @@ func (p *ModelParser) validateTransformationModel(config *ModelConfig) error {
 	if config.Lag != 0 {
 		return ErrTransformationNoLag
 	}
+
+	// Validate backfill configuration if present
+	if config.Backfill != nil {
+		if err := p.validateBackfillConfig(config.Backfill); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateBackfillConfig validates a backfill configuration
+func (p *ModelParser) validateBackfillConfig(backfill *BackfillConfig) error {
+	if backfill == nil || !backfill.Enabled {
+		// If nil or not enabled, no further validation needed
+		return nil
+	}
+
+	// Schedule is required when enabled
+	if backfill.Schedule == "" {
+		return ErrBackfillScheduleRequired
+	}
+
+	// Validate schedule format
+	if err := p.validateScheduleFormat(backfill.Schedule); err != nil {
+		return fmt.Errorf("%w: %w", ErrBackfillInvalidSchedule, err)
+	}
+
+	return nil
+}
+
+// validateScheduleFormat validates that a schedule string is in valid format
+func (p *ModelParser) validateScheduleFormat(schedule string) error {
+	// Support @every format
+	if strings.HasPrefix(schedule, "@every ") {
+		duration := strings.TrimPrefix(schedule, "@every ")
+		_, err := time.ParseDuration(duration)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrBackfillInvalidDuration, err)
+		}
+		return nil
+	}
+
+	// Support other @ formats
+	validAtFormats := []string{"@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly"}
+	for _, format := range validAtFormats {
+		if schedule == format {
+			return nil
+		}
+	}
+
+	// For now, we'll assume other formats are cron expressions
+	// Full cron validation would require a cron parser library
+	// Basic check: should have 5 or 6 space-separated fields
+	fields := strings.Fields(schedule)
+	if len(fields) != 5 && len(fields) != 6 {
+		return ErrBackfillInvalidCron
+	}
+
 	return nil
 }
 

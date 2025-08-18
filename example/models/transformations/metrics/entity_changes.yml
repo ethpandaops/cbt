@@ -3,7 +3,9 @@ table: entity_changes
 partition: hour_start
 interval: 120  # 2 minute intervals
 schedule: "@every 1m"
-backfill: true
+backfill:
+  enabled: true
+  schedule: "@every 5m"
 tags:
   - python
   - entity

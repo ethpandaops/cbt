@@ -12,8 +12,6 @@ var (
 	rerunModelID string
 	rerunStart   uint64
 	rerunEnd     uint64
-	rerunCascade bool
-	rerunForce   bool
 )
 
 // rerunCmd represents the rerun command
@@ -21,20 +19,25 @@ var (
 //nolint:gochecknoglobals // Cobra commands are typically global
 var rerunCmd = &cobra.Command{
 	Use:   "rerun",
-	Short: "Rerun tasks for a specific model and time range",
-	Long: `Rerun allows you to manually re-execute tasks for a specific model
-and time range. This is useful for reprocessing data after fixing issues
-or when upstream data has been corrected.
+	Short: "Invalidate completion records for a model and all dependent models",
+	Long: `Rerun invalidates completion records for a specific model and all dependent
+models for the specified time range. This creates gaps that will be detected
+and filled by the backfill processes on their scheduled intervals.
+
+The rerun command will:
+  - Clear completion records for the specified time range
+  - Automatically include all dependent models to ensure consistency
+  - Let the existing backfill processes detect and fill the gaps
+
+Note: The actual reprocessing happens when the backfill schedule runs for each
+model. Check your model's backfill schedule to know when processing will occur.
 
 Examples:
-  # Rerun a specific model for a time range
+  # Invalidate a model and all dependents for a time range
   cbt rerun --model analytics.block_propagation --start 1704067200 --end 1704070800
 
-  # Rerun with cascade to also rerun dependent models
-  cbt rerun --model ethereum.beacon_blocks --start 1704067200 --end 1704070800 --cascade
-
-  # Force rerun even if already completed
-  cbt rerun --model analytics.block_propagation --start 1704067200 --end 1704070800 --force`,
+  # Invalidate an upstream model to cascade changes through the pipeline
+  cbt rerun --model ethereum.beacon_blocks --start 1704067200 --end 1704070800`,
 	RunE: runRerun,
 }
 
@@ -44,8 +47,6 @@ func init() {
 	rerunCmd.Flags().StringVar(&rerunModelID, "model", "", "Model ID to rerun (e.g., analytics.block_propagation)")
 	rerunCmd.Flags().Uint64Var(&rerunStart, "start", 0, "Start position (Unix timestamp)")
 	rerunCmd.Flags().Uint64Var(&rerunEnd, "end", 0, "End position (Unix timestamp)")
-	rerunCmd.Flags().BoolVar(&rerunCascade, "cascade", false, "Also rerun dependent models")
-	rerunCmd.Flags().BoolVar(&rerunForce, "force", false, "Force rerun even if already completed")
 
 	_ = rerunCmd.MarkFlagRequired("model")
 	_ = rerunCmd.MarkFlagRequired("start")
@@ -67,7 +68,7 @@ func runRerun(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Create rerun manager
-	manager, err := operations.NewManager(&cfg.ClickHouse, cfg.Redis.URL, logger)
+	manager, err := operations.NewManager(&cfg.ClickHouse, logger)
 	if err != nil {
 		return err
 	}
@@ -83,8 +84,6 @@ func runRerun(cmd *cobra.Command, _ []string) error {
 		ModelID: rerunModelID,
 		Start:   rerunStart,
 		End:     rerunEnd,
-		Cascade: rerunCascade,
-		Force:   rerunForce,
 	}
 
 	return manager.Execute(ctx, opts)

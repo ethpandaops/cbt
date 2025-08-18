@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -22,17 +20,25 @@ import (
 
 // Coordinator manages task scheduling and dependency coordination
 type Coordinator struct {
+	// Asynq scheduler components
+	scheduler       *asynq.Scheduler
+	schedulerServer *asynq.Server
+	schedulerMux    *asynq.ServeMux
+	redisOpt        *asynq.RedisClientOpt
+
+	// Core components
 	queueManager *tasks.QueueManager
 	depManager   *dependencies.DependencyGraph
 	validator    validation.DependencyValidator
 	adminManager *clickhouse.AdminTableManager
 	inspector    *asynq.Inspector
-	schedulers   map[string]*time.Timer
-	mutex        sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	logger       *logrus.Logger
+
+	// Synchronization
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	logger *logrus.Logger
+
 	// Track last processed task IDs to avoid duplicate processing
 	processedTasks map[string]bool
 	taskMutex      sync.RWMutex
@@ -45,6 +51,7 @@ func NewCoordinator(
 	validator validation.DependencyValidator,
 	adminManager *clickhouse.AdminTableManager,
 	inspector *asynq.Inspector,
+	redisOpt *asynq.RedisClientOpt,
 	logger *logrus.Logger,
 ) *Coordinator {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -55,7 +62,7 @@ func NewCoordinator(
 		validator:      validator,
 		adminManager:   adminManager,
 		inspector:      inspector,
-		schedulers:     make(map[string]*time.Timer),
+		redisOpt:       redisOpt,
 		processedTasks: make(map[string]bool),
 		ctx:            ctx,
 		cancel:         cancel,
@@ -67,23 +74,36 @@ func NewCoordinator(
 func (c *Coordinator) Start() error {
 	c.logger.Info("Starting coordinator...")
 
-	// Start polling for completed tasks
+	// Initialize scheduler and reconcile with current config
+	if err := c.initializeScheduler(); err != nil {
+		return fmt.Errorf("failed to initialize scheduler: %w", err)
+	}
+
+	// Start the scheduler (manages cron job registrations)
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.logger.Info("Starting Asynq scheduler")
+		if err := c.scheduler.Run(); err != nil {
+			c.logger.WithError(err).Error("Asynq scheduler stopped with error")
+		}
+	}()
+
+	// Start the server (processes scheduled trigger tasks) with the mux created during reconciliation
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.logger.Info("Starting scheduler task processor")
+		if err := c.schedulerServer.Run(c.schedulerMux); err != nil {
+			c.logger.WithError(err).Error("Scheduler task processor stopped with error")
+		}
+	}()
+
+	// Keep existing completed task polling
 	c.wg.Add(1)
 	go c.pollCompletedTasks()
 
-	// Start periodic backfill scanning
-	c.wg.Add(1)
-	go c.periodicBackfillScan()
-
-	// Start schedulers for all transformation models
-	transformationModels := c.depManager.GetTransformationModels()
-	for _, modelID := range transformationModels {
-		if err := c.startModelScheduler(modelID); err != nil {
-			c.logger.WithError(err).WithField("model_id", modelID).Warn("Failed to start scheduler")
-		}
-	}
-
-	c.logger.WithField("scheduler_count", len(c.schedulers)).Info("Coordinator started")
+	c.logger.Info("Coordinator started successfully")
 	return nil
 }
 
@@ -91,79 +111,26 @@ func (c *Coordinator) Start() error {
 func (c *Coordinator) Stop() error {
 	c.logger.Info("Stopping coordinator...")
 
+	// Cancel context to stop all goroutines
 	c.cancel()
 
-	// Stop all schedulers
-	c.mutex.Lock()
-	for modelID, timer := range c.schedulers {
-		timer.Stop()
-		c.logger.WithField("model_id", modelID).Debug("Stopped scheduler")
+	// Shutdown scheduler gracefully
+	if c.scheduler != nil {
+		c.scheduler.Shutdown()
+		c.logger.Info("Scheduler shutdown complete")
 	}
-	c.schedulers = make(map[string]*time.Timer)
-	c.mutex.Unlock()
 
-	// Wait for completion handler
+	// Shutdown server gracefully
+	if c.schedulerServer != nil {
+		c.schedulerServer.Shutdown()
+		c.logger.Info("Scheduler server shutdown complete")
+	}
+
+	// Wait for all goroutines to finish
 	c.wg.Wait()
 
 	c.logger.Info("Coordinator stopped")
 	return nil
-}
-
-func (c *Coordinator) startModelScheduler(modelID string) error {
-	modelConfig, exists := c.depManager.GetModelConfig(modelID)
-	if !exists {
-		return fmt.Errorf("%w: %s", models.ErrModelNotFound, modelID)
-	}
-
-	if modelConfig.External {
-		return nil // External models don't need scheduling
-	}
-
-	// Parse schedule
-	interval, err := c.parseSchedule(modelConfig.Schedule)
-	if err != nil {
-		return fmt.Errorf("invalid schedule for %s: %w", modelID, err)
-	}
-
-	// Create and start timer
-	timer := time.NewTimer(interval)
-	c.mutex.Lock()
-	c.schedulers[modelID] = timer
-	c.mutex.Unlock()
-
-	c.wg.Add(1)
-	go c.runModelScheduler(modelID, timer, interval)
-
-	c.logger.WithFields(logrus.Fields{
-		"model_id": modelID,
-		"interval": interval,
-	}).Info("Started model scheduler")
-
-	// Record scheduler is active
-	observability.SchedulerActive.WithLabelValues(modelID).Set(1)
-
-	return nil
-}
-
-func (c *Coordinator) runModelScheduler(modelID string, timer *time.Timer, interval time.Duration) {
-	defer c.wg.Done()
-	defer func() {
-		// Record scheduler is inactive when it stops
-		observability.SchedulerActive.WithLabelValues(modelID).Set(0)
-	}()
-
-	// Run immediately
-	c.checkAndEnqueueModel(modelID)
-
-	for {
-		select {
-		case <-c.ctx.Done():
-			return
-		case <-timer.C:
-			c.checkAndEnqueueModel(modelID)
-			timer.Reset(interval)
-		}
-	}
 }
 
 func (c *Coordinator) checkAndEnqueueModel(modelID string) {
@@ -205,18 +172,21 @@ func (c *Coordinator) checkAndEnqueueModel(modelID string) {
 	c.checkAndEnqueuePosition(modelID, nextPos, modelConfig.Interval)
 
 	// Check backfill if enabled
-	if modelConfig.Backfill {
+	if modelConfig.Backfill != nil && modelConfig.Backfill.Enabled {
 		c.checkBackfillOpportunities(modelID, &modelConfig)
 	}
 }
 
 func (c *Coordinator) checkAndEnqueuePositionWithTrigger(modelID string, position, interval uint64, trigger string) {
 	// Create task payload
+	// Mark as backfill if trigger is "backfill"
+	isBackfill := trigger == "backfill"
 	payload := tasks.TaskPayload{
 		ModelID:    modelID,
 		Position:   position,
 		Interval:   interval,
 		EnqueuedAt: time.Now(),
+		IsBackfill: isBackfill,
 	}
 
 	// Check if already enqueued or recently completed
@@ -306,10 +276,20 @@ func (c *Coordinator) checkBackfillOpportunities(modelID string, modelConfig *mo
 		return
 	}
 
-	c.logger.WithFields(logrus.Fields{
-		"model_id":    modelID,
-		"initial_pos": initialPos,
-	}).Debug("Got initial position for gap scanning")
+	// Use the maximum of the configured minimum and the calculated initial position
+	if modelConfig.Backfill != nil && modelConfig.Backfill.Minimum > initialPos {
+		initialPos = modelConfig.Backfill.Minimum
+		c.logger.WithFields(logrus.Fields{
+			"model_id":         modelID,
+			"initial_pos":      initialPos,
+			"backfill_minimum": modelConfig.Backfill.Minimum,
+		}).Debug("Using configured minimum position for gap scanning")
+	} else {
+		c.logger.WithFields(logrus.Fields{
+			"model_id":    modelID,
+			"initial_pos": initialPos,
+		}).Debug("Got initial position for gap scanning")
+	}
 
 	// Find all gaps in the processed data
 	gaps, err := c.adminManager.FindGaps(c.ctx, modelID, initialPos, lastPos, modelConfig.Interval)
@@ -363,41 +343,14 @@ func (c *Coordinator) pollCompletedTasks() {
 	}
 }
 
-func (c *Coordinator) periodicBackfillScan() {
-	defer c.wg.Done()
-
-	// Wait initial period for system to stabilize
-	select {
-	case <-c.ctx.Done():
+func (c *Coordinator) checkBackfillForModel(modelID string) {
+	modelConfig, exists := c.depManager.GetModelConfig(modelID)
+	if !exists || modelConfig.Backfill == nil || !modelConfig.Backfill.Enabled {
 		return
-	case <-time.After(30 * time.Second):
 	}
 
-	ticker := time.NewTicker(30 * time.Second) // Scan for gaps every 30 seconds
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-c.ctx.Done():
-			return
-		case <-ticker.C:
-			c.scanAllModelsForGaps()
-		}
-	}
-}
-
-func (c *Coordinator) scanAllModelsForGaps() {
-	transformationModels := c.depManager.GetTransformationModels()
-
-	for _, modelID := range transformationModels {
-		modelConfig, exists := c.depManager.GetModelConfig(modelID)
-		if !exists || !modelConfig.Backfill {
-			continue
-		}
-
-		c.logger.WithField("model_id", modelID).Debug("Scanning for gaps")
-		c.checkBackfillOpportunities(modelID, &modelConfig)
-	}
+	c.logger.WithField("model_id", modelID).Debug("Scanning for gaps")
+	c.checkBackfillOpportunities(modelID, &modelConfig)
 }
 
 func (c *Coordinator) checkCompletedTasks() {
@@ -475,34 +428,4 @@ func (c *Coordinator) onTaskComplete(modelID string, position, _ uint64) {
 		// Check if this completion unblocks the dependent
 		c.checkAndEnqueuePositionWithTrigger(depModelID, nextPos, depConfig.Interval, "dependency")
 	}
-}
-
-func (c *Coordinator) parseSchedule(schedule string) (time.Duration, error) {
-	// Handle numeric values (seconds)
-	if duration, err := strconv.Atoi(schedule); err == nil {
-		return time.Duration(duration) * time.Second, nil
-	}
-
-	// Handle descriptive schedules
-	switch schedule {
-	case "@hourly":
-		return time.Hour, nil
-	case "@daily":
-		return 24 * time.Hour, nil
-	case "@weekly":
-		return 7 * 24 * time.Hour, nil
-	}
-
-	// Handle @every format
-	if strings.HasPrefix(schedule, "@every ") {
-		durationStr := strings.TrimPrefix(schedule, "@every ")
-		return time.ParseDuration(durationStr)
-	}
-
-	// For cron expressions, default to 5 minutes
-	if strings.Contains(schedule, "*") {
-		return 5 * time.Minute, nil
-	}
-
-	return 0, fmt.Errorf("%w: %s", ErrUnsupportedSchedule, schedule)
 }

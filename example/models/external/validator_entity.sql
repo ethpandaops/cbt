@@ -3,8 +3,8 @@ database: ethereum
 table: validator_entity
 partition: slot_start_date_time
 external: true
-ttl: 60s
-lag: 20  # Ignore last 20 seconds for validator data consistency
+ttl: 30s
+lag: 10
 ---
 SELECT 
     toUnixTimestamp(min(slot_start_date_time)) as min,

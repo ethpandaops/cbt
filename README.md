@@ -9,7 +9,9 @@ A simplified, ClickHouse-focused data transformation tool that provides idempote
 - **Interval-based Processing**: Data processed in fixed chunks enabling parallel processing and efficient retries
 - **Pull-through Validation**: Workers verify dependencies before execution using cached external models and admin table tracking
 - **Task Queue Architecture**: Asynq with Redis provides distributed, resilient task processing
+- **Redis-Persisted Scheduling**: Asynq Scheduler with real cron expression support and persistence across restarts
 - **Hybrid Push-Pull Scheduling**: Event-driven dependent processing with scheduled sweeps for reliability
+- **Configurable Backfill**: Separate scheduling for forward processing and gap detection with minimum position support
 - **Tag-based Worker Filtering**: Workers can selectively process models based on tags for multi-tenant or specialized processing
 - **External Script Support**: Models can execute Python or other scripts for complex transformations beyond SQL
 - **Lag Support for External Models**: Configure lag to ignore recent data that may still be arriving (e.g., `lag: 30` ignores last 30 seconds)
@@ -19,7 +21,7 @@ A simplified, ClickHouse-focused data transformation tool that provides idempote
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   Coordinator   │◄──►│      Redis      │◄──►│     Worker      │
-│                 │    │   (Task Queue)  │    │                 │
+│  (+ Scheduler)  │    │ (Queue + Sched) │    │                 │
 └─────┬───────────┘    └─────────────────┘    └─────┬───────────┘
       │                                              │
       │                ┌─────────────────┐          │
@@ -29,7 +31,7 @@ A simplified, ClickHouse-focused data transformation tool that provides idempote
 ```
 
 **Multi-instance behavior:**
-- **Coordinator**: Designed to run as a single instance. Multiple coordinators are safe during deployments (rolling updates, failover) but inefficient for permanent operation as they duplicate scheduling work. Task deduplication prevents duplicate processing.
+- **Coordinator**: Designed to run as a single instance. Includes Asynq Scheduler for Redis-persisted scheduling with real cron expression support. Multiple coordinators are safe during deployments (rolling updates, failover) but inefficient for permanent operation as they duplicate scheduling work. Task deduplication prevents duplicate processing.
 - **Worker**: Designed for horizontal scaling. Run multiple workers to increase throughput. Tasks are distributed across workers automatically.
 
 ## Requirements
@@ -126,7 +128,10 @@ table: block_propagation
 partition: slot_start_date_time
 interval: 3600
 schedule: "@every 1m"
-backfill: true
+backfill:
+  enabled: true
+  schedule: "@every 5m"  # How often to scan for gaps
+  minimum: 1704067200     # Optional: earliest position to backfill from
 tags:
   - batch
   - aggregation
@@ -156,7 +161,9 @@ table: python_metrics
 partition: hour_start
 interval: 3600
 schedule: "@every 5m"
-backfill: true
+backfill:
+  enabled: true
+  schedule: "@every 5m"
 tags:
   - python
   - metrics
@@ -185,6 +192,7 @@ The example deployment demonstrates CBT's capabilities with sample models includ
   - `block_entity` - Joins blocks with validator entities
   - `entity_network_effects` - Complex aggregation across multiple dependencies
 - **Python Model**: `entity_changes` - Demonstrates external script execution with ClickHouse HTTP API
+- **Backfill Configuration**: Models demonstrate the new backfill format with separate scheduling
 - **Data Generator**: Continuously inserts sample blockchain data
 - **Chaos Generator**: Simulates data gaps and out-of-order arrivals for resilience testing
 
@@ -294,9 +302,10 @@ cbt models dag
 cbt models dag --dot  # Output in Graphviz format
 
 # Rerun specific model for a time range
+# Note: Rerun invalidates completion records for the model AND all dependent models
+# The gaps will be detected and filled by backfill processes on their schedules
 cbt rerun --model analytics.block_propagation \
-          --start 1704067200 --end 1704070800 \
-          --cascade  # Also rerun dependent models
+          --start 1704067200 --end 1704070800
 
 # Start coordinator service
 cbt coordinator --config config.yaml
@@ -375,8 +384,14 @@ CBT uses Unix timestamps as "positions" to track progress. Each task processes d
 
 ### Model Configuration Fields
 - `interval`: Processing window size in seconds
-- `schedule`: How often to check for new data (cron or `@every` format)
-- `backfill`: Enable automatic gap filling
+- `schedule`: How often to check for new data. Supports:
+  - `@every` format: `@every 30s`, `@every 5m`, `@every 1h`
+  - Named formats: `@hourly`, `@daily`, `@weekly`, `@monthly`
+  - **Real cron expressions**: `"*/5 * * * *"` (every 5 minutes), `"0 */6 * * *"` (every 6 hours)
+- `backfill`: Automatic gap filling configuration:
+  - `enabled`: Enable backfill scanning (required)
+  - `schedule`: How often to scan for gaps (required, same formats as model schedule)
+  - `minimum`: Earliest position to backfill from (optional, Unix timestamp)
 - `ttl`: Cache duration for external model bounds (reduces ClickHouse queries)
 - `lag`: Seconds to subtract from max for external models (handles late-arriving data)
 - `exec`: Command to execute instead of SQL
@@ -407,24 +422,6 @@ ttl: 60s  # Cache boundaries for 60 seconds
 lag: 30   # Ignore last 30 seconds of data
 ---
 ```
-
-#### Monitoring
-CBT exposes Prometheus metrics for cache performance:
-- `cbt_external_cache_hits_total`: Number of cache hits per model
-- `cbt_external_cache_misses_total`: Number of cache misses per model
-
-### When to Use CBT
-✅ **Good for:**
-- Interval-based ETL pipelines
-- Idempotent data transformations
-- Complex dependency chains
-- Backfilling historical data
-- Multi-tenant processing with tags
-
-❌ **Not ideal for:**
-- Real-time streaming (use Kafka/Flink)
-- Simple one-off queries
-- Sub-second latency requirements
 
 ## How CBT Ensures Data Consistency
 
@@ -473,32 +470,6 @@ This validation system ensures that:
 2. Sparse or missing data in external sources is properly detected
 3. Processing can automatically resume when dependencies become available
 4. Data consistency is maintained even in distributed environments
-
-### Troubleshooting
-
-**Models not processing?**
-- Check dependencies: `make example-models-dag`
-- Verify external data exists in source tables
-- Check worker logs for dependency validation errors
-- Ensure intervals align (larger intervals should be multiples of smaller ones)
-
-**Gaps in processed data?**
-- Enable `backfill: true` in model config
-- Check `make example-models-status` for coverage percentage
-- Use `cbt rerun` to manually fill specific time ranges
-
-**Performance tips:**
-- Use appropriate intervals (too small = overhead, too large = memory)
-- Use tags to distribute models across specialized workers
-
-### Monitoring
-
-CBT exposes Prometheus metrics on `:9090/metrics`:
-- Task queue depth, processing times
-- Model execution success/failure rates
-- Dependency validation metrics
-- Worker pool utilization
-- External model cache hit/miss rates (when TTL is configured)
 
 ## License
 

@@ -4,7 +4,9 @@ table: hourly_block_stats
 partition: hour_start
 interval: 3600
 schedule: "@every 5m"
-backfill: true
+backfill:
+  enabled: true
+  schedule: "@every 5m"
 tags:
   - aggregation
   - hourly

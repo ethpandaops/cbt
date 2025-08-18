@@ -207,6 +207,24 @@ var (
 		},
 		[]string{"model"},
 	)
+
+	// ScheduledTasksRegistered tracks registered scheduled tasks
+	ScheduledTasksRegistered = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "cbt_scheduled_tasks_registered",
+			Help: "Number of scheduled tasks currently registered",
+		},
+		[]string{"model_id", "operation"}, // operation: forward/backfill
+	)
+
+	// ScheduledTaskExecutions tracks scheduled task executions
+	ScheduledTaskExecutions = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "cbt_scheduled_task_executions_total",
+			Help: "Total number of scheduled task executions",
+		},
+		[]string{"model_id", "operation", "status"}, // status: success/failure
+	)
 )
 
 // RecordTaskStart records the start of a task

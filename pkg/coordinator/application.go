@@ -224,6 +224,7 @@ func (a *Application) createManagers(opt *redis.Options, chClient clickhouse.Cli
 		validator,
 		adminManager,
 		inspector,
+		&asynqRedis,
 		a.logger,
 	)
 

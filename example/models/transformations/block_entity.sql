@@ -4,7 +4,9 @@ table: block_entity
 partition: slot_start_date_time
 interval: 60
 schedule: "@every 10s"
-backfill: true
+backfill:
+  enabled: true
+  schedule: "@every 10s"
 tags:
   - entity
   - block

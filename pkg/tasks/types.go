@@ -21,6 +21,7 @@ type TaskPayload struct {
 	Position   uint64    `json:"position"`
 	Interval   uint64    `json:"interval"`
 	EnqueuedAt time.Time `json:"enqueued_at"`
+	IsBackfill bool      `json:"is_backfill"` // Whether this is a backfill task (lower priority)
 }
 
 // UniqueID returns a unique identifier for this task

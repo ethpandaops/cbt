@@ -362,7 +362,7 @@ func formatModelStatusWithGaps(w io.Writer, modelID string, modelConfig *models.
 	}
 
 	lastRun, nextRun := manager.FormatRunTimes(status.LastRun, modelConfig)
-	firstPosStr, lastPosStr, nextPosStr := manager.FormatPositions(status.FirstPosition, status.LastPosition, status.NextPosition, modelConfig)
+	firstPosStr, lastPosStr, nextPosStr := manager.FormatPositions(status.FirstPosition, status.LastPosition, status.NextPosition)
 	coverage, gaps := formatGapInfo(modelID, modelConfig, gapMap)
 
 	_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n",

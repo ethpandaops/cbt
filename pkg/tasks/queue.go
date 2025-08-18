@@ -37,6 +37,7 @@ func (q *QueueManager) EnqueueTransformation(payload TaskPayload, opts ...asynq.
 	task := asynq.NewTask(TypeModelTransformation, data)
 
 	// Default options
+	// Both forward and backfill tasks use the same queue and priority
 	defaultOpts := []asynq.Option{
 		asynq.TaskID(payload.UniqueID()),
 		asynq.Queue(payload.ModelID), // Model-specific queue

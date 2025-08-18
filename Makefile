@@ -132,6 +132,18 @@ example-models-dag:
 example-models-dag-dot:
 	@docker exec cbt-coordinator /app/cbt models dag --config /app/cli.yaml --dot 2>/dev/null | sed -n '/^digraph models {/,/^}/p' || echo "Error: Is the example running? Try 'make example-up' first"
 
+example-rerun:
+	@docker exec cbt-coordinator /app/cbt rerun --config /app/cli.yaml $(ARGS)
+
+example-rebuild:
+	@echo "Rebuilding containers with latest code changes..."
+	@cd example && docker-compose build coordinator worker
+	@echo "Restarting coordinator and worker with new code..."
+	@cd example && docker-compose up -d coordinator worker
+	@echo "Waiting for services to be ready..."
+	@sleep 5
+	@echo "Containers rebuilt and restarted with latest code!"
+
 example-clean:
 	@echo "Cleaning example (including volumes)..."
 	@cd example && docker-compose down -v
@@ -178,6 +190,9 @@ help:
 	@echo "  example-models-validate - Validate example models"
 	@echo "  example-models-dag - Show example models dependency graph"
 	@echo "  example-models-dag-dot - Generate Graphviz DOT format of DAG"
+	@echo "  example-rerun - Run rerun command (use ARGS= to pass arguments)"
+	@echo "                  Example: make example-rerun ARGS=\"--model analytics.block_propagation --start 1755444000 --end 1755444600\""
+	@echo "  example-rebuild - Rebuild and restart containers with latest code changes"
 	@echo "  example-clean - Clean example (including volumes)"
 	@echo "  generate      - Run go generate"
 	@echo "  security      - Check for security vulnerabilities"
