@@ -1,3 +1,4 @@
+// Package admin provides administration and caching services for CBT
 package admin
 
 import (
@@ -9,6 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// CacheExternal represents cached external model bounds
 type CacheExternal struct {
 	ModelID   string        `json:"model_id"`
 	Min       uint64        `json:"min"`
@@ -17,11 +19,13 @@ type CacheExternal struct {
 	TTL       time.Duration `json:"ttl"`
 }
 
+// CacheManager manages Redis-based caching for external models
 type CacheManager struct {
 	redisClient *redis.Client
 	keyPrefix   string
 }
 
+// NewCacheManager creates a new cache manager instance
 func NewCacheManager(redisClient *redis.Client) *CacheManager {
 	return &CacheManager{
 		redisClient: redisClient,
@@ -29,6 +33,7 @@ func NewCacheManager(redisClient *redis.Client) *CacheManager {
 	}
 }
 
+// GetExternal retrieves cached external model bounds from Redis
 func (c *CacheManager) GetExternal(ctx context.Context, modelID string) (*CacheExternal, error) {
 	key := c.keyPrefix + modelID
 
@@ -54,6 +59,7 @@ func (c *CacheManager) GetExternal(ctx context.Context, modelID string) (*CacheE
 	return &cache, nil
 }
 
+// SetExternal stores external model bounds in Redis cache
 func (c *CacheManager) SetExternal(ctx context.Context, cache CacheExternal) error {
 	key := c.keyPrefix + cache.ModelID
 
@@ -65,6 +71,7 @@ func (c *CacheManager) SetExternal(ctx context.Context, cache CacheExternal) err
 	return c.redisClient.Set(ctx, key, data, cache.TTL).Err()
 }
 
+// InvalidateExternal removes external model bounds from cache
 func (c *CacheManager) InvalidateExternal(ctx context.Context, modelID string) error {
 	key := c.keyPrefix + modelID
 	return c.redisClient.Del(ctx, key).Err()

@@ -268,6 +268,7 @@ func (a *Service) DeleteRange(ctx context.Context, modelID string, startPos, end
 	return a.client.Execute(ctx, query)
 }
 
+// GetCacheManager returns the cache manager instance
 func (a *Service) GetCacheManager() *CacheManager {
 	return a.cacheManager
 }

@@ -38,10 +38,14 @@ type Result struct {
 
 // Validation-specific errors
 var (
-	ErrModelNotFound      = errors.New("model not found")
-	ErrDependencyNotFound = errors.New("dependency model not found")
-	ErrRangeNotAvailable  = errors.New("required range not available")
-	ErrRangeNotCovered    = errors.New("range not fully covered")
+	ErrModelNotFound          = errors.New("model not found")
+	ErrDependencyNotFound     = errors.New("dependency model not found")
+	ErrRangeNotAvailable      = errors.New("required range not available")
+	ErrRangeNotCovered        = errors.New("range not fully covered")
+	ErrNotTransformationModel = errors.New("model is not a transformation")
+	ErrInvalidDependencyType  = errors.New("invalid dependency type")
+	ErrInvalidModelType       = errors.New("invalid dependency model type")
+	ErrFailedModelCast        = errors.New("failed to cast model to transformation")
 )
 
 // NewDependencyValidator creates a new dependency validator
@@ -78,7 +82,7 @@ func (v *DependencyValidator) ValidateDependencies(ctx context.Context, modelID 
 	}
 
 	depStatuses := make([]DependencyStatus, 0, len(deps))
-	var errors []error
+	var errs []error
 	canProcess := true
 
 	for _, depID := range deps {
@@ -90,7 +94,7 @@ func (v *DependencyValidator) ValidateDependencies(ctx context.Context, modelID 
 				Error:     fmt.Errorf("%w: %s", ErrDependencyNotFound, depID),
 			}
 			depStatuses = append(depStatuses, status)
-			errors = append(errors, status.Error)
+			errs = append(errs, status.Error)
 			canProcess = false
 			continue
 		}
@@ -101,7 +105,7 @@ func (v *DependencyValidator) ValidateDependencies(ctx context.Context, modelID 
 		case models.NodeTypeTransformation:
 			model, ok := depNode.Model.(models.Transformation)
 			if !ok {
-				errors = append(errors, fmt.Errorf("invalid dependency model type: %T", depNode.Model))
+				errs = append(errs, fmt.Errorf("%w: %T", ErrInvalidModelType, depNode.Model))
 				canProcess = false
 				continue
 			}
@@ -110,7 +114,7 @@ func (v *DependencyValidator) ValidateDependencies(ctx context.Context, modelID 
 		case models.NodeTypeExternal:
 			model, ok := depNode.Model.(models.External)
 			if !ok {
-				errors = append(errors, fmt.Errorf("invalid dependency model type: %T", depNode.Model))
+				errs = append(errs, fmt.Errorf("%w: %T", ErrInvalidModelType, depNode.Model))
 				canProcess = false
 				continue
 			}
@@ -119,7 +123,7 @@ func (v *DependencyValidator) ValidateDependencies(ctx context.Context, modelID 
 		}
 
 		if err != nil {
-			errors = append(errors, err)
+			errs = append(errs, err)
 			canProcess = false
 		}
 
@@ -141,7 +145,7 @@ func (v *DependencyValidator) ValidateDependencies(ctx context.Context, modelID 
 	return Result{
 		CanProcess:   canProcess,
 		Dependencies: depStatuses,
-		Errors:       errors,
+		Errors:       errs,
 	}, nil
 }
 
@@ -260,10 +264,13 @@ func (v *DependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 	}
 
 	if node.NodeType != models.NodeTypeTransformation {
-		return 0, fmt.Errorf("model %s is not a transformation", modelID)
+		return 0, fmt.Errorf("%w: %s", ErrNotTransformationModel, modelID)
 	}
 
-	model := node.Model.(models.Transformation)
+	model, ok := node.Model.(models.Transformation)
+	if !ok {
+		return 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
+	}
 	interval := model.GetConfig().Interval
 
 	// Round down to the nearest interval boundary
@@ -304,7 +311,11 @@ func (v *DependencyValidator) getMinPositionForDependency(ctx context.Context, d
 
 	switch depNode.NodeType {
 	case models.NodeTypeExternal:
-		minPos, _, err := v.externalManager.GetMinMax(ctx, depNode.Model.(models.External))
+		externalModel, ok := depNode.Model.(models.External)
+		if !ok {
+			return 0, fmt.Errorf("%w: %T", ErrInvalidModelType, depNode.Model)
+		}
+		minPos, _, err := v.externalManager.GetMinMax(ctx, externalModel)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get external model bounds for %s: %w", depID, err)
 		}
@@ -313,7 +324,7 @@ func (v *DependencyValidator) getMinPositionForDependency(ctx context.Context, d
 		return v.getTransformationModelMinPosition(ctx, depID)
 	}
 
-	return 0, fmt.Errorf("invalid dependency type: %s", depNode.NodeType)
+	return 0, fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)
 }
 
 func (v *DependencyValidator) getTransformationModelMinPosition(ctx context.Context, depID string) (uint64, error) {

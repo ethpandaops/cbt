@@ -6,12 +6,14 @@ import (
 	"strings"
 )
 
+// ModelFile represents a discovered model file with its content
 type ModelFile struct {
 	FilePath  string
 	Extension string
 	Content   []byte
 }
 
+// DiscoverPaths walks directories to find model files (.sql, .yaml, .yml)
 func DiscoverPaths(directories []string) ([]*ModelFile, error) {
 	var models []*ModelFile
 
@@ -29,8 +31,8 @@ func DiscoverPaths(directories []string) ([]*ModelFile, error) {
 			}
 
 			ext := strings.ToLower(filepath.Ext(path))
-			if ext == ".sql" || ext == ".yaml" || ext == ".yml" {
-				content, err := os.ReadFile(path)
+			if ext == ExtSQL || ext == ExtYAML || ext == ExtYML {
+				content, err := os.ReadFile(path) // #nosec G304 - path is validated model file
 				if err != nil {
 					return err
 				}

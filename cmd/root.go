@@ -17,7 +17,6 @@ import (
 //nolint:gochecknoglobals // Global vars needed for cobra CLI
 var (
 	cfgFile string
-	logger  *logrus.Logger
 )
 
 // rootCmd represents the base command
@@ -45,7 +44,6 @@ func init() {
 
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./config.yaml)")
-
 }
 
 func initConfig() {

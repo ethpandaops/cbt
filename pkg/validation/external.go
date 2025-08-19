@@ -3,6 +3,7 @@ package validation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+var (
+	// ErrNotSQLModel is returned when external model is not a SQL model
+	ErrNotSQLModel = errors.New("external model is not a SQL model")
+)
+
 // ExternalModelValidator implements the ExternalModelExecutor interface
 type ExternalModelValidator struct {
 	log      *logrus.Logger
@@ -25,11 +31,11 @@ type ExternalModelValidator struct {
 
 // NewExternalModelExecutor creates a new external model executor
 // The cacheManager can be nil if caching is not desired
-func NewExternalModelExecutor(log *logrus.Logger, chClient clickhouse.ClientInterface, admin *admin.Service, modelsService *models.Service) *ExternalModelValidator {
+func NewExternalModelExecutor(log *logrus.Logger, chClient clickhouse.ClientInterface, adminService *admin.Service, modelsService *models.Service) *ExternalModelValidator {
 	return &ExternalModelValidator{
 		chClient: chClient,
 		log:      log,
-		admin:    admin,
+		admin:    adminService,
 		models:   modelsService,
 	}
 }
@@ -134,7 +140,7 @@ func (e *ExternalModelValidator) GetMinMax(ctx context.Context, model models.Ext
 	}
 
 	if model.GetType() != external.ExternalTypeSQL {
-		return 0, 0, fmt.Errorf("external model %s is not a SQL model", modelID)
+		return 0, 0, fmt.Errorf("%w: %s", ErrNotSQLModel, modelID)
 	}
 
 	query, err := e.models.RenderExternal(model)
@@ -156,7 +162,10 @@ func (e *ExternalModelValidator) GetMinMax(ctx context.Context, model models.Ext
 	}
 
 	// Store in cache (store original values before lag adjustment)
-	e.storeInCache(ctx, model, result.MinPos, result.MaxPos)
+	if err := e.storeInCache(ctx, model, result.MinPos, result.MaxPos); err != nil {
+		// Log error but don't fail the operation - cache is not critical
+		e.log.WithError(err).WithField("model_id", model.GetID()).Debug("Failed to store in cache")
+	}
 
 	// Apply lag if configured
 	minPos, maxPos = e.applyLag(model, result.MinPos, result.MaxPos, false)

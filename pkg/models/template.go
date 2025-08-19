@@ -1,4 +1,4 @@
-// Package rendering provides template rendering functionality for model SQL transformations
+// Package models provides template rendering functionality for model SQL transformations
 package models
 
 import (
@@ -19,6 +19,7 @@ type TemplateEngine struct {
 	clickhouseCfg *clickhouse.Config
 }
 
+// NewTemplateEngine creates a new template engine for rendering models
 func NewTemplateEngine(clickhouseCfg *clickhouse.Config, dag *DependencyGraph) *TemplateEngine {
 	return &TemplateEngine{
 		funcMap:       sprig.TxtFuncMap(),
@@ -27,6 +28,7 @@ func NewTemplateEngine(clickhouseCfg *clickhouse.Config, dag *DependencyGraph) *
 	}
 }
 
+// RenderTransformation renders a transformation model template with variables
 func (t *TemplateEngine) RenderTransformation(model Transformation, position, interval uint64, startTime time.Time) (string, error) {
 	variables, err := t.buildTransformationVariables(model, position, interval, startTime)
 	if err != nil {
@@ -80,7 +82,7 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 		if dep.NodeType == NodeTypeTransformation {
 			transformation, ok := dep.Model.(Transformation)
 			if !ok {
-				return nil, fmt.Errorf("dependency %s is not a transformation model", depID)
+				return nil, fmt.Errorf("%w: %s", ErrNotTransformationModel, depID)
 			}
 
 			tConfig := transformation.GetConfig()
@@ -103,7 +105,7 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 		if dep.NodeType == NodeTypeExternal {
 			external, ok := dep.Model.(External)
 			if !ok {
-				return nil, fmt.Errorf("dependency %s is not an external model", depID)
+				return nil, fmt.Errorf("%w: %s", ErrNotExternalModel, depID)
 			}
 
 			eConfig := external.GetConfig()
@@ -129,6 +131,7 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 	return variables, nil
 }
 
+// GetTransformationEnvironmentVariables builds environment variables for transformation execution
 func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error) {
 	config := model.GetConfig()
 
@@ -161,7 +164,7 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 		if dep.NodeType == NodeTypeTransformation {
 			transformation, ok := dep.Model.(Transformation)
 			if !ok {
-				return nil, fmt.Errorf("dependency %s is not a transformation model", depID)
+				return nil, fmt.Errorf("%w: %s", ErrNotTransformationModel, depID)
 			}
 
 			tConfig := transformation.GetConfig()
@@ -176,7 +179,7 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 		if dep.NodeType == NodeTypeExternal {
 			external, ok := dep.Model.(External)
 			if !ok {
-				return nil, fmt.Errorf("dependency %s is not an external model", depID)
+				return nil, fmt.Errorf("%w: %s", ErrNotExternalModel, depID)
 			}
 
 			eConfig := external.GetConfig()
@@ -192,11 +195,9 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 	return &env, nil
 }
 
+// RenderExternal renders an external model template with variables
 func (t *TemplateEngine) RenderExternal(model External) (string, error) {
-	variables, err := t.buildExternalVariables(model)
-	if err != nil {
-		return "", fmt.Errorf("failed to build variables: %w", err)
-	}
+	variables := t.buildExternalVariables(model)
 
 	tmpl, err := template.New("model").Funcs(t.funcMap).Parse(model.GetValue())
 	if err != nil {
@@ -211,7 +212,7 @@ func (t *TemplateEngine) RenderExternal(model External) (string, error) {
 	return buf.String(), nil
 }
 
-func (t *TemplateEngine) buildExternalVariables(model External) (map[string]interface{}, error) {
+func (t *TemplateEngine) buildExternalVariables(model External) map[string]interface{} {
 	config := model.GetConfig()
 
 	variables := map[string]interface{}{
@@ -226,5 +227,5 @@ func (t *TemplateEngine) buildExternalVariables(model External) (map[string]inte
 		},
 	}
 
-	return variables, nil
+	return variables
 }

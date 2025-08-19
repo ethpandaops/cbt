@@ -11,7 +11,7 @@ var (
 	ErrInvalidConcurrency = errors.New("concurrency must be positive")
 )
 
-// Settings contains worker-specific settings
+// Config contains worker-specific settings
 type Config struct {
 	Concurrency     int      `yaml:"concurrency" default:"10"`
 	Tags            []string `yaml:"tags,omitempty"` // Optional tag-based model filtering

@@ -1,3 +1,4 @@
+// Package tasks provides task handling and execution functionality
 package tasks
 
 import (
@@ -62,6 +63,7 @@ type TaskContext struct {
 	Variables      map[string]interface{}
 }
 
+// Executor defines the interface for task executors
 type Executor interface {
 	Execute(ctx context.Context, taskCtx interface{}) error
 	Validate(ctx context.Context, taskCtx interface{}) error

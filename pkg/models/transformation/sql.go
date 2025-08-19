@@ -1,28 +1,41 @@
+// Package transformation provides transformation model configuration and validation
 package transformation
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 
 	"gopkg.in/yaml.v3"
 )
 
+var (
+	// ErrInvalidFrontmatter is returned when frontmatter is invalid
+	ErrInvalidFrontmatter = errors.New("invalid frontmatter")
+	// ErrSQLContentRequired is returned when SQL content is not specified
+	ErrSQLContentRequired = errors.New("sql content is required")
+)
+
+// TransformationTypeSQL identifies SQL transformation models
 const TransformationTypeSQL = "sql"
 
-type TransformationSQL struct {
-	TransformationConfig `yaml:",inline"`
-	Content              string `yaml:"-"`
+// SQL represents a transformation SQL model with YAML frontmatter
+type SQL struct {
+	Config  `yaml:",inline"`
+	Content string `yaml:"-"`
 }
 
-type TransformationSQLParser struct{}
+// SQLParser parses SQL transformation models
+type SQLParser struct{}
 
-func NewTransformationSQL(content []byte) (*TransformationSQL, error) {
+// NewTransformationSQL creates a new transformation SQL model from content
+func NewTransformationSQL(content []byte) (*SQL, error) {
 	parts := bytes.SplitN(content, []byte("\n---\n"), 2)
 	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid frontmatter")
+		return nil, ErrInvalidFrontmatter
 	}
 
-	var config *TransformationSQL
+	var config *SQL
 	// Parse YAML frontmatter (skip "---\n" prefix)
 	if err := yaml.Unmarshal(parts[0][4:], &config); err != nil {
 		return nil, fmt.Errorf("failed to parse frontmatter: %w", err)
@@ -37,22 +50,26 @@ func NewTransformationSQL(content []byte) (*TransformationSQL, error) {
 	return config, nil
 }
 
-func (c *TransformationSQL) Validate() error {
+// Validate checks if the transformation SQL model is valid
+func (c *SQL) Validate() error {
 	if c.Content == "" {
-		return fmt.Errorf("sql content is required")
+		return ErrSQLContentRequired
 	}
 
 	return nil
 }
 
-func (c *TransformationSQL) GetType() string {
+// GetType returns the transformation model type
+func (c *SQL) GetType() string {
 	return TransformationTypeSQL
 }
 
-func (c *TransformationSQL) GetConfig() TransformationConfig {
-	return c.TransformationConfig
+// GetConfig returns the transformation model configuration
+func (c *SQL) GetConfig() Config {
+	return c.Config
 }
 
-func (c *TransformationSQL) GetValue() string {
+// GetValue returns the SQL content
+func (c *SQL) GetValue() string {
 	return c.Content
 }

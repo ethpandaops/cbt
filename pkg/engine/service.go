@@ -31,7 +31,6 @@ type Service struct {
 	worker      *worker.Service
 	admin       *admin.Service
 	models      *models.Service
-	validator   *validation.DependencyValidator
 
 	// Servers
 	healthServer *http.Server
@@ -155,42 +154,34 @@ func (a *Service) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Stop worker service
+	// Helper function to stop a service
+	stopService := func(name string, stopFunc func() error) {
+		if stopFunc == nil {
+			return
+		}
+		if err := stopFunc(); err != nil {
+			a.log.WithError(err).Errorf("Failed to stop %s", name)
+		}
+	}
+
+	// Stop all services
 	if a.worker != nil {
-		if err := a.worker.Stop(); err != nil {
-			a.log.WithError(err).Error("Failed to stop worker service")
-		}
+		stopService("worker service", a.worker.Stop)
 	}
-
-	// Stop scheduler service
 	if a.scheduler != nil {
-		if err := a.scheduler.Stop(); err != nil {
-			a.log.WithError(err).Error("Failed to stop scheduler service")
-		}
+		stopService("scheduler service", a.scheduler.Stop)
 	}
-
-	// Stop coordinator service
 	if a.coordinator != nil {
-		if err := a.coordinator.Stop(); err != nil {
-			a.log.WithError(err).Error("Failed to stop coordinator service")
-		}
+		stopService("coordinator service", a.coordinator.Stop)
 	}
-
-	// Stop Redis client
 	if a.redisClient != nil {
-		if err := a.redisClient.Close(); err != nil {
-			a.log.WithError(err).Error("Failed to close Redis client")
-		}
+		stopService("Redis client", a.redisClient.Close)
 	}
-
-	// Stop models service
 	if a.models != nil {
-		if err := a.models.Stop(); err != nil {
-			a.log.WithError(err).Error("Failed to stop models service")
-		}
+		stopService("models service", a.models.Stop)
 	}
 
-	// Stop ClickHouse client
+	// Stop ClickHouse client (critical - return error if fails)
 	if a.chClient != nil {
 		if err := a.chClient.Stop(); err != nil {
 			a.log.WithError(err).Error("Failed to stop ClickHouse client")
@@ -198,25 +189,12 @@ func (a *Service) Stop() error {
 		}
 	}
 
-	// Stop health check server
+	// Stop HTTP servers
 	if a.healthServer != nil {
-		if err := a.healthServer.Shutdown(ctx); err != nil {
-			a.log.WithError(err).Error("Failed to shutdown health check server")
-		}
+		stopService("health check server", func() error { return a.healthServer.Shutdown(ctx) })
 	}
-
-	// Stop pprof server
 	if a.pprofServer != nil {
-		if err := a.pprofServer.Shutdown(ctx); err != nil {
-			a.log.WithError(err).Error("Failed to shutdown pprof server")
-		}
-	}
-
-	if a.chClient != nil {
-		if err := a.chClient.Stop(); err != nil {
-			a.log.WithError(err).Error("Failed to stop ClickHouse client")
-			return err
-		}
+		stopService("pprof server", func() error { return a.pprofServer.Shutdown(ctx) })
 	}
 
 	return nil

@@ -1,3 +1,4 @@
+// Package redis provides Redis client utilities
 package redis
 
 import (
@@ -5,6 +6,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// NewAsynqRedisOptions converts Redis options to Asynq Redis options
 func NewAsynqRedisOptions(opt *redis.Options) *asynq.RedisClientOpt {
 	return &asynq.RedisClientOpt{
 		Network:      opt.Network,

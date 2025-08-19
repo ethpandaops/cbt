@@ -1,3 +1,4 @@
+// Package engine provides the core CBT engine service
 package engine
 
 import (
@@ -59,9 +60,5 @@ func (c *Config) Validate() error {
 		return err
 	}
 
-	if err := c.Models.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return c.Models.Validate()
 }

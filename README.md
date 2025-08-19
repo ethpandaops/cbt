@@ -44,7 +44,9 @@ A simplified, ClickHouse-focused data transformation tool that provides idempote
 ### From Source
 ```bash
 git clone https://github.com/ethpandaops/cbt.git
+
 cd cbt
+
 make build
 ```
 
@@ -269,25 +271,9 @@ The example deployment demonstrates CBT's capabilities with sample models includ
 #### Running the Example
 
 ```bash
-# Start all services (ClickHouse, Redis, Coordinator, Worker)
-# Data generation starts automatically
-make example-up
+cd example
 
-# Check model processing status
-make example-models-status
-
-# View model dependency graph
-make example-models-dag
-
-# Generate Graphviz visualization
-make example-models-dag-dot > dag.dot
-dot -Tpng dag.dot -o dag.png  # Requires graphviz
-
-# View real-time logs
-make example-logs
-
-# Stop and cleanup
-make example-down
+docker-compose up -d
 ```
 
 #### Verify It's Working
@@ -300,11 +286,8 @@ docker exec cbt-clickhouse clickhouse-client -q "
   WHERE database = 'analytics' 
   GROUP BY table"
 
-# View coordinator logs
-docker logs cbt-coordinator --tail 50
-
-# View worker logs  
-docker logs example-worker-1 --tail 50
+# View engine logs
+docker logs example-engine-1 --tail 50
 
 # Check admin table for completed tasks
 docker exec cbt-clickhouse clickhouse-client -q "
@@ -314,19 +297,6 @@ docker exec cbt-clickhouse clickhouse-client -q "
 
 # View task queue web UI
 open http://localhost:8080  # Asynqmon dashboard
-```
-
-#### Testing Tag-Based Filtering
-
-Modify `example/worker.yaml` to test worker filtering:
-
-```yaml
-worker:
-  concurrency: 10
-  modelTags:
-    include: [python]  # Only process Python models
-    # Or try: exclude: [aggregation]
-    # Or try: require: [batch]
 ```
 
 Then restart the worker:
@@ -351,46 +321,10 @@ mkdir -p models/external models/transformations
 # Add your model definitions
 
 # 5. Run CBT (config.yaml is used by default)
-./bin/cbt coordinator  # In one terminal
-./bin/cbt worker      # In another terminal
+./bin/cbt
 ```
 
 ## Usage
-
-### CLI Commands
-
-All commands default to `config.yaml` if `--config` is not specified:
-
-```bash
-# List all models with metadata
-cbt models list
-
-# Show model status and last run times
-cbt models status
-
-# Validate model configurations
-cbt models validate
-
-# Visualize dependency graph
-cbt models dag
-cbt models dag --dot  # Output in Graphviz format
-
-# Rerun specific model for a time range
-# Note: Rerun invalidates completion records for the model AND all dependent models
-# The gaps will be detected and filled by backfill processes on their schedules
-cbt rerun --model analytics.block_propagation \
-          --start 1704067200 --end 1704070800
-
-# Start coordinator service
-cbt coordinator
-
-# Start worker service
-cbt worker
-
-# Use a different config file
-cbt coordinator --config production.yaml
-cbt worker --config production.yaml
-```
 
 ## Template Variables
 

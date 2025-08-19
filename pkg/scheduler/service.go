@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -17,8 +18,10 @@ import (
 )
 
 const (
+	// TaskPrefix is the prefix for all scheduled tasks
 	TaskPrefix = "cbt:"
-	QueueName  = "scheduler"
+	// QueueName is the queue name for scheduler tasks
+	QueueName = "scheduler"
 )
 
 var (
@@ -26,6 +29,7 @@ var (
 	ErrScheduleRegistrationFailed = errors.New("failed to register scheduled tasks")
 )
 
+// Service manages scheduled tasks for transformations
 type Service struct {
 	log *logrus.Logger
 	cfg *Config
@@ -37,9 +41,11 @@ type Service struct {
 	scheduler *asynq.Scheduler
 	server    *asynq.Server
 	mux       *asynq.ServeMux
+	inspector *asynq.Inspector
 }
 
-func NewService(log *logrus.Logger, cfg *Config, redisOpt *redis.Options, dag *models.DependencyGraph, coordinator *coordinator.Service) (*Service, error) {
+// NewService creates a new scheduler service
+func NewService(log *logrus.Logger, cfg *Config, redisOpt *redis.Options, dag *models.DependencyGraph, coord *coordinator.Service) (*Service, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -60,21 +66,25 @@ func NewService(log *logrus.Logger, cfg *Config, redisOpt *redis.Options, dag *m
 		Concurrency: 10,
 	})
 
+	// Create inspector for managing tasks
+	inspector := asynq.NewInspector(asynqRedis)
+
 	return &Service{
 		log: log,
 		cfg: cfg,
 
 		redisOpt:    redisOpt,
 		dag:         dag,
-		coordinator: coordinator,
+		coordinator: coord,
 
 		scheduler: scheduler,
 		server:    server,
+		inspector: inspector,
 	}, nil
 }
 
+// Start initializes and starts the scheduler service
 func (s *Service) Start() error {
-
 	go func() {
 		if runErr := s.scheduler.Run(); runErr != nil {
 			s.log.WithError(runErr).Fatal("Failed to run scheduler")
@@ -93,11 +103,15 @@ func (s *Service) Start() error {
 		}
 	}()
 
+	// Start periodic cleanup of duplicate scheduled tasks
+	go s.runPeriodicCleanup()
+
 	s.log.Info("Scheduler service started successfully")
 
 	return nil
 }
 
+// Stop gracefully shuts down the scheduler service
 func (s *Service) Stop() error {
 	if s.scheduler != nil {
 		s.scheduler.Shutdown()
@@ -232,6 +246,40 @@ func (s *Service) HandleScheduledForward(_ context.Context, t *asynq.Task) error
 	).Inc()
 
 	return nil
+}
+
+// runPeriodicCleanup periodically removes duplicate scheduled tasks
+func (s *Service) runPeriodicCleanup() {
+	for {
+		// Random interval between 1-2 minutes
+		interval := time.Duration(60+rand.Intn(60)) * time.Second // #nosec G404 - using weak RNG for non-security purpose
+		time.Sleep(interval)
+
+		// Get all scheduled task entries
+		entries, err := s.inspector.SchedulerEntries()
+		if err != nil {
+			continue
+		}
+
+		// Group by task type to find duplicates
+		taskGroups := make(map[string][]*asynq.SchedulerEntry)
+		for _, entry := range entries {
+			// Only process our tasks
+			if strings.HasPrefix(entry.Task.Type(), TaskPrefix) {
+				taskGroups[entry.Task.Type()] = append(taskGroups[entry.Task.Type()], entry)
+			}
+		}
+
+		// Remove duplicates, keeping the first one
+		for _, group := range taskGroups {
+			if len(group) > 1 {
+				// Keep first, remove rest
+				for i := 1; i < len(group); i++ {
+					_ = s.scheduler.Unregister(group[i].ID)
+				}
+			}
+		}
+	}
 }
 
 // HandleScheduledBackfill processes scheduled backfill scans

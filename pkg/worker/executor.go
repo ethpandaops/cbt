@@ -18,7 +18,9 @@ import (
 
 // Define static errors
 var (
-	ErrInvalidTaskContext = errors.New("invalid task context type")
+	ErrInvalidTaskContext        = errors.New("invalid task context type")
+	ErrInvalidTransformationType = errors.New("invalid transformation type")
+	ErrTableDoesNotExist         = errors.New("table does not exist")
 )
 
 // ModelExecutor implements the execution of model transformations
@@ -69,7 +71,7 @@ func (e *ModelExecutor) Execute(ctx context.Context, taskCtxInterface interface{
 			return err
 		}
 	default:
-		return fmt.Errorf("invalid transformation type: %s", taskCtx.Transformation.GetType())
+		return fmt.Errorf("%w: %s", ErrInvalidTransformationType, taskCtx.Transformation.GetType())
 	}
 
 	// Record completion in admin table
@@ -95,7 +97,7 @@ func (e *ModelExecutor) Validate(ctx context.Context, taskCtxInterface interface
 	}
 
 	if !exists {
-		return fmt.Errorf("table %s.%s does not exist", config.Database, config.Table)
+		return fmt.Errorf("%w: %s.%s", ErrTableDoesNotExist, config.Database, config.Table)
 	}
 
 	return nil

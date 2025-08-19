@@ -13,6 +13,16 @@ var (
 	ErrNonExistentDependency = errors.New("model depends on non-existent model")
 	// ErrInconsistentGraph is returned when the dependency graph is inconsistent
 	ErrInconsistentGraph = errors.New("dependency graph is inconsistent: vertex count mismatch")
+	// ErrNotExternalModel is returned when a model is not an external model
+	ErrNotExternalModel = errors.New("model is not an external model")
+	// ErrNotTransformationModel is returned when a model is not a transformation model
+	ErrNotTransformationModel = errors.New("model is not a transformation model")
+	// ErrInvalidNodeType is returned when a node has an invalid type
+	ErrInvalidNodeType = errors.New("invalid node type")
+	// ErrInvalidExternalModelType is returned when an external model has an invalid type
+	ErrInvalidExternalModelType = errors.New("invalid external model type")
+	// ErrInvalidTransformationModelType is returned when a transformation model has an invalid type
+	ErrInvalidTransformationModelType = errors.New("invalid transformation model type")
 )
 
 // DependencyGraph manages the dependency graph for models
@@ -21,13 +31,17 @@ type DependencyGraph struct {
 	mutex sync.RWMutex
 }
 
+// NodeType represents the type of a node in the dependency graph
 type NodeType string
 
 const (
+	// NodeTypeTransformation represents a transformation model node
 	NodeTypeTransformation NodeType = "transformation"
-	NodeTypeExternal       NodeType = "external"
+	// NodeTypeExternal represents an external model node
+	NodeTypeExternal NodeType = "external"
 )
 
+// Node represents a node in the dependency graph
 type Node struct {
 	NodeType NodeType
 	Model    interface{}
@@ -57,13 +71,10 @@ func (d *DependencyGraph) BuildGraph(transformationModels []Transformation, exte
 		return err
 	}
 
-	if err := d.AddTransformationEdges(transformationModels); err != nil {
-		return err
-	}
-
-	return nil
+	return d.AddTransformationEdges(transformationModels)
 }
 
+// AddTransformationModels adds transformation models to the dependency graph
 func (d *DependencyGraph) AddTransformationModels(models []Transformation) error {
 	for _, model := range models {
 		if model != nil {
@@ -81,6 +92,7 @@ func (d *DependencyGraph) AddTransformationModels(models []Transformation) error
 	return nil
 }
 
+// AddExternalModels adds external models to the dependency graph
 func (d *DependencyGraph) AddExternalModels(models []External) error {
 	for _, model := range models {
 		if model != nil {
@@ -98,6 +110,7 @@ func (d *DependencyGraph) AddExternalModels(models []External) error {
 	return nil
 }
 
+// AddTransformationEdges adds edges between transformation models based on dependencies
 func (d *DependencyGraph) AddTransformationEdges(models []Transformation) error {
 	for _, model := range models {
 		if model != nil {
@@ -118,42 +131,63 @@ func (d *DependencyGraph) AddTransformationEdges(models []Transformation) error 
 	return nil
 }
 
+// GetNode retrieves a node from the dependency graph by model ID
 func (d *DependencyGraph) GetNode(modelID string) (Node, error) {
 	vertex, err := d.dag.GetVertex(modelID)
 	if err != nil {
 		return Node{}, err
 	}
-	return vertex.(Node), nil
+	node, ok := vertex.(Node)
+	if !ok {
+		return Node{}, fmt.Errorf("%w for model %s", ErrInvalidNodeType, modelID)
+	}
+	return node, nil
 }
 
+// GetExternalNode retrieves an external model node from the dependency graph
 func (d *DependencyGraph) GetExternalNode(modelID string) (External, error) {
 	vertex, err := d.dag.GetVertex(modelID)
 	if err != nil {
 		return nil, err
 	}
 
-	node := vertex.(Node)
-
-	if node.NodeType == NodeTypeExternal {
-		return node.Model.(External), nil
+	node, ok := vertex.(Node)
+	if !ok {
+		return nil, fmt.Errorf("%w for model %s", ErrInvalidNodeType, modelID)
 	}
 
-	return nil, fmt.Errorf("model %s is not an external model", modelID)
+	if node.NodeType == NodeTypeExternal {
+		external, ok := node.Model.(External)
+		if !ok {
+			return nil, fmt.Errorf("%w for %s", ErrInvalidExternalModelType, modelID)
+		}
+		return external, nil
+	}
+
+	return nil, fmt.Errorf("%w: %s", ErrNotExternalModel, modelID)
 }
 
+// GetTransformationNode retrieves a transformation model node from the dependency graph
 func (d *DependencyGraph) GetTransformationNode(modelID string) (Transformation, error) {
 	vertex, err := d.dag.GetVertex(modelID)
 	if err != nil {
 		return nil, err
 	}
 
-	node := vertex.(Node)
-
-	if node.NodeType == NodeTypeTransformation {
-		return node.Model.(Transformation), nil
+	node, ok := vertex.(Node)
+	if !ok {
+		return nil, fmt.Errorf("%w for model %s", ErrInvalidNodeType, modelID)
 	}
 
-	return nil, fmt.Errorf("model %s is not a transformation model", modelID)
+	if node.NodeType == NodeTypeTransformation {
+		transformation, ok := node.Model.(Transformation)
+		if !ok {
+			return nil, fmt.Errorf("%w for %s", ErrInvalidTransformationModelType, modelID)
+		}
+		return transformation, nil
+	}
+
+	return nil, fmt.Errorf("%w: %s", ErrNotTransformationModel, modelID)
 }
 
 // GetDependents returns the direct dependents of a model
@@ -243,12 +277,16 @@ func (d *DependencyGraph) IsPathBetween(fromModelID, toModelID string) bool {
 	return exists
 }
 
+// GetTransformationNodes returns all transformation nodes from the dependency graph
 func (d *DependencyGraph) GetTransformationNodes() []Transformation {
 	vertices := d.dag.GetVertices()
 
 	transformationNodes := make([]Transformation, 0)
 	for _, vertex := range vertices {
-		node := vertex.(Node)
+		node, ok := vertex.(Node)
+		if !ok {
+			continue
+		}
 		if node.NodeType == NodeTypeTransformation {
 			model, ok := node.Model.(Transformation)
 			if ok {

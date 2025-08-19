@@ -53,24 +53,6 @@ var (
 		[]string{"model"},
 	)
 
-	// ModelCoverage measures the percentage of data coverage
-	ModelCoverage = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cbt_model_coverage_percent",
-			Help: "Percentage of data coverage for the model",
-		},
-		[]string{"model"},
-	)
-
-	// ModelGaps counts the number of gaps in model data
-	ModelGaps = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cbt_model_gaps_count",
-			Help: "Number of gaps in model data",
-		},
-		[]string{"model"},
-	)
-
 	// DependencyValidationTotal counts total dependency validation attempts
 	DependencyValidationTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -90,43 +72,6 @@ var (
 		[]string{"model"},
 	)
 
-	// ClickHouseQueries counts total number of ClickHouse queries executed
-	ClickHouseQueries = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "cbt_clickhouse_queries_total",
-			Help: "Total number of ClickHouse queries executed",
-		},
-		[]string{"query_type", "status"}, // query_type: select, insert, delete; status: success, error
-	)
-
-	// ClickHouseQueryDuration measures ClickHouse query execution time
-	ClickHouseQueryDuration = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "cbt_clickhouse_query_duration_seconds",
-			Help:    "ClickHouse query execution time",
-			Buckets: prometheus.ExponentialBuckets(0.01, 2, 10), // 10ms to ~10s
-		},
-		[]string{"query_type"},
-	)
-
-	// ClickHouseRowsProcessed counts total number of rows processed
-	ClickHouseRowsProcessed = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "cbt_clickhouse_rows_processed_total",
-			Help: "Total number of rows processed in ClickHouse",
-		},
-		[]string{"model", "operation"}, // operation: insert, update, delete
-	)
-
-	// SchedulerActive indicates whether scheduler is active for model
-	SchedulerActive = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cbt_scheduler_active",
-			Help: "Whether scheduler is active for model (1=active, 0=inactive)",
-		},
-		[]string{"model"},
-	)
-
 	// TasksEnqueued counts total number of tasks enqueued
 	TasksEnqueued = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -134,51 +79,6 @@ var (
 			Help: "Total number of tasks enqueued",
 		},
 		[]string{"model"},
-	)
-
-	// BackfillProgress tracks backfill progress percentage
-	BackfillProgress = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cbt_backfill_progress_percent",
-			Help: "Backfill progress percentage",
-		},
-		[]string{"model"},
-	)
-
-	// QueueDepth measures number of tasks in queue
-	QueueDepth = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cbt_queue_depth",
-			Help: "Number of tasks in queue",
-		},
-		[]string{"queue", "state"}, // state: pending, active, scheduled, retry
-	)
-
-	// QueueMemoryUsage tracks queue memory usage in bytes
-	QueueMemoryUsage = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cbt_queue_memory_bytes",
-			Help: "Queue memory usage in bytes",
-		},
-		[]string{"queue"},
-	)
-
-	// WorkerUtilization measures worker utilization percentage
-	WorkerUtilization = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cbt_worker_utilization_percent",
-			Help: "Worker utilization percentage",
-		},
-		[]string{"worker"},
-	)
-
-	// RedisConnections counts number of Redis connections
-	RedisConnections = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cbt_redis_connections",
-			Help: "Number of Redis connections",
-		},
-		[]string{"state"}, // state: active, idle
 	)
 
 	// ErrorsTotal counts total number of errors
@@ -243,17 +143,6 @@ func RecordTaskComplete(model, worker, status string, duration float64) {
 func RecordDependencyValidation(model, result string, duration float64) {
 	DependencyValidationTotal.WithLabelValues(model, result).Inc()
 	DependencyValidationDuration.WithLabelValues(model).Observe(duration)
-}
-
-// RecordClickHouseQuery records ClickHouse query metrics
-func RecordClickHouseQuery(queryType, status string, duration float64) {
-	ClickHouseQueries.WithLabelValues(queryType, status).Inc()
-	ClickHouseQueryDuration.WithLabelValues(queryType).Observe(duration)
-}
-
-// RecordClickHouseRows records rows processed
-func RecordClickHouseRows(model, operation string, count float64) {
-	ClickHouseRowsProcessed.WithLabelValues(model, operation).Add(count)
 }
 
 // RecordTaskEnqueued records task enqueue

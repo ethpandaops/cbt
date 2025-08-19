@@ -1,22 +1,32 @@
 package transformation
 
 import (
+	"errors"
 	"fmt"
 
 	"gopkg.in/yaml.v3"
 )
 
+var (
+	// ErrExecRequired is returned when exec is not specified
+	ErrExecRequired = errors.New("exec is required")
+)
+
+// TransformationTypeExec identifies exec transformation models
 const TransformationTypeExec = "exec"
 
-type TransformationExec struct {
-	TransformationConfig `yaml:",inline"`
-	Exec                 string `yaml:"exec"`
+// Exec represents a transformation exec model with YAML config
+type Exec struct {
+	Config `yaml:",inline"`
+	Exec   string `yaml:"exec"`
 }
 
-type TransformationExecParser struct{}
+// ExecParser parses exec transformation models
+type ExecParser struct{}
 
-func NewTransformationExec(content []byte) (*TransformationExec, error) {
-	var config *TransformationExec
+// NewTransformationExec creates a new transformation exec model from content
+func NewTransformationExec(content []byte) (*Exec, error) {
+	var config *Exec
 	if err := yaml.Unmarshal(content, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse yaml: %w", err)
 	}
@@ -28,22 +38,26 @@ func NewTransformationExec(content []byte) (*TransformationExec, error) {
 	return config, nil
 }
 
-func (c *TransformationExec) Validate() error {
+// Validate checks if the transformation exec model is valid
+func (c *Exec) Validate() error {
 	if c.Exec == "" {
-		return fmt.Errorf("exec is required")
+		return ErrExecRequired
 	}
 
 	return nil
 }
 
-func (c *TransformationExec) GetType() string {
+// GetType returns the transformation model type
+func (c *Exec) GetType() string {
 	return TransformationTypeExec
 }
 
-func (c *TransformationExec) GetConfig() TransformationConfig {
-	return c.TransformationConfig
+// GetConfig returns the transformation model configuration
+func (c *Exec) GetConfig() Config {
+	return c.Config
 }
 
-func (c *TransformationExec) GetValue() string {
+// GetValue returns the exec command
+func (c *Exec) GetValue() string {
 	return c.Exec
 }

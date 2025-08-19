@@ -47,11 +47,9 @@ func NewService(log *logrus.Logger, cfg *Config, chClient clickhouse.ClientInter
 	}, nil
 }
 
+// Start initializes and starts the worker service
 func (s *Service) Start() error {
-	transformations, err := filteredTransformations(s.models, s.config.Tags)
-	if err != nil {
-		return fmt.Errorf("failed to get filtered models: %w", err)
-	}
+	transformations := filteredTransformations(s.models, s.config.Tags)
 
 	modelExecutor := NewModelExecutor(s.log, s.chClient, s.models, s.admin)
 
@@ -97,7 +95,6 @@ func (s *Service) Start() error {
 
 // Stop gracefully shuts down the worker application
 func (s *Service) Stop() error {
-
 	if s.server != nil {
 		s.server.Shutdown()
 	}
@@ -105,14 +102,14 @@ func (s *Service) Stop() error {
 	return nil
 }
 
-func filteredTransformations(modelsService *models.Service, tags []string) ([]models.Transformation, error) {
+func filteredTransformations(modelsService *models.Service, tags []string) []models.Transformation {
 	dag := modelsService.GetDAG()
 
 	transformationNodes := dag.GetTransformationNodes()
 
 	// If no tags are provided, return all transformations
-	if len(tags) <= 0 {
-		return transformationNodes, nil
+	if len(tags) == 0 {
+		return transformationNodes
 	}
 
 	filteredTransformations := make([]models.Transformation, 0)
@@ -125,5 +122,5 @@ func filteredTransformations(modelsService *models.Service, tags []string) ([]mo
 		}
 	}
 
-	return filteredTransformations, nil
+	return filteredTransformations
 }

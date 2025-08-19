@@ -18,6 +18,7 @@ func (p TaskPayload) UniqueID() string {
 	return fmt.Sprintf("%s:%d:%d", p.ModelID, p.Position, p.Interval)
 }
 
+// QueueName returns the queue name for this task payload
 func (p TaskPayload) QueueName() string {
 	return p.ModelID
 }

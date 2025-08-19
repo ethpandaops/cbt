@@ -1,8 +1,11 @@
+// Package coordinator handles task coordination and dependency management
 package coordinator
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -17,13 +20,22 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+var (
+	// ErrShutdownErrors is returned when errors occur during shutdown
+	ErrShutdownErrors = errors.New("errors during shutdown")
+)
+
+// Direction represents the processing direction for tasks
 type Direction string
 
 const (
+	// DirectionForward processes tasks in forward direction
 	DirectionForward Direction = "forward"
-	DirectionBack    Direction = "back"
+	// DirectionBack processes tasks in backward direction
+	DirectionBack Direction = "back"
 )
 
+// Service coordinates task processing and dependencies
 type Service struct {
 	log *logrus.Logger
 
@@ -45,6 +57,7 @@ type Service struct {
 	inspector    *asynq.Inspector
 }
 
+// NewService creates a new coordinator service
 func NewService(log *logrus.Logger, redisOpt *redis.Options, dag *models.DependencyGraph, adminService *admin.Service, validator *validation.DependencyValidator) (*Service, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -59,6 +72,7 @@ func NewService(log *logrus.Logger, redisOpt *redis.Options, dag *models.Depende
 	}, nil
 }
 
+// Start initializes and starts the coordinator service
 func (s *Service) Start() error {
 	asynqRedis := r.NewAsynqRedisOptions(s.redisOpt)
 
@@ -75,18 +89,35 @@ func (s *Service) Start() error {
 	return nil
 }
 
+// Stop gracefully shuts down the coordinator service
 func (s *Service) Stop() error {
+	var errs []error
+
 	if s.inspector != nil {
-		s.inspector.Close()
+		if err := s.inspector.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close inspector: %w", err))
+		}
 	}
 
 	if s.queueManager != nil {
-		s.queueManager.Close()
+		if err := s.queueManager.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close queue manager: %w", err))
+		}
+	}
+
+	if len(errs) > 0 {
+		// Combine all errors into a single error message
+		var errStrs []string
+		for _, err := range errs {
+			errStrs = append(errStrs, err.Error())
+		}
+		return fmt.Errorf("%w: %s", ErrShutdownErrors, errStrs)
 	}
 
 	return nil
 }
 
+// Process handles transformation processing in the specified direction
 func (s *Service) Process(transformation models.Transformation, direction Direction) {
 	switch direction {
 	case DirectionForward:
