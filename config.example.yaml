@@ -1,25 +1,19 @@
 # CBT Configuration
-# This single configuration file is used by all components (CLI, Coordinator, Worker)
-# Each component only uses the sections it needs and ignores the rest
 
 # Logging level: panic, fatal, warn, info, debug, trace
-# CLI typically uses "error" for minimal output
-# Services typically use "info" for operational logging
 logging: info
 
 # Metrics server address
-# Used by coordinator and worker services
 metricsAddr: ":9090"
 
 # Health check server address (optional)
-# Used by coordinator and worker services
 healthCheckAddr: ":8080"
 
 # Pprof server address for profiling (optional)
 # Uncomment to enable profiling
 # pprofAddr: ":6060"
 
-# ClickHouse configuration (used by all components)
+# ClickHouse configuration
 clickhouse:
   # Connection URL (required)
   url: "clickhouse://localhost:9000"
@@ -45,12 +39,12 @@ clickhouse:
   # Keep-alive interval
   keepAlive: 30s
 
-# Redis configuration (used by coordinator, worker, and rerun command)
+# Redis configuration
 redis:
   # Redis connection URL (required)
   url: "redis://localhost:6379/0"
 
-# Coordinator-specific settings (ignored by worker and CLI)
+# Scheduling settings
 scheduler:
   # How often to check for tasks to schedule
   interval: 1m
@@ -58,13 +52,13 @@ scheduler:
   # Maximum number of concurrent scheduling operations
   concurrency: 10
 
-# Worker-specific settings (ignored by coordinator and CLI)
+# Worker settings
 worker:
   # Number of concurrent tasks to process
   concurrency: 10
   
-  # Model tags for filtering which models this worker processes (optional)
-  # Useful for running specialized workers for specific model types
+  # Model tags for filtering which models this instance processes (optional)
+  # Useful for running specialized instances for specific model types
   # tags:
   #   - "batch"
   #   - "analytics"

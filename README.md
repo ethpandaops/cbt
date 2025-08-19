@@ -1,150 +1,150 @@
 # CBT - ClickHouse Build Tool
 
-A simplified, ClickHouse-focused data transformation tool that provides idempotent transformations, DAG-based dependency management, and interval-based processing.
-
-## Features
-
-- **Idempotent/Replayable Transformations**: Uses ReplacingMergeTree to handle updates cleanly
-- **DAG-based Dependency Management**: Models declare dependencies, system validates cycles and processes in topological order
-- **Interval-based Processing**: Data processed in fixed chunks enabling parallel processing and efficient retries
-- **Pull-through Validation**: Workers verify dependencies before execution using cached external models and admin table tracking
-- **Task Queue Architecture**: Asynq with Redis provides distributed, resilient task processing
-- **Redis-Persisted Scheduling**: Asynq Scheduler with real cron expression support and persistence across restarts
-- **Hybrid Push-Pull Scheduling**: Event-driven dependent processing with scheduled sweeps for reliability
-- **Configurable Backfill**: Separate scheduling for forward processing and gap detection with minimum position support
-- **Tag-based Worker Filtering**: Workers can selectively process models based on tags for multi-tenant or specialized processing
-- **External Script Support**: Models can execute Python or other scripts for complex transformations beyond SQL
-- **Lag Support for External Models**: Configure lag to ignore recent data that may still be arriving (e.g., `lag: 30` ignores last 30 seconds)
+A simple ClickHouse-focused data transformation tool that provides fast idempotent transformations with pure SQL or external scripts.
 
 ## Architecture
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Coordinator   │◄──►│      Redis      │◄──►│     Worker      │
-│  (+ Scheduler)  │    │ (Queue + Sched) │    │                 │
-└─────┬───────────┘    └─────────────────┘    └─────┬───────────┘
-      │                                             │
-      │                ┌─────────────────┐          │
-      └───────────────►│   ClickHouse    │◄─────────┘
-                       │  (Data + Admin) │
-                       └─────────────────┘
+         ┌───────────────┐
+         │      CBT      │
+         └───────┬───────┘
+                 │
+        ┌────────┴────────┐
+        │                 │
+        ▼                 ▼
+┌──────────────┐  ┌──────────────┐
+│    Redis     │  │  ClickHouse  │
+│              │  │              │
+│ • Task Queue │  │ • Data       │
+│ • Scheduling │  │ • Admin      │
+└──────────────┘  └──────────────┘
 ```
 
 **Multi-instance behavior:**
-- **Coordinator**: Designed to run as a single instance. Includes Asynq Scheduler for Redis-persisted scheduling with real cron expression support. Multiple coordinators are safe during deployments (rolling updates, failover) but inefficient for permanent operation as they duplicate scheduling work. Task deduplication prevents duplicate processing.
-- **Worker**: Designed for horizontal scaling. Run multiple workers to increase throughput. Tasks are distributed across workers automatically.
+CBT runs as a unified binary that handles both coordination/scheduling and task execution. You can run multiple instances for high availability and increased throughput:
+- All instances process transformation tasks from the queue unless filtered by tags in the `worker.tags` configuration.
+- [Asynq](https://github.com/hibiken/asynq) prevents duplicate transformation tasks from being scheduled.
 
-## Requirements
+
+### Project Structure
+
+```
+cbt/
+├── cmd/                   # Main command entry point
+├── example/               # Example deployment
+├── pkg/
+│   ├── core/              # Core types and interfaces
+│   ├── config/            # Configuration management
+│   ├── clickhouse/        # ClickHouse client
+│   ├── models/            # Model discovery and parsing
+│   ├── tasks/             # Task queue management
+│   ├── engine/            # Main engine combining scheduling and execution
+│   ├── scheduler/         # Task scheduling logic
+│   └── worker/            # Task execution logic
+└── config.example.yaml    # Example configuration file
+```
+
+### Requirements
 
 - ClickHouse
 - Redis
 
-## Installation
-
-### From Source
-```bash
-git clone https://github.com/ethpandaops/cbt.git
-
-cd cbt
-
-make build
-```
-
 ## Configuration
 
-CBT uses a single configuration file by default (`config.yaml`), with each component using only the sections it needs. This keeps configuration simple while allowing flexible deployment patterns.
+CBT uses a single configuration file (`config.yaml`) for all settings.
 
 ### Default Configuration
 
 Copy `config.example.yaml` to `config.yaml` and adjust for your environment:
 
 ```yaml
-# Shared settings
+# CBT Configuration
+
+# Logging level: panic, fatal, warn, info, debug, trace
 logging: info
+
+# Metrics server address
 metricsAddr: ":9090"
 
-# ClickHouse configuration (used by all components)
+# Health check server address (optional)
+healthCheckAddr: ":8080"
+
+# Pprof server address for profiling (optional)
+# Uncomment to enable profiling
+# pprofAddr: ":6060"
+
+# ClickHouse configuration
 clickhouse:
+  # Connection URL (required)
   url: "clickhouse://localhost:9000"
-  # Optional cluster configuration:
+  
+  # Cluster configuration (optional, for distributed deployments)
   # cluster: "default"
   # localSuffix: "_local"
-  # admin_database: admin  # Default: "admin"
-  # admin_table: cbt       # Default: "cbt"
+  
+  # Admin table configuration (optional)
+  # Defaults to admin.cbt if not specified
+  # admin_database: admin
+  # admin_table: cbt
+  
+  # Query timeout
+  queryTimeout: 30s
+  
+  # Insert timeout
+  insertTimeout: 60s
+  
+  # Enable debug logging for queries
+  debug: false
+  
+  # Keep-alive interval
+  keepAlive: 30s
 
-# Redis configuration (used by coordinator, worker, and rerun command)
+# Redis configuration
 redis:
+  # Redis connection URL (required)
   url: "redis://localhost:6379/0"
 
-# Coordinator-specific settings (ignored by worker and CLI)
-scheduling:
+# Scheduling settings
+scheduler:
+  # How often to check for tasks to schedule
   interval: 1m
-  maxConcurrentSchedules: 10
-  batchSize: 100
-
-# Worker-specific settings (ignored by coordinator and CLI)
-worker:
-  queues:
-    - "default"
-    - "high_priority"
+  
+  # Maximum number of concurrent scheduling operations
   concurrency: 10
-  # Optional: Filter models by tags
-  modelTags:
-    include: [batch, analytics]
-    exclude: [experimental]
-    require: [production]
+
+# Worker settings
+worker:
+  # Number of concurrent tasks to process
+  concurrency: 10
+  
+  # Model tags for filtering which models this instance processes (optional)
+  # Useful for running specialized instances for specific model types
+  # tags:
+  #   - "batch"
+  #   - "analytics"
+
+  # Seconds to wait for graceful shutdown
+  shutdownTimeout: 30
+
+# Model paths configuration (optional)
+# Configure where to find external and transformation models
+# Defaults to models/external and models/transformations if not specified
+# models:
+#   external:
+#     paths:
+#       - "models/external"
+#       - "/additional/external/models"
+#   transformations:
+#     paths:
+#       - "models/transformations"
+#       - "/additional/transformation/models"
 ```
 
-### Setting Up Configuration
-
-```bash
-# Copy and customize the example config
-cp config.example.yaml config.yaml
-# Edit config.yaml with your ClickHouse and Redis settings
-```
-
-The `--config` flag is optional and defaults to `config.yaml` in the current directory:
-```bash
-cbt coordinator                    # Uses config.yaml
-cbt worker                         # Uses config.yaml
-cbt models list                    # Uses config.yaml
-cbt coordinator --config prod.yaml # Uses prod.yaml
-```
-
-### Advanced: Split Configuration
-
-For complex deployments where components run on different machines or require different security contexts, you can use separate configuration files:
-
-```bash
-# Create component-specific configs
-cp coordinator.example.yaml coordinator.yaml
-cp worker.example.yaml worker.yaml
-cp cli.example.yaml cli.yaml
-
-# Run with specific configs
-cbt coordinator --config coordinator.yaml
-cbt worker --config worker.yaml
-cbt models list --config cli.yaml
-```
-
-This approach is useful when:
-- Running components on different machines
-- Components need different logging levels
-- Minimizing configuration exposure for security
-- Using different metrics ports per component
-
-## Model Definition
+## Models
 
 Models define your data pipelines and should be stored in your own repository or directory.
-Create a `models/` directory in your deployment with the following structure:
 
-```
-models/
-├── external/         # External data source definitions
-└── transformations/  # Data transformation pipelines
-```
-
-### Configurable Model Paths
+### Model Paths
 
 By default, CBT looks for models in `models/external` and `models/transformations`. You can configure multiple paths for each model type in your `config.yaml`:
 
@@ -161,37 +161,57 @@ models:
       - "/shared/transformations"   # Shared transformations
 ```
 
-This is useful for:
-- Sharing common models across multiple deployments
-- Organizing models by team or project
-- Separating test and production models
-- Mounting models from different repositories or volumes
-
-If not configured, CBT defaults to the standard paths: `models/external` and `models/transformations`.
-
 ### External Models
 
-External models define source data boundaries. Place in `models/external/`:
+External models define source data boundaries.
+
+#### Template Variables
+
+Models support Go template syntax with the following variables:
+
+- `{{ .clickhouse.cluster }}` - ClickHouse cluster name
+- `{{ .clickhouse.local_suffix }}` - Local table suffix for cluster setups
+- `{{ .self.database }}` - Current model's database
+- `{{ .self.table }}` - Current model's table
+- `{{ .self.partition }}` - Current model's partition column
+
+#### Example
 
 ```sql
 ---
 database: ethereum
 table: beacon_blocks
 partition: slot_start_date_time
-external: true
-ttl: 60s
-lag: 30  # Optional: ignore last 30 seconds of data
+ttl: 60s # Optional: how long to cache the min/max bounds for to reduce queries to the source data
+lag: 30  # Optional: ignore last 30 seconds of data to avoid incomplete data
 ---
 SELECT 
-    min(slot_start_date_time) as min,
-    max(slot_start_date_time) as max
-FROM ethereum.beacon_blocks
-WHERE slot_start_date_time >= now() - INTERVAL 7 DAY
+    toUnixTimestamp(min(slot_start_date_time)) as min,
+    toUnixTimestamp(max(slot_start_date_time)) as max
+FROM `{{ .self.database }}`.`{{ .self.table }}` FINAL
 ```
 
 ### Transformation Models
 
-Transformation models process data in intervals. Place in `models/transformations/`:
+Transformation models process data in intervals. Intervals are agnostic to the source data and are defined by the `partition` column. This could be a time interval, a block number etc.
+
+> Note: CBT does not create transformation tables and **requires** you to create them manually by design.
+
+#### Template Variables
+
+Models support Go template syntax with the following variables:
+
+- `{{ .clickhouse.cluster }}` - ClickHouse cluster name
+- `{{ .clickhouse.local_suffix }}` - Local table suffix for cluster setups
+- `{{ .self.database }}` - Current model's database
+- `{{ .self.table }}` - Current model's table
+- `{{ .self.partition }}` - Current model's partition column
+- `{{ .bounds.start }}` - Processing interval start
+- `{{ .bounds.end }}` - Processing interval end
+- `{{ .task.start }}` - Task start timestamp
+- `{{ index .dep "db" "table" "field" }}` - Access dependency configuration
+
+#### Example
 
 ```sql
 ---
@@ -199,33 +219,59 @@ database: analytics
 table: block_propagation
 partition: slot_start_date_time
 interval: 3600
-schedule: "@every 1m"
+schedule: "@every 1m" # How often to trigger the transformation
 backfill:
   enabled: true
-  schedule: "@every 5m"  # How often to scan for gaps
-  minimum: 1704067200     # Optional: earliest position to backfill from
+  schedule: "@every 5m"  # How often to try to backfill
+  minimum: 1704067200    # Optional: earliest position to backfill from (default: 0)
 tags:
   - batch
   - aggregation
 dependencies:
   - ethereum.beacon_blocks
 ---
-INSERT INTO {{ .self.database }}.{{ .self.table }}
+INSERT INTO
+  `{{ .self.database }}`.`{{ .self.table }}`
 SELECT 
+    fromUnixTimestamp({{ .task.start }}) as updated_date_time,
+    now64(3) as event_date_time,
     slot_start_date_time,
     slot,
-    epoch,
     block_root,
-    -- additional fields
-    now() as processed_at
-FROM {{ index .dep "ethereum" "beacon_blocks" "database" }}.{{ index .dep "ethereum" "beacon_blocks" "table" }}
-WHERE {{ index .dep "ethereum" "beacon_blocks" "partition" }} >= {{ .bounds.start }}
-  AND {{ index .dep "ethereum" "beacon_blocks" "partition" }} < {{ .bounds.end }}
+    count(DISTINCT meta_client_name) as client_count,
+    avg(propagation_slot_start_diff) as avg_propagation,
+    {{ .bounds.start }} as position
+FROM `{{ index .dep "ethereum" "beacon_blocks" "database" }}`.`{{ index .dep "ethereum" "beacon_blocks" "table" }}`
+WHERE {{ index .dep "ethereum" "beacon_blocks" "partition" }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
+GROUP BY slot_start_date_time, slot, block_root;
+
+-- Lazy delete deuplicate old rows (optional) to allow intervals to be re-processed
+DELETE FROM
+  `{{ .self.database }}`.`{{ .self.table }}{{ if .clickhouse.cluster }}{{ .clickhouse.local_suffix }}{{ end }}`
+{{ if .clickhouse.cluster }}
+  ON CLUSTER '{{ .clickhouse.cluster }}'
+{{ end }}
+WHERE
+  {{ .self.partition }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
+  AND updated_date_time != fromUnixTimestamp({{ .task.start }});
 ```
 
-### Python/External Script Models
+### External Script Models
 
-Models can execute external scripts instead of SQL. The script receives environment variables with ClickHouse credentials and task context:
+Models can execute external scripts instead of SQL. The script receives environment variables with ClickHouse credentials and task context.
+
+> Note: CBT does not create transformation tables and **requires** you to create them manually by design.
+
+#### Environment Variables
+
+Environment variables provided to scripts:
+- `CLICKHOUSE_URL`: Connection URL (e.g., `clickhouse://host:9000`)
+- `RANGE_START`, `RANGE_END`: Unix timestamps for processing interval
+- `TASK_START`: Task execution timestamp
+- `SELF_DATABASE`, `SELF_TABLE`: Target table info
+- `DEP_<MODEL>_DATABASE`, `DEP_<MODEL>_TABLE`: Dependency info
+
+#### Example
 
 ```yaml
 database: analytics
@@ -244,12 +290,7 @@ dependencies:
 exec: "python3 /app/scripts/process_metrics.py"
 ```
 
-Environment variables provided to scripts:
-- `CLICKHOUSE_URL`: Connection URL (e.g., `clickhouse://host:9000`)
-- `RANGE_START`, `RANGE_END`: Unix timestamps for processing interval
-- `TASK_START`: Task execution timestamp
-- `SELF_DATABASE`, `SELF_TABLE`: Target table info
-- `DEP_<MODEL>_DATABASE`, `DEP_<MODEL>_TABLE`: Dependency info
+See the [example script](./example/scripts/entity_changes.py) for a the python script.
 
 ## Quick Start
 
@@ -286,8 +327,8 @@ docker exec cbt-clickhouse clickhouse-client -q "
   WHERE database = 'analytics' 
   GROUP BY table"
 
-# View engine logs
-docker logs example-engine-1 --tail 50
+# View logs
+docker-compose logs -f
 
 # Check admin table for completed tasks
 docker exec cbt-clickhouse clickhouse-client -q "
@@ -299,48 +340,20 @@ docker exec cbt-clickhouse clickhouse-client -q "
 open http://localhost:8080  # Asynqmon dashboard
 ```
 
-Then restart the worker:
-```bash
-docker-compose -f example/docker-compose.yml restart worker
-```
-
-### Set Up Your Own
-```bash
-# 1. Build CBT
-make build
-
-# 2. Set up the admin table in ClickHouse
-# See "Admin Table Setup" section above for SQL commands
-
-# 3. Copy and customize config
-cp config.example.yaml config.yaml
-# Edit config.yaml with your ClickHouse and Redis settings
-
-# 4. Create your models directory
-mkdir -p models/external models/transformations
-# Add your model definitions
-
-# 5. Run CBT (config.yaml is used by default)
-./bin/cbt
-```
-
 ## Usage
 
-## Template Variables
+### Running CBT
 
-Models support Go template syntax with the following variables:
+```bash
+# Run CBT with default config.yaml
+cbt
 
-- `{{ .clickhouse.cluster }}` - ClickHouse cluster name
-- `{{ .clickhouse.local_suffix }}` - Local table suffix for cluster setups
-- `{{ .self.database }}` - Current model's database
-- `{{ .self.table }}` - Current model's table
-- `{{ .self.partition }}` - Current model's partition column
-- `{{ .bounds.start }}` - Processing interval start
-- `{{ .bounds.end }}` - Processing interval end
-- `{{ .task.start }}` - Task start timestamp
-- `{{ index .dep "db" "table" "field" }}` - Access dependency configuration
+# Run with custom config
+cbt --config production.yaml
+```
 
-## Admin Table Setup
+
+### Admin Table Setup
 
 CBT tracks completed transformations in an admin table for idempotency and gap detection. This table must be created before running CBT.
 
@@ -411,8 +424,6 @@ ENGINE = Distributed(
 );
 ```
 
-**Note**: Replace `{cluster}`, `{shard}`, and `{replica}` with your actual cluster configuration values.
-
 ### Using Custom Admin Tables
 
 If you need to use a different database or table name:
@@ -466,84 +477,6 @@ FROM intervals
 WHERE next_position > end_pos;
 ```
 
-## Development
-
-### Project Structure
-
-```
-cbt/
-├── cmd/                    # CLI commands
-├── pkg/
-│   ├── core/              # Core types and interfaces
-│   ├── config/            # Configuration management
-│   ├── clickhouse/        # ClickHouse client
-│   ├── models/            # Model discovery and parsing
-│   ├── tasks/             # Task queue management
-│   ├── coordinator/       # Coordination and scheduling
-│   └── worker/            # Task execution
-├── models/
-│   ├── external/          # External model definitions
-│   └── transformations/   # Transformation model definitions
-└── config.yaml            # Configuration file (default)
-```
-
-### Building from Source
-
-```bash
-git clone https://github.com/ethpandaops/cbt
-cd cbt
-go build -o cbt main.go
-```
-
-## Key Concepts
-
-### Position-based Processing
-CBT uses Unix timestamps as "positions" to track progress. Each task processes data from `position` to `position + interval`. This enables:
-- Exact replay of any time range
-- Parallel processing of different intervals
-- Efficient gap detection and backfilling
-
-### Model Configuration Fields
-- `interval`: Processing window size in seconds
-- `schedule`: How often to check for new data. Supports:
-  - `@every` format: `@every 30s`, `@every 5m`, `@every 1h`
-  - Named formats: `@hourly`, `@daily`, `@weekly`, `@monthly`
-  - **Real cron expressions**: `"*/5 * * * *"` (every 5 minutes), `"0 */6 * * *"` (every 6 hours)
-- `backfill`: Automatic gap filling configuration:
-  - `enabled`: Enable backfill scanning (required)
-  - `schedule`: How often to scan for gaps (required, same formats as model schedule)
-  - `minimum`: Earliest position to backfill from (optional, Unix timestamp)
-- `ttl`: Cache duration for external model bounds (reduces ClickHouse queries)
-- `lag`: Seconds to subtract from max for external models (handles late-arriving data)
-- `exec`: Command to execute instead of SQL
-
-### TTL Caching for External Models
-
-CBT supports TTL-based caching of external model boundaries to improve performance:
-
-#### How It Works
-1. When `ttl` is configured on an external model, CBT caches the min/max boundaries in Redis
-2. Subsequent queries within the TTL period use cached values instead of querying ClickHouse
-3. After TTL expires, the next query refreshes the cache
-4. The `lag` configuration is applied to cached values dynamically
-
-#### Benefits
-- **Reduced ClickHouse Load**: Fewer queries for frequently-checked external models
-- **Faster Validation**: Dependency checks complete faster using cached boundaries
-- **Configurable Trade-off**: Balance between data freshness and performance
-
-#### Example Configuration
-```yaml
----
-database: ethereum
-table: beacon_blocks
-partition: slot_start_date_time
-external: true
-ttl: 60s  # Cache boundaries for 60 seconds
-lag: 30   # Ignore last 30 seconds of data
----
-```
-
 ## How CBT Ensures Data Consistency
 
 CBT uses comprehensive dependency validation to ensure data consistency across your pipelines. Before processing any interval, the system validates that all required data is available:
@@ -562,10 +495,7 @@ CBT uses comprehensive dependency validation to ensure data consistency across y
 │    │         ├─ Apply lag if configured              │
 │    │         │   (max = max - lag seconds)           │
 │    │         ├─ Outside bounds? → FAIL ❌            │
-│    │         └─ Within bounds?                       │
-│    │              └─ Check actual data exists        │
-│    │                   ├─ No data? → FAIL ❌         │
-│    │                   └─ Has data? → PASS ✅        │
+│    │         └─ Within bounds? → PASS ✅             │
 │    │                                                 │
 │    └─ NO (Transformation) →                          │
 │            Check admin.cbt coverage                  │
@@ -580,17 +510,15 @@ CBT uses comprehensive dependency validation to ensure data consistency across y
 ### Key Validation Features
 
 - **Pull-through validation**: Workers always verify dependencies at execution time, not just at scheduling
-- **Two-phase external validation**: For external models, CBT checks both data bounds AND actual data existence to handle sparse datasets
 - **Lag handling**: External models with `lag` configured have their max boundary adjusted during validation to ignore recent, potentially incomplete data
 - **Coverage tracking**: The admin table tracks all completed intervals, enabling precise dependency validation
 - **Automatic retry**: Failed validations are automatically retried on the next schedule cycle
-- **Cascade triggering**: When a model completes, all dependent models are immediately checked for processing
+- **Cascade triggering**: When a model completes, all dependent models are immediately (within 5 seconds) checked for processing
 
 This validation system ensures that:
 1. No model processes data before its dependencies are ready
-2. Sparse or missing data in external sources is properly detected
-3. Processing can automatically resume when dependencies become available
-4. Data consistency is maintained even in distributed environments
+1. Processing can automatically resume when dependencies become available
+1. Data consistency is maintained even in distributed environments
 
 ## License
 
