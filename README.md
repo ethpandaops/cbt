@@ -26,24 +26,6 @@ CBT runs as a unified binary that handles both coordination/scheduling and task 
 - [Asynq](https://github.com/hibiken/asynq) prevents duplicate transformation tasks from being scheduled.
 
 
-### Project Structure
-
-```
-cbt/
-├── cmd/                   # Main command entry point
-├── example/               # Example deployment
-├── pkg/
-│   ├── core/              # Core types and interfaces
-│   ├── config/            # Configuration management
-│   ├── clickhouse/        # ClickHouse client
-│   ├── models/            # Model discovery and parsing
-│   ├── tasks/             # Task queue management
-│   ├── engine/            # Main engine combining scheduling and execution
-│   ├── scheduler/         # Task scheduling logic
-│   └── worker/            # Task execution logic
-└── config.example.yaml    # Example configuration file
-```
-
 ### Requirements
 
 - ClickHouse
