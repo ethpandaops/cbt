@@ -1,0 +1,80 @@
+# CBT Configuration
+
+# Logging level: panic, fatal, warn, info, debug, trace
+logging: info
+
+# Metrics server address
+metricsAddr: ":9090"
+
+# Health check server address (optional)
+healthCheckAddr: ":8080"
+
+# Pprof server address for profiling (optional)
+# Uncomment to enable profiling
+# pprofAddr: ":6060"
+
+# ClickHouse configuration
+clickhouse:
+  # Connection URL (required)
+  url: "clickhouse://localhost:9000"
+  
+  # Cluster configuration (optional, for distributed deployments)
+  # cluster: "default"
+  # localSuffix: "_local"
+  
+  # Admin table configuration (optional)
+  # Defaults to admin.cbt if not specified
+  # admin_database: admin
+  # admin_table: cbt
+  
+  # Query timeout
+  queryTimeout: 30s
+  
+  # Insert timeout
+  insertTimeout: 60s
+  
+  # Enable debug logging for queries
+  debug: false
+  
+  # Keep-alive interval
+  keepAlive: 30s
+
+# Redis configuration
+redis:
+  # Redis connection URL (required)
+  url: "redis://localhost:6379/0"
+
+# Scheduling settings
+scheduler:
+  # How often to check for tasks to schedule
+  interval: 1m
+  
+  # Maximum number of concurrent scheduling operations
+  concurrency: 10
+
+# Worker settings
+worker:
+  # Number of concurrent tasks to process
+  concurrency: 10
+  
+  # Model tags for filtering which models this instance processes (optional)
+  # Useful for running specialized instances for specific model types
+  # tags:
+  #   - "batch"
+  #   - "analytics"
+
+  # Seconds to wait for graceful shutdown
+  shutdownTimeout: 30
+
+# Model paths configuration (optional)
+# Configure where to find external and transformation models
+# Defaults to models/external and models/transformations if not specified
+# models:
+#   external:
+#     paths:
+#       - "models/external"
+#       - "/additional/external/models"
+#   transformations:
+#     paths:
+#       - "models/transformations"
+#       - "/additional/transformation/models"

@@ -1,0 +1,15 @@
+database: analytics
+table: entity_changes
+partition: hour_start
+interval: 120  # 2 minute intervals
+schedule: "@every 1m"
+backfill:
+  enabled: true
+  schedule: "@every 5m"
+tags:
+  - python
+  - entity
+  - metrics
+dependencies:
+  - ethereum.validator_entity
+exec: "python3 /app/scripts/entity_changes.py"

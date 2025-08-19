@@ -1,0 +1,55 @@
+# CBT Configuration for Example Environment
+# This single configuration file is used by all components in the docker-compose setup
+
+# Logging level
+logging: debug
+
+# Metrics server address
+metricsAddr: ":9090"
+
+# Health check server address
+healthCheckAddr: ":8080"
+
+# Optional pprof profiling
+# pprofAddr: ":6060"
+
+# ClickHouse configuration (used by all components)
+clickhouse:
+  url: "http://clickhouse:8123"
+  cluster: ""
+  localSuffix: "_local"
+  queryTimeout: 30s
+  insertTimeout: 60s
+  debug: false
+  keepAlive: 30s
+  # Admin table uses defaults (admin.cbt)
+  # admin_database: admin
+  # admin_table: cbt
+
+# Redis configuration (used by coordinator, worker, and rerun command)
+redis:
+  url: "redis://redis:6379"
+
+# Coordinator-specific settings (ignored by worker and CLI)
+scheduling:
+  interval: 1m
+  maxConcurrentSchedules: 10
+
+# Worker-specific settings (ignored by coordinator and CLI)
+worker:
+  concurrency: 10
+  # No model tag filtering in example
+  # modelTags:
+  #   include: []
+  #   exclude: []
+  #   require: []
+  shutdownTimeout: 30
+
+# Model paths configuration (using defaults)
+# models:
+#   external:
+#     paths:
+#       - "models/external"
+#   transformations:
+#     paths:
+#       - "models/transformations"
