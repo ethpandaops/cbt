@@ -8,8 +8,10 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
-	"github.com/ethpandaops/cbt/pkg/models/rendering"
+	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/tasks"
 	"github.com/sirupsen/logrus"
 )
@@ -21,21 +23,19 @@ var (
 
 // ModelExecutor implements the execution of model transformations
 type ModelExecutor struct {
-	chConfig    *clickhouse.Config
-	workerCfg   *Settings
-	chClient    clickhouse.ClientInterface
-	templateEng *rendering.TemplateEngine
-	logger      *logrus.Logger
+	logger   *logrus.Logger
+	chClient clickhouse.ClientInterface
+	models   *models.Service
+	admin    *admin.Service
 }
 
 // NewModelExecutor creates a new model executor
-func NewModelExecutor(chConfig *clickhouse.Config, workerCfg *Settings, chClient clickhouse.ClientInterface, templateEng *rendering.TemplateEngine, logger *logrus.Logger) *ModelExecutor {
+func NewModelExecutor(logger *logrus.Logger, chClient clickhouse.ClientInterface, modelsService *models.Service, adminManager *admin.Service) *ModelExecutor {
 	return &ModelExecutor{
-		chConfig:    chConfig,
-		workerCfg:   workerCfg,
-		chClient:    chClient,
-		templateEng: templateEng,
-		logger:      logger,
+		logger:   logger,
+		chClient: chClient,
+		models:   modelsService,
+		admin:    adminManager,
 	}
 }
 
@@ -46,16 +46,38 @@ func (e *ModelExecutor) Execute(ctx context.Context, taskCtxInterface interface{
 		return ErrInvalidTaskContext
 	}
 
+	// Validate first
+	if err := e.Validate(ctx, taskCtx); err != nil {
+		return err
+	}
+
+	config := taskCtx.Transformation.GetConfig()
+
 	e.logger.WithFields(logrus.Fields{
-		"model_id": fmt.Sprintf("%s.%s", taskCtx.ModelConfig.Database, taskCtx.ModelConfig.Table),
+		"model_id": fmt.Sprintf("%s.%s", config.Database, config.Table),
 		"position": taskCtx.Position,
 		"interval": taskCtx.Interval,
 	}).Info("Executing model transformation")
 
-	if taskCtx.ModelConfig.Exec != "" {
-		return e.executeCommand(ctx, taskCtx)
+	switch taskCtx.Transformation.GetType() {
+	case transformation.TransformationTypeExec:
+		if err := e.executeCommand(ctx, taskCtx); err != nil {
+			return err
+		}
+	case transformation.TransformationTypeSQL:
+		if err := e.executeSQL(ctx, taskCtx); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("invalid transformation type: %s", taskCtx.Transformation.GetType())
 	}
-	return e.executeSQL(ctx, taskCtx)
+
+	// Record completion in admin table
+	if err := e.admin.RecordCompletion(ctx, taskCtx.Transformation.GetID(), taskCtx.Position, taskCtx.Interval); err != nil {
+		return fmt.Errorf("failed to record completion: %w", err)
+	}
+
+	return nil
 }
 
 // Validate checks if the model can be executed
@@ -64,28 +86,25 @@ func (e *ModelExecutor) Validate(ctx context.Context, taskCtxInterface interface
 	if !ok {
 		return ErrInvalidTaskContext
 	}
-	// Check if target table exists
-	exists, err := clickhouse.TableExists(ctx, e.chClient, taskCtx.ModelConfig.Database, taskCtx.ModelConfig.Table)
+
+	config := taskCtx.Transformation.GetConfig()
+
+	exists, err := clickhouse.TableExists(ctx, e.chClient, config.Database, config.Table)
 	if err != nil {
 		return fmt.Errorf("failed to check table existence: %w", err)
 	}
 
 	if !exists {
-		// Create table if it doesn't exist
-		if err := e.createTargetTable(ctx, taskCtx); err != nil {
-			return fmt.Errorf("failed to create target table: %w", err)
-		}
+		return fmt.Errorf("table %s.%s does not exist", config.Database, config.Table)
 	}
 
 	return nil
 }
 
 func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskContext) error {
-	// Build template variables
-	variables := e.templateEng.BuildVariables(e.chConfig, &taskCtx.ModelConfig, taskCtx.Position, taskCtx.Interval, taskCtx.StartTime)
+	config := taskCtx.Transformation.GetConfig()
 
-	// Render SQL template
-	renderedSQL, err := e.templateEng.Render(taskCtx.ModelConfig.Content, variables)
+	renderedSQL, err := e.models.RenderTransformation(taskCtx.Transformation, taskCtx.Position, taskCtx.Interval, taskCtx.StartTime)
 	if err != nil {
 		return fmt.Errorf("failed to render SQL template: %w", err)
 	}
@@ -95,7 +114,7 @@ func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskConte
 
 	e.logger.WithFields(logrus.Fields{
 		"count":    len(statements),
-		"model_id": fmt.Sprintf("%s.%s", taskCtx.ModelConfig.Database, taskCtx.ModelConfig.Table),
+		"model_id": fmt.Sprintf("%s.%s", config.Database, config.Table),
 	}).Info("Split SQL into statements")
 
 	// Execute each statement
@@ -114,7 +133,7 @@ func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskConte
 		e.logger.WithFields(logrus.Fields{
 			"statement_num": i + 1,
 			"total":         len(statements),
-			"model_id":      fmt.Sprintf("%s.%s", taskCtx.ModelConfig.Database, taskCtx.ModelConfig.Table),
+			"model_id":      fmt.Sprintf("%s.%s", config.Database, config.Table),
 			"sql_preview":   logSQL,
 		}).Info("Executing SQL statement")
 
@@ -129,7 +148,7 @@ func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskConte
 	}
 
 	e.logger.WithFields(logrus.Fields{
-		"model_id":   fmt.Sprintf("%s.%s", taskCtx.ModelConfig.Database, taskCtx.ModelConfig.Table),
+		"model_id":   fmt.Sprintf("%s.%s", config.Database, config.Table),
 		"position":   taskCtx.Position,
 		"interval":   taskCtx.Interval,
 		"statements": len(statements),
@@ -139,18 +158,23 @@ func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskConte
 }
 
 func (e *ModelExecutor) executeCommand(ctx context.Context, taskCtx *tasks.TaskContext) error {
-	// Build environment variables
-	env := rendering.BuildEnvironmentVariables(e.chConfig, &taskCtx.ModelConfig, taskCtx.Position, taskCtx.Interval, taskCtx.StartTime)
+	config := taskCtx.Transformation.GetConfig()
+	command := taskCtx.Transformation.GetValue()
+
+	env, err := e.models.GetTransformationEnvironmentVariables(taskCtx.Transformation, taskCtx.Position, taskCtx.Interval, taskCtx.StartTime)
+	if err != nil {
+		return fmt.Errorf("failed to render SQL template: %w", err)
+	}
 
 	// Execute command
 	// #nosec G204 -- Model exec commands are defined by trusted model files
-	cmd := exec.CommandContext(ctx, "sh", "-c", taskCtx.ModelConfig.Exec)
-	cmd.Env = append(cmd.Env, env...)
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd.Env = append(cmd.Env, *env...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		e.logger.WithFields(logrus.Fields{
-			"command": taskCtx.ModelConfig.Exec,
+			"command": command,
 			"output":  string(output),
 			"error":   err,
 		}).Error("Command execution failed")
@@ -158,73 +182,10 @@ func (e *ModelExecutor) executeCommand(ctx context.Context, taskCtx *tasks.TaskC
 	}
 
 	e.logger.WithFields(logrus.Fields{
-		"model_id": fmt.Sprintf("%s.%s", taskCtx.ModelConfig.Database, taskCtx.ModelConfig.Table),
+		"model_id": fmt.Sprintf("%s.%s", config.Database, config.Table),
 		"position": taskCtx.Position,
 		"interval": taskCtx.Interval,
 	}).Info("Model command executed successfully")
-
-	return nil
-}
-
-func (e *ModelExecutor) createTargetTable(ctx context.Context, taskCtx *tasks.TaskContext) error {
-	// This is a simplified table creation - in production, you'd want to use the model's schema definition
-	query := fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s.%s (
-			%s DateTime,
-			position UInt64 DEFAULT %d,
-			_updated_at DateTime DEFAULT now()
-		) ENGINE = ReplacingMergeTree(_updated_at)
-		PARTITION BY toYYYYMM(%s)
-		ORDER BY (%s, position)
-	`, taskCtx.ModelConfig.Database, taskCtx.ModelConfig.Table,
-		taskCtx.ModelConfig.Partition, taskCtx.Position,
-		taskCtx.ModelConfig.Partition, taskCtx.ModelConfig.Partition)
-
-	return e.chClient.Execute(ctx, query)
-}
-
-// TransformationModelExecutor specifically handles transformation models
-type TransformationModelExecutor struct {
-	*ModelExecutor
-	adminManager *clickhouse.AdminTableManager
-}
-
-// NewTransformationModelExecutor creates a new transformation model executor
-func NewTransformationModelExecutor(
-	chConfig *clickhouse.Config,
-	workerCfg *Settings,
-	chClient clickhouse.ClientInterface,
-	templateEng *rendering.TemplateEngine,
-	adminManager *clickhouse.AdminTableManager,
-	logger *logrus.Logger,
-) *TransformationModelExecutor {
-	return &TransformationModelExecutor{
-		ModelExecutor: NewModelExecutor(chConfig, workerCfg, chClient, templateEng, logger),
-		adminManager:  adminManager,
-	}
-}
-
-// Execute runs the transformation and records completion
-func (t *TransformationModelExecutor) Execute(ctx context.Context, taskCtxInterface interface{}) error {
-	taskCtx, ok := taskCtxInterface.(*tasks.TaskContext)
-	if !ok {
-		return ErrInvalidTaskContext
-	}
-	// Validate first
-	if err := t.Validate(ctx, taskCtx); err != nil {
-		return err
-	}
-
-	// Execute the transformation
-	if err := t.ModelExecutor.Execute(ctx, taskCtx); err != nil {
-		return err
-	}
-
-	// Record completion in admin table
-	modelID := fmt.Sprintf("%s.%s", taskCtx.ModelConfig.Database, taskCtx.ModelConfig.Table)
-	if err := t.adminManager.RecordCompletion(ctx, modelID, taskCtx.Position, taskCtx.Interval); err != nil {
-		return fmt.Errorf("failed to record completion: %w", err)
-	}
 
 	return nil
 }

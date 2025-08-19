@@ -217,8 +217,8 @@ SELECT
     -- additional fields
     now() as processed_at
 FROM {{ index .dep "ethereum" "beacon_blocks" "database" }}.{{ index .dep "ethereum" "beacon_blocks" "table" }}
-WHERE {{ index .dep "ethereum" "beacon_blocks" "partition" }} >= {{ .range.start }}
-  AND {{ index .dep "ethereum" "beacon_blocks" "partition" }} < {{ .range.end }}
+WHERE {{ index .dep "ethereum" "beacon_blocks" "partition" }} >= {{ .bounds.start }}
+  AND {{ index .dep "ethereum" "beacon_blocks" "partition" }} < {{ .bounds.end }}
 ```
 
 ### Python/External Script Models
@@ -401,8 +401,8 @@ Models support Go template syntax with the following variables:
 - `{{ .self.database }}` - Current model's database
 - `{{ .self.table }}` - Current model's table
 - `{{ .self.partition }}` - Current model's partition column
-- `{{ .range.start }}` - Processing interval start
-- `{{ .range.end }}` - Processing interval end
+- `{{ .bounds.start }}` - Processing interval start
+- `{{ .bounds.end }}` - Processing interval end
 - `{{ .task.start }}` - Task start timestamp
 - `{{ index .dep "db" "table" "field" }}` - Access dependency configuration
 

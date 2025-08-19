@@ -3,55 +3,77 @@ package validation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"github.com/ethpandaops/cbt/pkg/dependencies"
+	"github.com/ethpandaops/cbt/pkg/admin"
+	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/sirupsen/logrus"
 )
 
-// ExternalModelExecutor interface for getting external model bounds
-type ExternalModelExecutor interface {
-	GetMinMax(ctx context.Context, modelConfig *models.ModelConfig) (minPos, maxPos uint64, err error)
-	HasDataInRange(ctx context.Context, modelConfig *models.ModelConfig, startPos, endPos uint64) (bool, error)
+// DependencyValidator implements the DependencyValidator interface
+type DependencyValidator struct {
+	log             *logrus.Logger
+	admin           *admin.Service
+	externalManager *ExternalModelValidator
+	dag             *models.DependencyGraph
 }
 
-// DependencyValidatorImpl implements the DependencyValidator interface
-type DependencyValidatorImpl struct {
-	adminManager    AdminTableManagerInterface
-	externalManager ExternalModelExecutor
-	depManager      *dependencies.DependencyGraph
-	logger          *logrus.Logger
+// DependencyStatus represents the status of a single dependency
+type DependencyStatus struct {
+	ModelID   string
+	Available bool
+	MinPos    uint64
+	MaxPos    uint64
+	Error     error
 }
+
+// Result contains the result of dependency validation
+type Result struct {
+	CanProcess   bool
+	Dependencies []DependencyStatus
+	Errors       []error
+}
+
+// Validation-specific errors
+var (
+	ErrModelNotFound      = errors.New("model not found")
+	ErrDependencyNotFound = errors.New("dependency model not found")
+	ErrRangeNotAvailable  = errors.New("required range not available")
+	ErrRangeNotCovered    = errors.New("range not fully covered")
+)
 
 // NewDependencyValidator creates a new dependency validator
 func NewDependencyValidator(
-	adminManager AdminTableManagerInterface,
-	externalManager ExternalModelExecutor,
-	depManager *dependencies.DependencyGraph,
-	logger *logrus.Logger,
-) *DependencyValidatorImpl {
-	return &DependencyValidatorImpl{
-		adminManager:    adminManager,
+	log *logrus.Logger,
+	chClient clickhouse.ClientInterface,
+	adminService *admin.Service,
+	modelsService *models.Service,
+) *DependencyValidator {
+	externalManager := NewExternalModelExecutor(log, chClient, adminService, modelsService)
+
+	return &DependencyValidator{
+		log:             log,
+		admin:           adminService,
 		externalManager: externalManager,
-		depManager:      depManager,
-		logger:          logger,
+		dag:             modelsService.GetDAG(),
 	}
 }
 
 // ValidateDependencies checks if all dependencies are satisfied for a model at a given position
-func (v *DependencyValidatorImpl) ValidateDependencies(ctx context.Context, modelID string, position, interval uint64) (Result, error) {
-	_, exists := v.depManager.GetModelConfig(modelID)
-	if !exists {
+func (v *DependencyValidator) ValidateDependencies(ctx context.Context, modelID string, position, interval uint64) (Result, error) {
+	_, err := v.dag.GetNode(modelID)
+	if err != nil {
 		return Result{
 			CanProcess: false,
-			Errors:     []error{fmt.Errorf("%w: %s", models.ErrModelNotFound, modelID)},
+			Errors:     []error{fmt.Errorf("%w: %s", ErrModelNotFound, modelID)},
 		}, nil
 	}
 
-	deps := v.depManager.GetDependencies(modelID)
+	deps := v.dag.GetDependencies(modelID)
 	if len(deps) == 0 {
-		v.logger.WithField("model_id", modelID).Debug("No dependencies to validate")
+		v.log.WithField("model_id", modelID).Debug("No dependencies to validate")
 		return Result{CanProcess: true}, nil
 	}
 
@@ -60,8 +82,8 @@ func (v *DependencyValidatorImpl) ValidateDependencies(ctx context.Context, mode
 	canProcess := true
 
 	for _, depID := range deps {
-		depConfig, exists := v.depManager.GetModelConfig(depID)
-		if !exists {
+		depNode, err := v.dag.GetNode(depID)
+		if err != nil {
 			status := DependencyStatus{
 				ModelID:   depID,
 				Available: false,
@@ -73,18 +95,42 @@ func (v *DependencyValidatorImpl) ValidateDependencies(ctx context.Context, mode
 			continue
 		}
 
-		status, err := v.validateSingleDependency(ctx, depID, &depConfig, position, interval)
+		var status DependencyStatus
+
+		switch depNode.NodeType {
+		case models.NodeTypeTransformation:
+			model, ok := depNode.Model.(models.Transformation)
+			if !ok {
+				errors = append(errors, fmt.Errorf("invalid dependency model type: %T", depNode.Model))
+				canProcess = false
+				continue
+			}
+
+			status, err = v.validateTransformationDependency(ctx, model, position, interval)
+		case models.NodeTypeExternal:
+			model, ok := depNode.Model.(models.External)
+			if !ok {
+				errors = append(errors, fmt.Errorf("invalid dependency model type: %T", depNode.Model))
+				canProcess = false
+				continue
+			}
+
+			status, err = v.validateExternalDependency(ctx, model, position, interval)
+		}
+
 		if err != nil {
 			errors = append(errors, err)
 			canProcess = false
 		}
+
 		if !status.Available {
 			canProcess = false
 		}
+
 		depStatuses = append(depStatuses, status)
 	}
 
-	v.logger.WithFields(logrus.Fields{
+	v.log.WithFields(logrus.Fields{
 		"model_id":    modelID,
 		"position":    position,
 		"interval":    interval,
@@ -99,19 +145,12 @@ func (v *DependencyValidatorImpl) ValidateDependencies(ctx context.Context, mode
 	}, nil
 }
 
-func (v *DependencyValidatorImpl) validateSingleDependency(ctx context.Context, depID string, depConfig *models.ModelConfig, position, interval uint64) (DependencyStatus, error) {
-	if depConfig.External {
-		return v.validateExternalDependency(ctx, depConfig, position, interval)
-	}
-	return v.validateTransformationDependency(ctx, depID, position, interval)
-}
-
-func (v *DependencyValidatorImpl) validateExternalDependency(ctx context.Context, depConfig *models.ModelConfig, position, interval uint64) (DependencyStatus, error) {
+func (v *DependencyValidator) validateExternalDependency(ctx context.Context, model models.External, position, interval uint64) (DependencyStatus, error) {
 	status := DependencyStatus{
-		ModelID: fmt.Sprintf("%s.%s", depConfig.Database, depConfig.Table),
+		ModelID: model.GetID(),
 	}
 
-	minPos, maxPos, err := v.externalManager.GetMinMax(ctx, depConfig)
+	minPos, maxPos, err := v.externalManager.GetMinMax(ctx, model)
 	if err != nil {
 		status.Error = fmt.Errorf("failed to get external model bounds: %w", err)
 		return status, err
@@ -129,7 +168,7 @@ func (v *DependencyValidatorImpl) validateExternalDependency(ctx context.Context
 		status.Available = false
 		status.Error = fmt.Errorf("%w for model %s: required range [%d, %d), model has [%d, %d]",
 			ErrRangeNotAvailable, status.ModelID, requiredStart, requiredEnd, minPos, maxPos)
-		v.logger.WithFields(logrus.Fields{
+		v.log.WithFields(logrus.Fields{
 			"dep_model": status.ModelID,
 			"available": status.Available,
 			"min":       minPos,
@@ -137,25 +176,18 @@ func (v *DependencyValidatorImpl) validateExternalDependency(ctx context.Context
 			"req_start": requiredStart,
 			"req_end":   requiredEnd,
 		}).Debug("External dependency outside bounds")
+
 		return status, nil
 	}
 
-	// For sparse data: Check if ANY data actually exists in this specific range
-	hasData, err := v.externalManager.HasDataInRange(ctx, depConfig, requiredStart, requiredEnd)
-	if err != nil {
-		// Fall back to bounds check on error
-		v.logger.WithError(err).Warn("Failed to check data existence in range, falling back to bounds check")
-		status.Available = requiredStart >= minPos && requiredEnd <= maxPos
-	} else {
-		status.Available = hasData
-	}
+	status.Available = requiredStart >= minPos && requiredEnd <= maxPos
 
 	if !status.Available {
 		status.Error = fmt.Errorf("%w for model %s: no data in range [%d, %d)",
 			ErrRangeNotAvailable, status.ModelID, requiredStart, requiredEnd)
 	}
 
-	v.logger.WithFields(logrus.Fields{
+	v.log.WithFields(logrus.Fields{
 		"dep_model": status.ModelID,
 		"available": status.Available,
 		"min":       minPos,
@@ -168,15 +200,15 @@ func (v *DependencyValidatorImpl) validateExternalDependency(ctx context.Context
 	return status, nil
 }
 
-func (v *DependencyValidatorImpl) validateTransformationDependency(ctx context.Context, depID string, position, interval uint64) (DependencyStatus, error) {
+func (v *DependencyValidator) validateTransformationDependency(ctx context.Context, model models.Transformation, position, interval uint64) (DependencyStatus, error) {
 	status := DependencyStatus{
-		ModelID: depID,
+		ModelID: model.GetID(),
 	}
 
 	// Check range coverage in admin table
-	available, err := v.adminManager.GetCoverage(ctx, depID, position, position+interval)
+	available, err := v.admin.GetCoverage(ctx, model.GetID(), position, position+interval)
 	if err != nil {
-		status.Error = fmt.Errorf("failed to check coverage for %s: %w", depID, err)
+		status.Error = fmt.Errorf("failed to check coverage for %s: %w", model.GetID(), err)
 		return status, err
 	}
 
@@ -184,11 +216,11 @@ func (v *DependencyValidatorImpl) validateTransformationDependency(ctx context.C
 
 	if !available {
 		status.Error = fmt.Errorf("%w for model %s: range [%d, %d)",
-			ErrRangeNotCovered, depID, position, position+interval)
+			ErrRangeNotCovered, model.GetID(), position, position+interval)
 	}
 
-	v.logger.WithFields(logrus.Fields{
-		"dep_model": depID,
+	v.log.WithFields(logrus.Fields{
+		"dep_model": model.GetID(),
 		"available": available,
 		"position":  position,
 		"interval":  interval,
@@ -199,10 +231,10 @@ func (v *DependencyValidatorImpl) validateTransformationDependency(ctx context.C
 
 // GetInitialPosition calculates the initial position for a model based on its dependencies
 // Returns the earliest position where all dependencies have data available
-func (v *DependencyValidatorImpl) GetInitialPosition(ctx context.Context, modelID string) (uint64, error) {
-	v.logger.WithField("model_id", modelID).Debug("GetInitialPosition called")
+func (v *DependencyValidator) GetInitialPosition(ctx context.Context, modelID string) (uint64, error) {
+	v.log.WithField("model_id", modelID).Debug("GetInitialPosition called")
 
-	deps := v.depManager.GetDependencies(modelID)
+	deps := v.dag.GetDependencies(modelID)
 	if len(deps) == 0 {
 		return 0, nil // No dependencies, start from 0
 	}
@@ -210,12 +242,7 @@ func (v *DependencyValidatorImpl) GetInitialPosition(ctx context.Context, modelI
 	var maxOfMins uint64
 
 	for _, depID := range deps {
-		depConfig, exists := v.depManager.GetModelConfig(depID)
-		if !exists {
-			return 0, fmt.Errorf("%w: %s", ErrDependencyNotFound, depID)
-		}
-
-		minPos, err := v.getMinPositionForDependency(ctx, &depConfig, depID)
+		minPos, err := v.getMinPositionForDependency(ctx, depID)
 		if err != nil {
 			return 0, err
 		}
@@ -227,30 +254,40 @@ func (v *DependencyValidatorImpl) GetInitialPosition(ctx context.Context, modelI
 	}
 
 	// Get the model's interval
-	modelConfig, _ := v.depManager.GetModelConfig(modelID)
+	node, err := v.dag.GetNode(modelID)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %s", ErrModelNotFound, modelID)
+	}
+
+	if node.NodeType != models.NodeTypeTransformation {
+		return 0, fmt.Errorf("model %s is not a transformation", modelID)
+	}
+
+	model := node.Model.(models.Transformation)
+	interval := model.GetConfig().Interval
 
 	// Round down to the nearest interval boundary
-	if maxOfMins > 0 && modelConfig.Interval > 0 {
+	if maxOfMins > 0 && interval > 0 {
 		// Align to interval boundary
-		alignedPos := (maxOfMins / modelConfig.Interval) * modelConfig.Interval
+		alignedPos := (maxOfMins / interval) * interval
 
 		// If rounding down puts us before the data starts, round up instead
 		if alignedPos < maxOfMins {
-			v.logger.WithFields(logrus.Fields{
+			v.log.WithFields(logrus.Fields{
 				"model_id":   modelID,
 				"maxOfMins":  maxOfMins,
 				"alignedPos": alignedPos,
-				"interval":   modelConfig.Interval,
-				"rounded_up": alignedPos + modelConfig.Interval,
+				"interval":   interval,
+				"rounded_up": alignedPos + interval,
 			}).Debug("Rounding up initial position")
-			alignedPos += modelConfig.Interval
+			alignedPos += interval
 		}
 
-		v.logger.WithFields(logrus.Fields{
+		v.log.WithFields(logrus.Fields{
 			"model_id":   modelID,
 			"maxOfMins":  maxOfMins,
 			"alignedPos": alignedPos,
-			"interval":   modelConfig.Interval,
+			"interval":   interval,
 		}).Debug("Calculated initial position")
 
 		return alignedPos, nil
@@ -259,23 +296,29 @@ func (v *DependencyValidatorImpl) GetInitialPosition(ctx context.Context, modelI
 	return maxOfMins, nil
 }
 
-func (v *DependencyValidatorImpl) getMinPositionForDependency(ctx context.Context, depConfig *models.ModelConfig, depID string) (uint64, error) {
-	if depConfig.External {
-		// For external models, get the minimum position (earliest data)
-		minPos, _, err := v.externalManager.GetMinMax(ctx, depConfig)
+func (v *DependencyValidator) getMinPositionForDependency(ctx context.Context, depID string) (uint64, error) {
+	depNode, err := v.dag.GetNode(depID)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %s", ErrDependencyNotFound, depID)
+	}
+
+	switch depNode.NodeType {
+	case models.NodeTypeExternal:
+		minPos, _, err := v.externalManager.GetMinMax(ctx, depNode.Model.(models.External))
 		if err != nil {
 			return 0, fmt.Errorf("failed to get external model bounds for %s: %w", depID, err)
 		}
 		return minPos, nil
+	case models.NodeTypeTransformation:
+		return v.getTransformationModelMinPosition(ctx, depID)
 	}
 
-	// For transformation models
-	return v.getTransformationModelMinPosition(ctx, depID)
+	return 0, fmt.Errorf("invalid dependency type: %s", depNode.NodeType)
 }
 
-func (v *DependencyValidatorImpl) getTransformationModelMinPosition(ctx context.Context, depID string) (uint64, error) {
+func (v *DependencyValidator) getTransformationModelMinPosition(ctx context.Context, depID string) (uint64, error) {
 	// Get the first position
-	minPos, err := v.adminManager.GetFirstPosition(ctx, depID)
+	minPos, err := v.admin.GetFirstPosition(ctx, depID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get first position for %s: %w", depID, err)
 	}

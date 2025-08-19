@@ -2,7 +2,6 @@
 database: ethereum
 table: beacon_blocks
 partition: slot_start_date_time
-external: true
 ttl: 30s
 lag: 10
 ---

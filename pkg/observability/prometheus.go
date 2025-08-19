@@ -19,7 +19,7 @@ var (
 )
 
 // StartMetricsServer starts a Prometheus metrics server if it hasn't been started already.
-func StartMetricsServer(_ context.Context, addr string) {
+func StartMetricsServer(addr string) {
 	once.Do(func() {
 		if metricsServerInstance != nil {
 			return

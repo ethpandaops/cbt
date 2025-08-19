@@ -76,9 +76,9 @@ func TestHTTPClient_QueryOne(t *testing.T) {
 			// Create client
 			logger := logrus.New()
 			logger.SetLevel(logrus.ErrorLevel)
-			client, err := New(&Config{
+			client, err := NewClient(logger, &Config{
 				URL: server.URL,
-			}, logger)
+			})
 			require.NoError(t, err)
 
 			// Execute query
@@ -121,9 +121,9 @@ func TestHTTPClient_QueryMany(t *testing.T) {
 	// Create client
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
-	client, err := New(&Config{
+	client, err := NewClient(logger, &Config{
 		URL: server.URL,
-	}, logger)
+	})
 	require.NoError(t, err)
 
 	// Execute query
@@ -163,9 +163,9 @@ func TestHTTPClient_BulkInsert(t *testing.T) {
 	// Create client
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
-	client, err := New(&Config{
+	client, err := NewClient(logger, &Config{
 		URL: server.URL,
-	}, logger)
+	})
 	require.NoError(t, err)
 
 	// Test data
@@ -203,9 +203,9 @@ func TestHTTPClient_Execute(t *testing.T) {
 	// Create client
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
-	client, err := New(&Config{
+	client, err := NewClient(logger, &Config{
 		URL: server.URL,
-	}, logger)
+	})
 	require.NoError(t, err)
 
 	// Execute command
@@ -224,10 +224,10 @@ func TestHTTPClient_Timeouts(t *testing.T) {
 	// Create client with short timeout
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
-	client, err := New(&Config{
+	client, err := NewClient(logger, &Config{
 		URL:          server.URL,
 		QueryTimeout: 100 * time.Millisecond,
-	}, logger)
+	})
 	require.NoError(t, err)
 
 	// Execute query - should timeout
@@ -249,9 +249,9 @@ func TestHTTPClient_StartStop(t *testing.T) {
 	// Create client
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
-	client, err := New(&Config{
+	client, err := NewClient(logger, &Config{
 		URL: server.URL,
-	}, logger)
+	})
 	require.NoError(t, err)
 
 	// Start should succeed
@@ -319,10 +319,10 @@ func TestHTTPClient_DebugLogging(t *testing.T) {
 	// Create client with debug enabled
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
-	client, err := New(&Config{
+	client, err := NewClient(logger, &Config{
 		URL:   server.URL,
 		Debug: true,
-	}, logger)
+	})
 	require.NoError(t, err)
 
 	// Execute query - debug logging should not cause errors

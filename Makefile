@@ -89,64 +89,6 @@ docker-build:
 	@echo "Building Docker image..."
 	@docker build -t $(BINARY_NAME):latest .
 
-# Example commands
-example-up:
-	@echo "Building and starting example deployment..."
-	@cd example && docker-compose up -d --build
-	@echo "Example started. Check status with 'make example-status'"
-
-example-up-watch:
-	@echo "Building and starting example deployment with watch mode (foreground)..."
-	@echo "Press Ctrl+C to stop watching (containers will continue running)"
-	@cd example && docker-compose up --build --watch
-
-example-down:
-	@echo "Stopping example..."
-	@cd example && docker-compose down
-
-example-restart: example-down example-up
-
-example-logs:
-	@cd example && docker-compose logs -f
-
-example-status:
-	@cd example && docker-compose ps
-
-example-models-status:
-	@echo "Checking example models status..."
-	@docker exec cbt-coordinator /app/cbt models status --config /app/config.yaml || echo "Error: Is the example running? Try 'make example-up' first"
-
-example-models-list:
-	@echo "Listing example models..."
-	@docker exec cbt-coordinator /app/cbt models list --config /app/config.yaml || echo "Error: Is the example running? Try 'make example-up' first"
-
-example-models-validate:
-	@echo "Validating example models..."
-	@docker exec cbt-coordinator /app/cbt models validate --config /app/config.yaml || echo "Error: Is the example running? Try 'make example-up' first"
-
-example-models-dag:
-	@echo "Showing example models DAG..."
-	@docker exec cbt-coordinator /app/cbt models dag --config /app/config.yaml || echo "Error: Is the example running? Try 'make example-up' first"
-
-example-models-dag-dot:
-	@docker exec cbt-coordinator /app/cbt models dag --config /app/config.yaml --dot --show-schedule --show-interval --show-backfill --show-tags --color-by-level || echo "Error: Is the example running? Try 'make example-up' first"
-
-example-rerun:
-	@docker exec cbt-coordinator /app/cbt rerun --config /app/config.yaml $(ARGS)
-
-example-rebuild:
-	@echo "Rebuilding containers with latest code changes..."
-	@cd example && docker-compose build coordinator worker
-	@echo "Restarting coordinator and worker with new code..."
-	@cd example && docker-compose up -d coordinator worker
-	@echo "Waiting for services to be ready..."
-	@sleep 5
-	@echo "Containers rebuilt and restarted with latest code!"
-
-example-clean:
-	@echo "Cleaning example (including volumes)..."
-	@cd example && docker-compose down -v
-
 # Generate mocks (if needed)
 generate:
 	@echo "Generating code..."
@@ -178,21 +120,6 @@ help:
 	@echo "  install       - Install binary to GOPATH/bin"
 	@echo "  dev           - Run in development mode with hot reload"
 	@echo "  docker-build  - Build Docker image"
-	@echo "  example-up    - Build and start example containers (detached)"
-	@echo "  example-up-watch - Build and start example with watch mode (foreground)"
-	@echo "  example-down  - Stop example"
-	@echo "  example-restart - Restart example"
-	@echo "  example-logs  - View example logs"
-	@echo "  example-status - Check example containers"
-	@echo "  example-models-status - Check example models run status with gaps/coverage"
-	@echo "  example-models-list - List example models"
-	@echo "  example-models-validate - Validate example models"
-	@echo "  example-models-dag - Show example models dependency graph"
-	@echo "  example-models-dag-dot - Generate styled Graphviz DOT format with all features"
-	@echo "  example-rerun - Run rerun command (use ARGS= to pass arguments)"
-	@echo "                  Example: make example-rerun ARGS=\"--model analytics.block_propagation --start 1755444000 --end 1755444600\""
-	@echo "  example-rebuild - Rebuild and restart containers with latest code changes"
-	@echo "  example-clean - Clean example (including volumes)"
 	@echo "  generate      - Run go generate"
 	@echo "  security      - Check for security vulnerabilities"
 	@echo "  check         - Run all checks (fmt, vet, lint, test)"

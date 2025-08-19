@@ -133,7 +133,7 @@ var (
 			Name: "cbt_tasks_enqueued_total",
 			Help: "Total number of tasks enqueued",
 		},
-		[]string{"model", "trigger"}, // trigger: schedule, dependency, backfill, manual
+		[]string{"model"},
 	)
 
 	// BackfillProgress tracks backfill progress percentage
@@ -257,8 +257,8 @@ func RecordClickHouseRows(model, operation string, count float64) {
 }
 
 // RecordTaskEnqueued records task enqueue
-func RecordTaskEnqueued(model, trigger string) {
-	TasksEnqueued.WithLabelValues(model, trigger).Inc()
+func RecordTaskEnqueued(model string) {
+	TasksEnqueued.WithLabelValues(model).Inc()
 }
 
 // RecordError records an error

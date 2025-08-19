@@ -51,51 +51,24 @@ redis:
   url: "redis://localhost:6379/0"
 
 # Coordinator-specific settings (ignored by worker and CLI)
-scheduling:
+scheduler:
   # How often to check for tasks to schedule
   interval: 1m
   
   # Maximum number of concurrent scheduling operations
-  maxConcurrentSchedules: 10
-  
-  # Batch size for processing tasks
-  batchSize: 100
+  concurrency: 10
 
 # Worker-specific settings (ignored by coordinator and CLI)
 worker:
-  # Queues to listen on
-  queues:
-    - "default"
-    - "high_priority"
-    - "low_priority"
-  
   # Number of concurrent tasks to process
   concurrency: 10
   
   # Model tags for filtering which models this worker processes (optional)
   # Useful for running specialized workers for specific model types
-  # modelTags:
-  #   # Include models with any of these tags (OR logic)
-  #   include:
-  #     - "batch"
-  #     - "analytics"
-  #   
-  #   # Exclude models with any of these tags
-  #   exclude:
-  #     - "experimental"
-  #   
-  #   # Require models to have ALL of these tags (AND logic)
-  #   require:
-  #     - "production"
-  
-  # Advanced queue configuration with pattern matching (optional)
-  # Allows different concurrency for specific queue patterns
-  # advanced:
-  #   - pattern: "high_priority*"
-  #     concurrency: 20
-  #   - pattern: "low_priority*"
-  #     concurrency: 5
-  
+  # tags:
+  #   - "batch"
+  #   - "analytics"
+
   # Seconds to wait for graceful shutdown
   shutdownTimeout: 30
 

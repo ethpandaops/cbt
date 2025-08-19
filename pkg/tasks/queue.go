@@ -8,11 +8,6 @@ import (
 	"github.com/hibiken/asynq"
 )
 
-const (
-	// DefaultQueueName is the default queue name when none is specified
-	DefaultQueueName = "default"
-)
-
 // QueueManager manages task queuing
 type QueueManager struct {
 	client    *asynq.Client
@@ -27,6 +22,11 @@ func NewQueueManager(redisOpt *asynq.RedisClientOpt) *QueueManager {
 	}
 }
 
+const (
+	// TypeModelTransformation is the task type for model transformations
+	TypeModelTransformation = "model:transformation"
+)
+
 // EnqueueTransformation enqueues a transformation task
 func (q *QueueManager) EnqueueTransformation(payload TaskPayload, opts ...asynq.Option) error {
 	data, err := json.Marshal(payload)
@@ -37,7 +37,6 @@ func (q *QueueManager) EnqueueTransformation(payload TaskPayload, opts ...asynq.
 	task := asynq.NewTask(TypeModelTransformation, data)
 
 	// Default options
-	// Both forward and backfill tasks use the same queue and priority
 	defaultOpts := []asynq.Option{
 		asynq.TaskID(payload.UniqueID()),
 		asynq.Queue(payload.ModelID), // Model-specific queue
@@ -53,15 +52,8 @@ func (q *QueueManager) EnqueueTransformation(payload TaskPayload, opts ...asynq.
 }
 
 // IsTaskPendingOrRunning checks if a task is pending or running
-func (q *QueueManager) IsTaskPendingOrRunning(taskID string) (bool, error) {
-	// Extract queue name from taskID (format: modelID:position:interval)
-	parts := strings.Split(taskID, ":")
-	queueName := DefaultQueueName
-	if len(parts) > 0 {
-		queueName = parts[0] // Use modelID as queue name
-	}
-
-	info, err := q.inspector.GetTaskInfo(queueName, taskID)
+func (q *QueueManager) IsTaskPendingOrRunning(task TaskPayload) (bool, error) {
+	info, err := q.inspector.GetTaskInfo(task.QueueName(), task.UniqueID())
 	if err != nil {
 		if strings.Contains(err.Error(), "NOT FOUND") || strings.Contains(err.Error(), "queue not found") || strings.Contains(err.Error(), "task not found") {
 			return false, nil
@@ -75,15 +67,8 @@ func (q *QueueManager) IsTaskPendingOrRunning(taskID string) (bool, error) {
 }
 
 // WasRecentlyCompleted checks if a task was recently completed
-func (q *QueueManager) WasRecentlyCompleted(taskID string, within time.Duration) (bool, error) {
-	// Extract queue name from taskID (format: modelID:position:interval)
-	parts := strings.Split(taskID, ":")
-	queueName := DefaultQueueName
-	if len(parts) > 0 {
-		queueName = parts[0] // Use modelID as queue name
-	}
-
-	info, err := q.inspector.GetTaskInfo(queueName, taskID)
+func (q *QueueManager) WasRecentlyCompleted(task TaskPayload, within time.Duration) (bool, error) {
+	info, err := q.inspector.GetTaskInfo(task.QueueName(), task.UniqueID())
 	if err != nil {
 		if strings.Contains(err.Error(), "NOT FOUND") || strings.Contains(err.Error(), "queue not found") || strings.Contains(err.Error(), "task not found") {
 			return false, nil

@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/observability"
@@ -44,35 +45,49 @@ func getWorkerID(ctx context.Context) string {
 
 // TaskHandler handles task execution
 type TaskHandler struct {
-	chClient      clickhouse.ClientInterface
-	adminManager  *clickhouse.AdminTableManager
-	validator     validation.DependencyValidator
-	modelExecutor interface {
-		Execute(ctx context.Context, taskCtx interface{}) error
-		Validate(ctx context.Context, taskCtx interface{}) error
-	}
-	modelConfigs map[string]models.ModelConfig
-	log          logrus.FieldLogger
+	log             *logrus.Logger
+	chClient        clickhouse.ClientInterface
+	admin           *admin.Service
+	validator       *validation.DependencyValidator
+	modelExecutor   Executor
+	transformations map[string]models.Transformation
+}
+
+// TaskContext contains all context needed for task execution
+type TaskContext struct {
+	Transformation models.Transformation
+	Position       uint64
+	Interval       uint64
+	StartTime      time.Time
+	Variables      map[string]interface{}
+}
+
+type Executor interface {
+	Execute(ctx context.Context, taskCtx interface{}) error
+	Validate(ctx context.Context, taskCtx interface{}) error
 }
 
 // NewTaskHandler creates a new task handler
 func NewTaskHandler(
+	logger *logrus.Logger,
 	chClient clickhouse.ClientInterface,
-	adminManager *clickhouse.AdminTableManager,
-	validator validation.DependencyValidator,
-	modelExecutor interface {
-		Execute(ctx context.Context, taskCtx interface{}) error
-		Validate(ctx context.Context, taskCtx interface{}) error
-	},
-	modelConfigs map[string]models.ModelConfig,
+	adminService *admin.Service,
+	validator *validation.DependencyValidator,
+	modelExecutor Executor,
+	transformations []models.Transformation,
 ) *TaskHandler {
+	transformationsMap := make(map[string]models.Transformation)
+	for _, transformation := range transformations {
+		transformationsMap[transformation.GetID()] = transformation
+	}
+
 	return &TaskHandler{
-		chClient:      chClient,
-		adminManager:  adminManager,
-		validator:     validator,
-		modelExecutor: modelExecutor,
-		modelConfigs:  modelConfigs,
-		log:           logrus.WithField("component", "task-handler"),
+		log:             logger,
+		chClient:        chClient,
+		admin:           adminService,
+		validator:       validator,
+		modelExecutor:   modelExecutor,
+		transformations: transformationsMap,
 	}
 }
 
@@ -99,7 +114,7 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 	observability.RecordTaskStart(payload.ModelID, workerID)
 
 	// Get model configuration
-	modelConfig, exists := h.modelConfigs[payload.ModelID]
+	transformation, exists := h.transformations[payload.ModelID]
 	if !exists {
 		observability.RecordTaskComplete(payload.ModelID, workerID, "failed", time.Since(startTime).Seconds())
 		observability.RecordError("task-handler", "model_not_found")
@@ -138,10 +153,10 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 
 	// Execute transformation
 	taskCtx := &TaskContext{
-		ModelConfig: modelConfig,
-		Position:    payload.Position,
-		Interval:    payload.Interval,
-		StartTime:   startTime,
+		Transformation: transformation,
+		Position:       payload.Position,
+		Interval:       payload.Interval,
+		StartTime:      startTime,
 	}
 
 	h.log.WithField("model_id", payload.ModelID).Info("Calling modelExecutor.Execute")
@@ -154,7 +169,7 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 	h.log.WithField("model_id", payload.ModelID).Info("Model execution completed")
 
 	// Record completion in admin table
-	if err := h.adminManager.RecordCompletion(ctx, payload.ModelID, payload.Position, payload.Interval); err != nil {
+	if err := h.admin.RecordCompletion(ctx, payload.ModelID, payload.Position, payload.Interval); err != nil {
 		observability.RecordTaskComplete(payload.ModelID, workerID, "failed", time.Since(startTime).Seconds())
 		observability.RecordError("task-handler", "record_completion_error")
 		return fmt.Errorf("failed to record completion: %w", err)

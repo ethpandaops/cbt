@@ -38,12 +38,11 @@ services:
     networks:
       - cbt_network
 
-  # CBT Coordinator
-  coordinator:
+  # CBT Engine (scaled to 2 instances)
+  engine:
     build:
       context: ../
       dockerfile: Dockerfile
-    container_name: cbt-coordinator
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -56,46 +55,7 @@ services:
       - ./data-generator:/app/data-generator:ro
     environment:
       - CBT_LOG_LEVEL=debug
-    command: ["coordinator", "--config", "/app/config.yaml"]
-    restart: unless-stopped
-    networks:
-      - cbt_network
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    develop:
-      watch:
-        - action: rebuild
-          path: ../
-          ignore:
-            - .git/
-            - bin/
-            - example/
-            - models/
-
-  # CBT Worker (scaled to 2 instances)
-  worker:
-    build:
-      context: ../
-      dockerfile: Dockerfile
-    depends_on:
-      clickhouse:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      coordinator:
-        condition: service_healthy
-    volumes:
-      - ./config.yaml:/app/config.yaml:ro
-      - ./models:/app/models:ro
-      - ./scripts:/app/scripts:ro
-      - ./data-generator:/app/data-generator:ro
-    environment:
-      - CBT_LOG_LEVEL=debug
-    command: ["worker", "--config", "/app/config.yaml"]
+    command: ["--config", "/app/config.yaml"]
     restart: unless-stopped
     networks:
       - cbt_network
@@ -126,7 +86,7 @@ services:
     depends_on:
       clickhouse:
         condition: service_healthy
-      coordinator:
+      engine:
         condition: service_healthy
     environment:
       - CLICKHOUSE_HOST=clickhouse

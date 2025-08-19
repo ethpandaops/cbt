@@ -4,184 +4,161 @@ package validation
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/models/external"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/sirupsen/logrus"
 )
 
-// ExternalModelExecutorImpl implements the ExternalModelExecutor interface
-type ExternalModelExecutorImpl struct {
-	chClient     clickhouse.ClientInterface
-	logger       *logrus.Logger
-	cacheManager clickhouse.ExternalModelCacheManager
+// ExternalModelValidator implements the ExternalModelExecutor interface
+type ExternalModelValidator struct {
+	log      *logrus.Logger
+	admin    *admin.Service
+	chClient clickhouse.ClientInterface
+	models   *models.Service
 }
 
 // NewExternalModelExecutor creates a new external model executor
 // The cacheManager can be nil if caching is not desired
-func NewExternalModelExecutor(chClient clickhouse.ClientInterface, logger *logrus.Logger, cacheManager clickhouse.ExternalModelCacheManager) *ExternalModelExecutorImpl {
-	return &ExternalModelExecutorImpl{
-		chClient:     chClient,
-		logger:       logger,
-		cacheManager: cacheManager,
+func NewExternalModelExecutor(log *logrus.Logger, chClient clickhouse.ClientInterface, admin *admin.Service, modelsService *models.Service) *ExternalModelValidator {
+	return &ExternalModelValidator{
+		chClient: chClient,
+		log:      log,
+		admin:    admin,
+		models:   modelsService,
 	}
 }
 
 // applyLag applies lag adjustment to max position if configured
-func (e *ExternalModelExecutorImpl) applyLag(modelConfig *models.ModelConfig, minPos, maxPos uint64, modelID string, fromCache bool) (adjustedMin, adjustedMax uint64) {
-	if !modelConfig.External || modelConfig.Lag == 0 {
-		e.logger.WithFields(logrus.Fields{
-			"model":     modelID,
+func (e *ExternalModelValidator) applyLag(model models.External, minPos, maxPos uint64, fromCache bool) (adjustedMin, adjustedMax uint64) {
+	modelConfig := model.GetConfig()
+
+	if modelConfig.Lag == 0 {
+		e.log.WithFields(logrus.Fields{
+			"model":     model.GetID(),
 			"min_pos":   minPos,
 			"max_pos":   maxPos,
 			"cache_hit": fromCache,
 		}).Debug("Retrieved external model bounds")
+
 		return minPos, maxPos
 	}
 
 	if maxPos > modelConfig.Lag {
 		adjustedMax := maxPos - modelConfig.Lag
-		e.logger.WithFields(logrus.Fields{
-			"model":        modelID,
+		e.log.WithFields(logrus.Fields{
+			"model":        model.GetID(),
 			"lag":          modelConfig.Lag,
 			"original_max": maxPos,
 			"adjusted_max": adjustedMax,
 			"cache_hit":    fromCache,
 		}).Debug("Applied lag to external model bounds")
+
 		return minPos, adjustedMax
 	}
 
 	// If lag is greater than max, set max to min (no data available)
-	e.logger.WithFields(logrus.Fields{
-		"model":     modelID,
+	e.log.WithFields(logrus.Fields{
+		"model":     model.GetID(),
 		"lag":       modelConfig.Lag,
 		"cache_hit": fromCache,
+		"min_pos":   minPos,
+		"max_pos":   maxPos,
 		"warning":   "lag exceeds max position, no data available",
 	}).Warn("Lag exceeds available data range")
+
 	return minPos, minPos
 }
 
 // tryGetFromCache attempts to retrieve bounds from cache
-func (e *ExternalModelExecutorImpl) tryGetFromCache(ctx context.Context, modelConfig *models.ModelConfig, modelID string) (minPos, maxPos uint64, found bool) {
-	if modelConfig.TTL == 0 || e.cacheManager == nil {
+func (e *ExternalModelValidator) tryGetFromCache(ctx context.Context, model models.External) (minPos, maxPos uint64, found bool) {
+	modelConfig := model.GetConfig()
+
+	if modelConfig.TTL == nil || *modelConfig.TTL == 0 {
 		return 0, 0, false
 	}
 
-	cached, err := e.cacheManager.Get(ctx, modelID)
+	cached, err := e.admin.GetCacheManager().GetExternal(ctx, model.GetID())
 	if err != nil || cached == nil {
-		observability.RecordExternalCacheMiss(modelID)
+		observability.RecordExternalCacheMiss(model.GetID())
 		return 0, 0, false
 	}
 
-	observability.RecordExternalCacheHit(modelID)
 	return cached.Min, cached.Max, true
 }
 
 // storeInCache stores bounds in cache if TTL is configured
-func (e *ExternalModelExecutorImpl) storeInCache(ctx context.Context, modelConfig *models.ModelConfig, modelID string, minPos, maxPos uint64) {
-	if modelConfig.TTL == 0 || e.cacheManager == nil {
-		return
+func (e *ExternalModelValidator) storeInCache(ctx context.Context, model models.External, minPos, maxPos uint64) error {
+	modelConfig := model.GetConfig()
+
+	if modelConfig.TTL == nil || *modelConfig.TTL == 0 {
+		return nil
 	}
 
-	cache := clickhouse.ExternalModelCache{
-		ModelID:   modelID,
+	cache := admin.CacheExternal{
+		ModelID:   model.GetID(),
 		Min:       minPos,
 		Max:       maxPos,
 		UpdatedAt: time.Now(),
-		TTL:       modelConfig.TTL,
+		TTL:       *modelConfig.TTL,
 	}
 
-	if err := e.cacheManager.Set(ctx, cache); err != nil {
-		e.logger.WithError(err).WithField("model", modelID).Warn("Failed to cache external model bounds")
-	} else {
-		e.logger.WithFields(logrus.Fields{
-			"model": modelID,
-			"ttl":   modelConfig.TTL,
-		}).Debug("Cached external model bounds")
-	}
-}
-
-// GetMinMax retrieves the min and max position values for an external model
-func (e *ExternalModelExecutorImpl) GetMinMax(ctx context.Context, modelConfig *models.ModelConfig) (minPos, maxPos uint64, err error) {
-	modelID := fmt.Sprintf("%s.%s", modelConfig.Database, modelConfig.Table)
-
-	// Try to get from cache
-	if cachedMin, cachedMax, found := e.tryGetFromCache(ctx, modelConfig, modelID); found {
-		minPos, maxPos = e.applyLag(modelConfig, cachedMin, cachedMax, modelID, true)
-		return minPos, maxPos, nil
-	}
-
-	// Build the query to get min/max from the external table
-	// Convert DateTime to Unix timestamp if needed
-	query := fmt.Sprintf(`
-		SELECT 
-			coalesce(toUnixTimestamp(min(%s)), 0) as min_pos,
-			coalesce(toUnixTimestamp(max(%s)), 0) as max_pos
-		FROM %s.%s
-	`, modelConfig.Partition, modelConfig.Partition, modelConfig.Database, modelConfig.Table)
-
-	var result struct {
-		MinPos uint64 `json:"min_pos"`
-		MaxPos uint64 `json:"max_pos"`
-	}
-
-	if err := e.chClient.QueryOne(ctx, query, &result); err != nil {
-		return 0, 0, fmt.Errorf("failed to get min/max for external model %s.%s: %w",
-			modelConfig.Database, modelConfig.Table, err)
-	}
-
-	// Store in cache (store original values before lag adjustment)
-	e.storeInCache(ctx, modelConfig, modelID, result.MinPos, result.MaxPos)
-
-	// Apply lag if configured
-	minPos, maxPos = e.applyLag(modelConfig, result.MinPos, result.MaxPos, modelID, false)
-	return minPos, maxPos, nil
-}
-
-// InvalidateCache removes cached bounds for a specific model
-func (e *ExternalModelExecutorImpl) InvalidateCache(ctx context.Context, modelID string) error {
-	if e.cacheManager == nil {
-		return nil // No cache manager, nothing to invalidate
-	}
-
-	err := e.cacheManager.Invalidate(ctx, modelID)
+	err := e.admin.GetCacheManager().SetExternal(ctx, cache)
 	if err != nil {
-		e.logger.WithError(err).WithField("model", modelID).Warn("Failed to invalidate cache")
-		return fmt.Errorf("failed to invalidate cache for %s: %w", modelID, err)
+		e.log.WithError(err).WithField("model", model.GetID()).Warn("Failed to cache external model bounds")
+
+		return err
 	}
 
-	e.logger.WithField("model", modelID).Info("Invalidated cache for external model")
+	e.log.WithFields(logrus.Fields{
+		"model": model.GetID(),
+		"ttl":   modelConfig.TTL,
+	}).Debug("Cached external model bounds")
+
 	return nil
 }
 
-// InvalidateCacheForModel removes cached bounds for a model config
-func (e *ExternalModelExecutorImpl) InvalidateCacheForModel(ctx context.Context, modelConfig *models.ModelConfig) error {
-	modelID := fmt.Sprintf("%s.%s", modelConfig.Database, modelConfig.Table)
-	return e.InvalidateCache(ctx, modelID)
-}
+// GetMinMax retrieves the min and max position values for an external model
+func (e *ExternalModelValidator) GetMinMax(ctx context.Context, model models.External) (minPos, maxPos uint64, err error) {
+	modelID := model.GetID()
 
-// HasDataInRange checks if an external model has any data in the specified range
-func (e *ExternalModelExecutorImpl) HasDataInRange(ctx context.Context, modelConfig *models.ModelConfig, startPos, endPos uint64) (bool, error) {
-	// Check if ANY data exists in the specified range
-	query := fmt.Sprintf(`
-		SELECT count() > 0 as has_data
-		FROM %s.%s
-		WHERE toUnixTimestamp(%s) >= %d
-		  AND toUnixTimestamp(%s) < %d
-		LIMIT 1
-	`, modelConfig.Database, modelConfig.Table,
-		modelConfig.Partition, startPos,
-		modelConfig.Partition, endPos)
+	// Try to get from cache
+	if cachedMin, cachedMax, found := e.tryGetFromCache(ctx, model); found {
+		minPos, maxPos = e.applyLag(model, cachedMin, cachedMax, true)
+		return minPos, maxPos, nil
+	}
+
+	if model.GetType() != external.ExternalTypeSQL {
+		return 0, 0, fmt.Errorf("external model %s is not a SQL model", modelID)
+	}
+
+	query, err := e.models.RenderExternal(model)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to render external model %s: %w", modelID, err)
+	}
 
 	var result struct {
-		HasData int `json:"has_data"`
+		MinPos uint64 `json:"min"`
+		MaxPos uint64 `json:"max"`
 	}
+
+	// trim `;` and whitespace/newlines from end of query
+	query = strings.TrimSpace(strings.TrimSuffix(query, ";"))
 
 	if err := e.chClient.QueryOne(ctx, query, &result); err != nil {
-		return false, fmt.Errorf("failed to check data existence: %w", err)
+		return 0, 0, fmt.Errorf("failed to get min/max for external model %s.%s: %w",
+			model.GetConfig().Database, model.GetConfig().Table, err)
 	}
 
-	return result.HasData > 0, nil
+	// Store in cache (store original values before lag adjustment)
+	e.storeInCache(ctx, model, result.MinPos, result.MaxPos)
+
+	// Apply lag if configured
+	minPos, maxPos = e.applyLag(model, result.MinPos, result.MaxPos, false)
+	return minPos, maxPos, nil
 }

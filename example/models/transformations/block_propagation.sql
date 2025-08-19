@@ -27,9 +27,9 @@ SELECT
     quantile(0.9)(propagation_slot_start_diff) as p90_propagation,
     min(propagation_slot_start_diff) as min_propagation,
     max(propagation_slot_start_diff) as max_propagation,
-    {{ .range.start }} as position
+    {{ .bounds.start }} as position
 FROM `{{ index .dep "ethereum" "beacon_blocks" "database" }}`.`{{ index .dep "ethereum" "beacon_blocks" "table" }}`
-WHERE {{ index .dep "ethereum" "beacon_blocks" "partition" }} BETWEEN fromUnixTimestamp({{ .range.start }}) AND fromUnixTimestamp({{ .range.end }})
+WHERE {{ index .dep "ethereum" "beacon_blocks" "partition" }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
 GROUP BY slot_start_date_time, slot, block_root;
 
 -- Delete old rows
@@ -39,5 +39,5 @@ DELETE FROM
   ON CLUSTER '{{ .clickhouse.cluster }}'
 {{ end }}
 WHERE
-  {{ .self.partition }} BETWEEN fromUnixTimestamp({{ .range.start }}) AND fromUnixTimestamp({{ .range.end }})
+  {{ .self.partition }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
   AND updated_date_time != fromUnixTimestamp({{ .task.start }});

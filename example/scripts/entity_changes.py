@@ -58,8 +58,8 @@ def main():
     ch_host = parsed.hostname or 'clickhouse'
     
     # Task context
-    range_start = int(os.environ['RANGE_START'])
-    range_end = int(os.environ['RANGE_END'])
+    bounds_start = int(os.environ['BOUNDS_START'])
+    bounds_end = int(os.environ['BOUNDS_END'])
     task_start = int(os.environ['TASK_START'])
     
     # Model info
@@ -71,7 +71,7 @@ def main():
     dep_table = os.environ.get('DEP_ETHEREUM_VALIDATOR_ENTITY_TABLE', 'validator_entity')
     
     print(f"=== Python Transformation Model Execution ===")
-    print(f"Time range: {datetime.fromtimestamp(range_start)} to {datetime.fromtimestamp(range_end)}")
+    print(f"Time range: {datetime.fromtimestamp(bounds_start)} to {datetime.fromtimestamp(bounds_end)}")
     print(f"Source: {dep_db}.{dep_table}")
     print(f"Target: {target_db}.{target_table}")
     print(f"ClickHouse host: {ch_host}")
@@ -101,8 +101,8 @@ def main():
             COUNT(DISTINCT validator_index) as validator_count,
             COUNT(DISTINCT slot) as unique_slots
         FROM {dep_db}.{dep_table}
-        WHERE slot_start_date_time >= fromUnixTimestamp({range_start})
-          AND slot_start_date_time < fromUnixTimestamp({range_end})
+        WHERE slot_start_date_time >= fromUnixTimestamp({bounds_start})
+          AND slot_start_date_time < fromUnixTimestamp({bounds_end})
           AND entity_name != ''
         GROUP BY entity_name
         ORDER BY validator_count DESC
@@ -135,8 +135,8 @@ def main():
                 (updated_date_time, event_date_time, hour_start, 
                  entity_name, validator_count, unique_slots, position)
                 VALUES
-                ({task_start}, now(), fromUnixTimestamp({range_start}),
-                 '{entity_name_escaped}', {validator_count}, {unique_slots}, {range_start})
+                ({task_start}, now(), fromUnixTimestamp({bounds_start}),
+                 '{entity_name_escaped}', {validator_count}, {unique_slots}, {bounds_start})
                 """
                 execute_clickhouse_query(ch_host, insert_query)
             

@@ -24,7 +24,7 @@ SELECT
     b.block_root,
     b.validator_index,
     ve.entity_name,
-    {{ .range.start }} as position
+    {{ .bounds.start }} as position
 FROM (
     SELECT DISTINCT
         slot_start_date_time,
@@ -32,7 +32,7 @@ FROM (
         block_root,
         validator_index
     FROM `{{ index .dep "ethereum" "beacon_blocks" "database" }}`.`{{ index .dep "ethereum" "beacon_blocks" "table" }}`
-    WHERE {{ index .dep "ethereum" "beacon_blocks" "partition" }} BETWEEN fromUnixTimestamp({{ .range.start }}) AND fromUnixTimestamp({{ .range.end }})
+    WHERE {{ index .dep "ethereum" "beacon_blocks" "partition" }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
 ) b
 -- Always look back 24 hours to get the most recent entity mapping for each validator
 LEFT JOIN (
@@ -40,8 +40,8 @@ LEFT JOIN (
         validator_index,
         argMax(entity_name, slot_start_date_time) as entity_name
     FROM `{{ index .dep "ethereum" "validator_entity" "database" }}`.`{{ index .dep "ethereum" "validator_entity" "table" }}`
-    WHERE slot_start_date_time >= fromUnixTimestamp({{ .range.start }}) - INTERVAL 24 HOUR
-      AND slot_start_date_time <= fromUnixTimestamp({{ .range.end }})
+    WHERE slot_start_date_time >= fromUnixTimestamp({{ .bounds.start }}) - INTERVAL 24 HOUR
+      AND slot_start_date_time <= fromUnixTimestamp({{ .bounds.end }})
     GROUP BY validator_index
 ) ve ON b.validator_index = ve.validator_index;
 
@@ -52,5 +52,5 @@ DELETE FROM
   ON CLUSTER '{{ .clickhouse.cluster }}'
 {{ end }}
 WHERE
-  {{ .self.partition }} BETWEEN fromUnixTimestamp({{ .range.start }}) AND fromUnixTimestamp({{ .range.end }})
+  {{ .self.partition }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
   AND updated_date_time != fromUnixTimestamp({{ .task.start }});

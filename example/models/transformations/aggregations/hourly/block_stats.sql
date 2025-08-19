@@ -25,10 +25,10 @@ SELECT
     count(DISTINCT entity_name) as avg_entities,  -- Count unique entities as metric
     count(DISTINCT entity_name) as max_entities,  -- Same for now
     count(DISTINCT entity_name) as min_entities,   -- Same for now
-    {{ .range.start }} as position
+    {{ .bounds.start }} as position
 FROM `{{ index .dep "analytics" "block_entity" "database" }}`.`{{ index .dep "analytics" "block_entity" "table" }}`
-WHERE slot_start_date_time >= fromUnixTimestamp({{ .range.start }})
-  AND slot_start_date_time < fromUnixTimestamp({{ .range.end }})
+WHERE slot_start_date_time >= fromUnixTimestamp({{ .bounds.start }})
+  AND slot_start_date_time < fromUnixTimestamp({{ .bounds.end }})
 GROUP BY hour_start;
 
 -- Delete old rows
@@ -38,5 +38,5 @@ DELETE FROM
   ON CLUSTER '{{ .clickhouse.cluster }}'
 {{ end }}
 WHERE
-  {{ .self.partition }} BETWEEN fromUnixTimestamp({{ .range.start }}) AND fromUnixTimestamp({{ .range.end }})
+  {{ .self.partition }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
   AND updated_date_time != fromUnixTimestamp({{ .task.start }})

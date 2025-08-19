@@ -29,8 +29,7 @@ example/
 
 3. **View logs:**
    ```bash
-   docker-compose logs -f coordinator
-   docker-compose logs -f worker
+   docker-compose logs -f engine
    ```
 
 4. **Stop services:**
@@ -59,7 +58,7 @@ The example uses a single `config.yaml` file for all components, which simplifie
 - **Worker settings**: Queue configuration, concurrency limits
 - **Logging levels**: Set to `debug` for detailed output
 
-Each component (coordinator, worker, CLI) reads the same configuration file but only uses the sections relevant to its operation. This approach:
+Each component (engine, CLI) reads the same configuration file but only uses the sections relevant to its operation. This approach:
 - Ensures all components use the same database connections
 - Simplifies configuration management
 - Makes it easier to deploy and maintain

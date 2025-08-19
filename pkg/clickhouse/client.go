@@ -33,7 +33,7 @@ type client struct {
 }
 
 // New creates a new HTTP-based ClickHouse client
-func New(cfg *Config, logger *logrus.Logger) (ClientInterface, error) {
+func NewClient(logger *logrus.Logger, cfg *Config) (ClientInterface, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}

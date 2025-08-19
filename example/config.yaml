@@ -34,12 +34,9 @@ redis:
 scheduling:
   interval: 1m
   maxConcurrentSchedules: 10
-  batchSize: 100
 
 # Worker-specific settings (ignored by coordinator and CLI)
 worker:
-  queues:
-    - default
   concurrency: 10
   # No model tag filtering in example
   # modelTags:

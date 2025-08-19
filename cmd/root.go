@@ -4,9 +4,14 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
+	"github.com/creasty/defaults"
+	"github.com/ethpandaops/cbt/pkg/engine"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 //nolint:gochecknoglobals // Global vars needed for cobra CLI
@@ -24,6 +29,7 @@ var rootCmd = &cobra.Command{
 	Long: `CBT (ClickHouse Build Tool) is a simplified, ClickHouse-focused data 
 transformation tool that provides idempotent transformations, DAG-based 
 dependency management, and interval-based processing.`,
+	RunE: runEngine,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -39,29 +45,71 @@ func init() {
 
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./config.yaml)")
-	rootCmd.PersistentFlags().String("log-level", "info", "log level (debug, info, warn, error, fatal, panic)")
 
-	// Initialize logger
-	logger = logrus.New()
-	logger.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-	})
 }
 
 func initConfig() {
-	if cfgFile == "" {
-		cfgFile = "./config.yaml"
+}
+
+func loadConfigFromFile(file string) (*engine.Config, error) {
+	if file == "" {
+		file = "coordinator.yaml"
 	}
 
-	// Set log level
-	logLevel, err := rootCmd.PersistentFlags().GetString("log-level")
+	config := &engine.Config{}
+
+	if err := defaults.Set(config); err != nil {
+		return nil, err
+	}
+
+	yamlFile, err := os.ReadFile(file) //nolint:gosec // User-provided config file path
 	if err != nil {
-		logLevel = "info" // Default to info if error
+		return nil, err
 	}
-	level, parseErr := logrus.ParseLevel(logLevel)
-	if parseErr != nil {
-		logger.WithError(parseErr).Warn("Invalid log level, defaulting to info")
-		level = logrus.InfoLevel
+
+	if err := yaml.Unmarshal(yamlFile, config); err != nil {
+		return nil, err
 	}
+
+	return config, nil
+}
+
+func runEngine(cmd *cobra.Command, _ []string) error {
+	// Silence usage on error
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+
+	// Load configuration
+	config, err := loadConfigFromFile(cfgFile)
+	if err != nil {
+		return err
+	}
+
+	// Setup logger
+	level, err := logrus.ParseLevel(config.Logging)
+	if err != nil {
+		return err
+	}
+	logger := logrus.New()
 	logger.SetLevel(level)
+
+	logger.Info("Configuration loaded")
+
+	// Create and start coordinator application
+	app, err := engine.NewService(logger, config)
+	if err != nil {
+		return err
+	}
+
+	if err := app.Start(); err != nil {
+		return err
+	}
+
+	// Wait for interrupt signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigChan
+
+	// Graceful shutdown
+	return app.Stop()
 }
