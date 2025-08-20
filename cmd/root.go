@@ -51,7 +51,7 @@ func initConfig() {
 
 func loadConfigFromFile(file string) (*engine.Config, error) {
 	if file == "" {
-		file = "coordinator.yaml"
+		file = "config.yaml"
 	}
 
 	config := &engine.Config{}
@@ -93,7 +93,7 @@ func runEngine(cmd *cobra.Command, _ []string) error {
 
 	logger.Info("Configuration loaded")
 
-	// Create and start coordinator application
+	// Create and start config application
 	app, err := engine.NewService(logger, config)
 	if err != nil {
 		return err

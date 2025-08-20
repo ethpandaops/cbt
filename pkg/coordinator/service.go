@@ -274,7 +274,7 @@ func (s *Service) checkBackfillOpportunities(transformation models.Transformatio
 	}
 
 	// Get initial position to determine scan range
-	initialPos, err := s.validator.GetInitialPosition(s.ctx, transformation.GetID())
+	initialPos, err := s.validator.GetEarliestPosition(s.ctx, transformation.GetID())
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", transformation.GetID()).Debug("Failed to get initial position for gap scan")
 
@@ -304,19 +304,29 @@ func (s *Service) checkBackfillOpportunities(transformation models.Transformatio
 		return
 	}
 
-	// Process each gap
+	// Process gaps - queue only one task per gap to gradually fill it
 	for _, gap := range gaps {
-		// Process the gap in intervals
-		for pos := gap.StartPos; pos < gap.EndPos; {
-			// Calculate remaining gap size
-			gapSize := gap.EndPos - pos
-			intervalToUse := config.Interval
+		gapSize := gap.EndPos - gap.StartPos
+		intervalToUse := config.Interval
 
-			// If gap is smaller than model interval, use gap size to avoid overlap
-			if gapSize < config.Interval {
-				intervalToUse = gapSize
-			}
+		// If gap is smaller than model interval, use gap size to avoid overlap
+		if gapSize < config.Interval {
+			intervalToUse = gapSize
+		}
 
+		// Start from the end of the gap and work backwards (most recent first)
+		// This ensures we fill the most recent part of each gap first
+		pos := gap.EndPos - intervalToUse
+
+		// Check if task is already pending before logging
+		payload := tasks.TaskPayload{
+			ModelID:  transformation.GetID(),
+			Position: pos,
+			Interval: intervalToUse,
+		}
+
+		isPending, err := s.queueManager.IsTaskPendingOrRunning(payload)
+		if err == nil && !isPending {
 			s.log.WithFields(logrus.Fields{
 				"model_id":       transformation.GetID(),
 				"gap_start":      gap.StartPos,
@@ -328,7 +338,10 @@ func (s *Service) checkBackfillOpportunities(transformation models.Transformatio
 			}).Info("Found backfill opportunity")
 
 			s.checkAndEnqueuePositionWithTrigger(transformation, pos, intervalToUse)
-			pos += intervalToUse
+
+			// Only queue one task per gap - the next task will be queued
+			// after this one completes and the gap is re-scanned
+			break
 		}
 	}
 }

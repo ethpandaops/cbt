@@ -174,25 +174,26 @@ func (a *Service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 		return nil, ErrInvalidModelID
 	}
 
-	// Query to find gaps using a window function
+	// Query to find gaps using a self-join instead of window function
 	query := fmt.Sprintf(`
 		WITH positions AS (
 			SELECT 
 				position,
 				position + interval as end_pos,
-				lead(position) OVER (ORDER BY position) as next_position
+				row_number() OVER (ORDER BY position) as rn
 			FROM %s.%s FINAL
 			WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position <= %d
 			ORDER BY position
 		)
 		SELECT 
-			end_pos as gap_start,
-			next_position as gap_end
-		FROM positions
-		WHERE next_position > end_pos
-		  AND next_position - end_pos >= %d
-		ORDER BY gap_start
+			p1.end_pos as gap_start,
+			p2.position as gap_end
+		FROM positions p1
+		INNER JOIN positions p2 ON p1.rn + 1 = p2.rn
+		WHERE p2.position > p1.end_pos
+		  AND p2.position - p1.end_pos >= %d
+		ORDER BY gap_start DESC
 	`, a.adminDatabase, a.adminTable, parts[0], parts[1], minPos, maxPos, interval)
 
 	var gapResults []struct {
@@ -231,8 +232,8 @@ func (a *Service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 	}
 
 	if firstPosResult.FirstPos != nil && *firstPosResult.FirstPos > minPos {
-		// There's a gap at the beginning
-		gaps = append([]GapInfo{{StartPos: minPos, EndPos: *firstPosResult.FirstPos}}, gaps...)
+		// There's a gap at the beginning - append at end since we're processing DESC
+		gaps = append(gaps, GapInfo{StartPos: minPos, EndPos: *firstPosResult.FirstPos})
 	}
 
 	return gaps, nil

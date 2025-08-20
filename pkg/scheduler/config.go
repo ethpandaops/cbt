@@ -3,7 +3,6 @@ package scheduler
 
 import (
 	"errors"
-	"time"
 )
 
 var (
@@ -13,8 +12,7 @@ var (
 
 // Config defines scheduler configuration
 type Config struct {
-	Interval    time.Duration `yaml:"interval" default:"1m"`
-	Concurrency int           `yaml:"concurrency" default:"10"`
+	Concurrency int `yaml:"concurrency" default:"10"`
 }
 
 // Validate checks if the scheduler configuration is valid

@@ -63,7 +63,7 @@ func NewService(log *logrus.Logger, cfg *Config, redisOpt *redis.Options, dag *m
 		Queues: map[string]int{
 			QueueName: 10,
 		},
-		Concurrency: 10,
+		Concurrency: cfg.Concurrency,
 	})
 
 	// Create inspector for managing tasks
