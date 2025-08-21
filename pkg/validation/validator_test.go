@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/models/external"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -319,7 +320,7 @@ func TestGetInitialPosition(t *testing.T) {
 				log:   logrus.New(),
 				dag:   mockDAG,
 				admin: mockAdmin,
-				externalManager: &ExternalModelValidator{
+				externalManager: &mockExternalModelValidator{
 					admin: mockAdmin,
 				},
 			}
@@ -580,7 +581,28 @@ func TestGetEarliestPosition(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name:    "multiple dependencies returns maximum of minimums",
+			name:    "only external dependencies - returns min of external mins",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"ext.model1", "ext.model2", "ext.model3"}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
+					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
+					"ext.model3": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model3"}},
+				}
+				// External models return their bounds from GetMinMax
+				admin.firstPositions = map[string]uint64{
+					"ext.model1": 100,
+					"ext.model2": 200,
+					"ext.model3": 150,
+				}
+			},
+			expectedPos: 100, // Minimum of external mins
+			wantErr:     false,
+		},
+		{
+			name:    "only transformation dependencies - returns max of transformation mins",
 			modelID: "model.test",
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"dep.model1", "dep.model2", "dep.model3"}
@@ -596,7 +618,51 @@ func TestGetEarliestPosition(t *testing.T) {
 					"dep.model3": 200,
 				}
 			},
-			expectedPos: 300, // Maximum of all minimums
+			expectedPos: 300, // Maximum of transformation mins
+			wantErr:     false,
+		},
+		{
+			name:    "mixed dependencies - returns max(external_min, transformation_max)",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"ext.model1", "ext.model2", "dep.model1", "dep.model2"}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
+					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
+					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
+					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"ext.model1": 50, // External min will be 50
+					"ext.model2": 100,
+					"dep.model1": 200, // Transformation max will be 250
+					"dep.model2": 250,
+				}
+			},
+			expectedPos: 250, // Result: max of (external_min=50, transformation_max=250)
+			wantErr:     false,
+		},
+		{
+			name:    "mixed dependencies where external_min is higher",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"ext.model1", "ext.model2", "dep.model1", "dep.model2"}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
+					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
+					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
+					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"ext.model1": 300, // External min will be 300
+					"ext.model2": 350,
+					"dep.model1": 100, // Transformation max will be 150
+					"dep.model2": 150,
+				}
+			},
+			expectedPos: 300, // Result: max of (external_min=300, transformation_max=150)
 			wantErr:     false,
 		},
 		{
@@ -635,7 +701,7 @@ func TestGetEarliestPosition(t *testing.T) {
 				log:   logrus.New(),
 				dag:   mockDAG,
 				admin: mockAdmin,
-				externalManager: &ExternalModelValidator{
+				externalManager: &mockExternalModelValidator{
 					admin: mockAdmin,
 				},
 			}
@@ -729,9 +795,8 @@ func TestValidateExternalDependency(t *testing.T) {
 				log:   logrus.New(),
 				dag:   mockDAG,
 				admin: mockAdmin,
-				externalManager: &ExternalModelValidator{
+				externalManager: &mockExternalModelValidator{
 					admin: mockAdmin,
-					log:   logrus.New(),
 				},
 			}
 
@@ -755,11 +820,31 @@ type mockExternal struct {
 	id string
 }
 
-func (m *mockExternal) GetID() string                     { return m.id }
-func (m *mockExternal) GetConfig() interface{}            { return nil }
-func (m *mockExternal) GetValue() string                  { return "" }
-func (m *mockExternal) GetType() string                   { return "external" }
-func (m *mockExternal) GetEnvironmentVariables() []string { return []string{} }
+func (m *mockExternal) GetID() string { return m.id }
+func (m *mockExternal) GetConfig() external.Config {
+	return external.Config{
+		Database: "test",
+		Table:    "test",
+	}
+}
+func (m *mockExternal) GetValue() string { return "" }
+func (m *mockExternal) GetType() string  { return "sql" }
+
+// mockExternalModelValidator is a mock implementation for testing
+type mockExternalModelValidator struct {
+	admin *mockAdmin
+}
+
+// GetMinMax returns mock min/max values for external models from admin's firstPositions
+func (m *mockExternalModelValidator) GetMinMax(_ context.Context, model models.External) (minPos, maxPos uint64, err error) {
+	// Use firstPositions as min and lastPositions as max for testing
+	minPos = m.admin.firstPositions[model.GetID()]
+	maxPos = m.admin.lastPositions[model.GetID()]
+	if maxPos == 0 {
+		maxPos = minPos + 10000 // Default range for testing
+	}
+	return minPos, maxPos, nil
+}
 
 // Mock models service
 type mockModelsService struct {
