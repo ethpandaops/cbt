@@ -116,6 +116,15 @@ var (
 		},
 		[]string{"model_id", "operation", "status"}, // status: success/failure
 	)
+
+	// ArchivedTasksDeleted tracks tasks deleted from archive
+	ArchivedTasksDeleted = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "cbt_archived_tasks_deleted_total",
+			Help: "Total number of archived tasks deleted",
+		},
+		[]string{"queue", "model"},
+	)
 )
 
 // RecordTaskStart records the start of a task
@@ -149,4 +158,9 @@ func RecordError(component, errorType string) {
 // RecordExternalCacheMiss records a cache miss for external model bounds
 func RecordExternalCacheMiss(model string) {
 	ExternalCacheMisses.WithLabelValues(model).Inc()
+}
+
+// RecordArchivedTaskDeleted records an archived task being deleted
+func RecordArchivedTaskDeleted(queue, model string) {
+	ArchivedTasksDeleted.WithLabelValues(queue, model).Inc()
 }
