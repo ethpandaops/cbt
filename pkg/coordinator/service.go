@@ -76,8 +76,9 @@ type service struct {
 	admin     PositionTracker
 	validator validation.Validator
 
-	queueManager *tasks.QueueManager
-	inspector    *asynq.Inspector
+	queueManager   *tasks.QueueManager
+	inspector      *asynq.Inspector
+	archiveHandler ArchiveHandler
 }
 
 // NewService creates a new coordinator service
@@ -95,12 +96,23 @@ func NewService(log logrus.FieldLogger, redisOpt *redis.Options, dag models.DAGR
 }
 
 // Start initializes and starts the coordinator service
-func (s *service) Start(_ context.Context) error {
+func (s *service) Start(ctx context.Context) error {
 	asynqRedis := r.NewAsynqRedisOptions(s.redisOpt)
 
 	s.queueManager = tasks.NewQueueManager(asynqRedis)
 
 	s.inspector = asynq.NewInspector(*asynqRedis)
+
+	archiveHandler, err := NewArchiveHandler(s.log, s.redisOpt, s.dag)
+	if err != nil {
+		return fmt.Errorf("failed to create archive handler: %w", err)
+	}
+
+	s.archiveHandler = archiveHandler
+
+	if err := s.archiveHandler.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start archive handler: %w", err)
+	}
 
 	// Start task tracker goroutine (channel-based state management)
 	s.wg.Add(1)
@@ -121,6 +133,13 @@ func (s *service) Stop() error {
 
 	// Signal all goroutines to stop
 	close(s.done)
+
+	// Stop archive handler
+	if s.archiveHandler != nil {
+		if err := s.archiveHandler.Stop(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to stop archive handler: %w", err))
+		}
+	}
 
 	// Wait for all goroutines to complete
 	s.wg.Wait()
