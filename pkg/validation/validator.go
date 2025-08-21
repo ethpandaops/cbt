@@ -24,11 +24,16 @@ type Validator interface {
 	GetEarliestPosition(ctx context.Context, modelID string) (uint64, error)
 }
 
+// ExternalValidator defines the interface for external model validation
+type ExternalValidator interface {
+	GetMinMax(ctx context.Context, model models.External) (uint64, uint64, error)
+}
+
 // dependencyValidator implements the Validator interface
 type dependencyValidator struct {
 	log             logrus.FieldLogger
 	admin           admin.Service
-	externalManager *ExternalModelValidator
+	externalManager ExternalValidator
 	dag             models.DAGReader
 }
 
@@ -245,6 +250,91 @@ func (v *dependencyValidator) validateTransformationDependency(ctx context.Conte
 	return status, nil
 }
 
+// collectDependencyMinPositions groups dependencies by type and collects their minimum positions
+func (v *dependencyValidator) collectDependencyMinPositions(ctx context.Context, deps []string) (externalMins, transformationMins []uint64, err error) {
+	externalMins = []uint64{}
+	transformationMins = []uint64{}
+
+	for _, depID := range deps {
+		depNode, err := v.dag.GetNode(depID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%w: %s", ErrDependencyNotFound, depID)
+		}
+
+		minPos, err := v.getEarliestPositionForDependency(ctx, depID)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// Group by dependency type
+		switch depNode.NodeType {
+		case models.NodeTypeExternal:
+			externalMins = append(externalMins, minPos)
+		case models.NodeTypeTransformation:
+			transformationMins = append(transformationMins, minPos)
+		default:
+			return nil, nil, fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)
+		}
+	}
+
+	return externalMins, transformationMins, nil
+}
+
+// calculateBackfillPosition calculates the final backfill position based on dependency types
+func (v *dependencyValidator) calculateBackfillPosition(externalMins, transformationMins []uint64) uint64 {
+	// Calculate the min of external dependencies
+	externalMin := findMin(externalMins)
+
+	// Calculate the max of transformation dependencies
+	transformationMax := findMax(transformationMins)
+
+	// Take the max of (external_min, transformation_max)
+	switch {
+	case len(transformationMins) > 0 && len(externalMins) > 0:
+		// Both types exist - take the max
+		if transformationMax > externalMin {
+			return transformationMax
+		}
+		return externalMin
+	case len(transformationMins) > 0:
+		// Only transformations
+		return transformationMax
+	case len(externalMins) > 0:
+		// Only externals
+		return externalMin
+	default:
+		return 0
+	}
+}
+
+// findMin returns the minimum value from a slice of uint64
+func findMin(values []uint64) uint64 {
+	if len(values) == 0 {
+		return 0
+	}
+	minVal := values[0]
+	for _, v := range values[1:] {
+		if v < minVal {
+			minVal = v
+		}
+	}
+	return minVal
+}
+
+// findMax returns the maximum value from a slice of uint64
+func findMax(values []uint64) uint64 {
+	if len(values) == 0 {
+		return 0
+	}
+	maxVal := values[0]
+	for _, v := range values[1:] {
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	return maxVal
+}
+
 // GetEarliestPosition calculates the earliest position for a model based on its dependencies
 // Returns the earliest position where all dependencies have data available (for backfill scanning)
 func (v *dependencyValidator) GetEarliestPosition(ctx context.Context, modelID string) (uint64, error) {
@@ -255,19 +345,23 @@ func (v *dependencyValidator) GetEarliestPosition(ctx context.Context, modelID s
 		return 0, nil // No dependencies, start from 0
 	}
 
-	var maxOfMins uint64
-
-	for _, depID := range deps {
-		minPos, err := v.getEarliestPositionForDependency(ctx, depID)
-		if err != nil {
-			return 0, err
-		}
-
-		// Find the maximum of all minimums - this ensures all dependencies have data
-		if minPos > maxOfMins {
-			maxOfMins = minPos
-		}
+	// Collect min positions grouped by dependency type
+	externalMins, transformationMins, err := v.collectDependencyMinPositions(ctx, deps)
+	if err != nil {
+		return 0, err
 	}
+
+	// Calculate the final position based on dependency types
+	maxOfMins := v.calculateBackfillPosition(externalMins, transformationMins)
+
+	v.log.WithFields(logrus.Fields{
+		"model_id":             modelID,
+		"external_count":       len(externalMins),
+		"transformation_count": len(transformationMins),
+		"external_min":         findMin(externalMins),
+		"transformation_max":   findMax(transformationMins),
+		"final_position":       maxOfMins,
+	}).Debug("Calculated dependency positions")
 
 	// Get the model's interval
 	node, err := v.dag.GetNode(modelID)
