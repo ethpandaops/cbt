@@ -3,7 +3,7 @@ package models
 // Config represents the complete coordinator configuration
 type Config struct {
 	External       ExternalPathsConfig       `yaml:"external"`
-	Transformation TransformationPathsConfig `yaml:"transformation"`
+	Transformation TransformationPathsConfig `yaml:"transformations"`
 }
 
 // ExternalPathsConfig defines paths for external model discovery

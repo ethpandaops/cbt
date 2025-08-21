@@ -198,12 +198,15 @@ Models support Go template syntax with the following variables:
 ---
 database: analytics
 table: block_propagation
-interval: 3600
-schedule: "@every 1m" # How often to trigger the transformation
-backfill:
-  enabled: true
-  schedule: "@every 5m"  # How often to try to backfill
-  minimum: 1704067200    # Optional: earliest position to backfill from (default: 0)
+limits:               # Optional: position boundaries for processing
+  min: 1704067200    # Minimum position to process
+  max: 0             # Maximum position to process (0 = no limit)
+forwardfill:          # Optional: but at least one of forwardfill/backfill required
+  interval: 3600
+  schedule: "@every 1m"  # How often to trigger forward processing
+backfill:             # Optional: but at least one of forwardfill/backfill required
+  interval: 3600      # Can be different from forwardfill interval
+  schedule: "@every 5m"  # How often to scan for gaps to backfill
 tags:
   - batch
   - aggregation
@@ -256,10 +259,11 @@ Environment variables provided to scripts:
 ```yaml
 database: analytics
 table: python_metrics
-interval: 3600
-schedule: "@every 5m"
-backfill:
-  enabled: true
+forwardfill:          # Optional: but at least one of forwardfill/backfill required
+  interval: 3600
+  schedule: "@every 5m"
+backfill:             # Optional: but at least one of forwardfill/backfill required
+  interval: 3600
   schedule: "@every 5m"
 tags:
   - python
@@ -284,7 +288,6 @@ The example deployment demonstrates CBT's capabilities with sample models includ
   - `block_entity` - Joins blocks with validator entities
   - `entity_network_effects` - Complex aggregation across multiple dependencies
 - **Python Model**: `entity_changes` - Demonstrates external script execution with ClickHouse HTTP API
-- **Backfill Configuration**: Models demonstrate the new backfill format with separate scheduling
 - **Data Generator**: Continuously inserts sample blockchain data
 - **Chaos Generator**: Simulates data gaps and out-of-order arrivals for resilience testing
 

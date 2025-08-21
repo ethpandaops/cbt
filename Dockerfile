@@ -10,7 +10,9 @@ RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-reco
   libssl-dev \
   ca-certificates \
   python3 \
+  wget \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 COPY --from=builder /bin/app /cbt
 ENTRYPOINT ["/cbt"]

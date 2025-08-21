@@ -12,8 +12,8 @@ var (
 	ErrDatabaseRequired = errors.New("database is required")
 	// ErrTableRequired is returned when table is not specified
 	ErrTableRequired = errors.New("table is required")
-	// ErrForwardFillRequired is returned when forwardfill is not specified
-	ErrForwardFillRequired = errors.New("forwardfill is required")
+	// ErrNoProcessingConfig is returned when neither forwardfill nor backfill is specified
+	ErrNoProcessingConfig = errors.New("at least one of forwardfill or backfill must be configured")
 	// ErrIntervalRequired is returned when interval is not specified
 	ErrIntervalRequired = errors.New("interval is required")
 	// ErrScheduleRequired is returned when schedule is not specified
@@ -65,12 +65,16 @@ func (c *Config) Validate() error {
 		return ErrTableRequired
 	}
 
-	if c.ForwardFill == nil {
-		return ErrForwardFillRequired
+	// At least one of forwardfill or backfill must be configured
+	if c.ForwardFill == nil && c.Backfill == nil {
+		return ErrNoProcessingConfig
 	}
 
-	if err := c.ForwardFill.Validate(); err != nil {
-		return fmt.Errorf("forwardfill validation failed: %w", err)
+	// ForwardFill is optional, but if specified must be valid
+	if c.ForwardFill != nil {
+		if err := c.ForwardFill.Validate(); err != nil {
+			return fmt.Errorf("forwardfill validation failed: %w", err)
+		}
 	}
 
 	// Backfill is optional, but if specified must be valid

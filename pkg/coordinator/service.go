@@ -179,6 +179,13 @@ func (s *service) Process(transformation models.Transformation, direction Direct
 }
 
 func (s *service) processForward(transformation models.Transformation) {
+	config := transformation.GetConfig()
+
+	// Skip if no forward fill configured
+	if config.ForwardFill == nil {
+		return
+	}
+
 	ctx := context.Background()
 
 	// Get last processed position
@@ -214,8 +221,6 @@ func (s *service) processForward(transformation models.Transformation) {
 
 	// Check forward processing
 	nextPos := lastPos
-
-	config := transformation.GetConfig()
 
 	// Don't process beyond max limit if configured
 	if config.Limits != nil && config.Limits.Max > 0 && nextPos >= config.Limits.Max {
