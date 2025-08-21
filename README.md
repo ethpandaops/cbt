@@ -1,4 +1,6 @@
-# CBT - ClickHouse Build Tool
+<img align="left" height="168px" src="logo.png">
+  <h1> CBT - ClickHouse Build Tool </h1>
+</img>
 
 A simple ClickHouse-focused data transformation tool that provides fast idempotent transformations with pure SQL or external scripts.
 
