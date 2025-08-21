@@ -44,7 +44,8 @@ func (c *Exec) Validate() error {
 		return ErrExecRequired
 	}
 
-	return nil
+	// Validate the embedded Config
+	return c.Config.Validate()
 }
 
 // GetType returns the transformation model type
@@ -53,8 +54,8 @@ func (c *Exec) GetType() string {
 }
 
 // GetConfig returns the transformation model configuration
-func (c *Exec) GetConfig() Config {
-	return c.Config
+func (c *Exec) GetConfig() *Config {
+	return &c.Config
 }
 
 // GetValue returns the exec command

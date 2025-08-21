@@ -59,7 +59,7 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 		"self": map[string]interface{}{
 			"database": config.Database,
 			"table":    config.Table,
-			"interval": config.Interval,
+			"interval": interval, // Use the interval parameter passed to the function
 		},
 		"task": map[string]interface{}{
 			"start": startTime.Unix(),

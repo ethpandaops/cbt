@@ -45,11 +45,11 @@ worker:
   #   require: []
   shutdownTimeout: 30
 
-# Model paths configuration (using defaults)
-# models:
-#   external:
-#     paths:
-#       - "models/external"
-#   transformations:
-#     paths:
-#       - "models/transformations"
+# Model paths configuration
+models:
+  external:
+    paths:
+      - "/app/models/external"
+  transformations:
+    paths:
+      - "/app/models/transformations"

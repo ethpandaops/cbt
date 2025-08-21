@@ -1,10 +1,11 @@
 ---
 database: analytics
 table: entity_network_effects
-interval: 300
-schedule: "@every 30s"
+forwardfill:
+  interval: 300
+  schedule: "@every 30s"
 backfill:
-  enabled: true
+  interval: 300
   schedule: "@every 30s"
 tags:
   - aggregation

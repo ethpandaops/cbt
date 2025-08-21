@@ -22,7 +22,7 @@ type mockTransformationWithTemplate struct {
 
 func (m *mockTransformationWithTemplate) GetID() string                     { return m.id }
 func (m *mockTransformationWithTemplate) GetDependencies() []string         { return m.dependencies }
-func (m *mockTransformationWithTemplate) GetConfig() transformation.Config  { return m.config }
+func (m *mockTransformationWithTemplate) GetConfig() *transformation.Config { return &m.config }
 func (m *mockTransformationWithTemplate) GetSQL() string                    { return "" }
 func (m *mockTransformationWithTemplate) GetType() string                   { return "transformation" }
 func (m *mockTransformationWithTemplate) GetValue() string                  { return m.value }
@@ -75,7 +75,11 @@ func TestRenderTransformation(t *testing.T) {
 		config: transformation.Config{
 			Database: "dep_db",
 			Table:    "model1",
-			Interval: 100,
+			ForwardFill: &transformation.ForwardFillConfig{
+				Interval: 100,
+				Schedule: "@every 1m",
+			},
+			Dependencies: []string{},
 		},
 	}
 
@@ -98,9 +102,12 @@ func TestRenderTransformation(t *testing.T) {
 			model: &mockTransformationWithTemplate{
 				id: "test.model",
 				config: transformation.Config{
-					Database:     "test_db",
-					Table:        "test_table",
-					Interval:     100,
+					Database: "test_db",
+					Table:    "test_table",
+					ForwardFill: &transformation.ForwardFillConfig{
+						Interval: 100,
+						Schedule: "@every 1m",
+					},
 					Dependencies: []string{},
 				},
 				value: "SELECT * FROM {{ .self.database }}.{{ .self.table }} WHERE position >= {{ .bounds.start }} AND position < {{ .bounds.end }}",
@@ -115,9 +122,12 @@ func TestRenderTransformation(t *testing.T) {
 			model: &mockTransformationWithTemplate{
 				id: "test.model2",
 				config: transformation.Config{
-					Database:     "test_db",
-					Table:        "test_table2",
-					Interval:     100,
+					Database: "test_db",
+					Table:    "test_table2",
+					ForwardFill: &transformation.ForwardFillConfig{
+						Interval: 100,
+						Schedule: "@every 1m",
+					},
 					Dependencies: []string{"dep.model1"},
 				},
 				value: "SELECT * FROM {{ .dep.dep_db.model1.database }}.{{ .dep.dep_db.model1.table }}",
@@ -132,9 +142,12 @@ func TestRenderTransformation(t *testing.T) {
 			model: &mockTransformationWithTemplate{
 				id: "test.model3",
 				config: transformation.Config{
-					Database:     "test_db",
-					Table:        "test_table3",
-					Interval:     100,
+					Database: "test_db",
+					Table:    "test_table3",
+					ForwardFill: &transformation.ForwardFillConfig{
+						Interval: 100,
+						Schedule: "@every 1m",
+					},
 					Dependencies: []string{},
 				},
 				value: "SELECT '{{ .self.table | upper }}' as table_name",
@@ -149,9 +162,12 @@ func TestRenderTransformation(t *testing.T) {
 			model: &mockTransformationWithTemplate{
 				id: "test.model4",
 				config: transformation.Config{
-					Database:     "test_db",
-					Table:        "test_table4",
-					Interval:     100,
+					Database: "test_db",
+					Table:    "test_table4",
+					ForwardFill: &transformation.ForwardFillConfig{
+						Interval: 100,
+						Schedule: "@every 1m",
+					},
 					Dependencies: []string{},
 				},
 				value: "SELECT * FROM {{ .invalid.syntax",
@@ -269,7 +285,11 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 		config: transformation.Config{
 			Database: "dep_db",
 			Table:    "model1",
-			Interval: 100,
+			ForwardFill: &transformation.ForwardFillConfig{
+				Interval: 100,
+				Schedule: "@every 1m",
+			},
+			Dependencies: []string{},
 		},
 	}
 
@@ -291,9 +311,12 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 	model := &mockTransformationWithTemplate{
 		id: "test.model",
 		config: transformation.Config{
-			Database:     "test_db",
-			Table:        "test_table",
-			Interval:     100,
+			Database: "test_db",
+			Table:    "test_table",
+			ForwardFill: &transformation.ForwardFillConfig{
+				Interval: 100,
+				Schedule: "@every 1m",
+			},
 			Dependencies: []string{"dep.model1", "ext.source1"},
 		},
 		value: "SELECT * FROM test",
@@ -346,9 +369,12 @@ func TestBuildTransformationVariables_MissingDependency(t *testing.T) {
 	model := &mockTransformationWithTemplate{
 		id: "test.model",
 		config: transformation.Config{
-			Database:     "test_db",
-			Table:        "test_table",
-			Interval:     100,
+			Database: "test_db",
+			Table:    "test_table",
+			ForwardFill: &transformation.ForwardFillConfig{
+				Interval: 100,
+				Schedule: "@every 1m",
+			},
 			Dependencies: []string{"missing.dep"},
 		},
 		value: "SELECT * FROM test",
@@ -373,9 +399,12 @@ func BenchmarkRenderTransformation(b *testing.B) {
 	model := &mockTransformationWithTemplate{
 		id: "test.model",
 		config: transformation.Config{
-			Database:     "test_db",
-			Table:        "test_table",
-			Interval:     100,
+			Database: "test_db",
+			Table:    "test_table",
+			ForwardFill: &transformation.ForwardFillConfig{
+				Interval: 100,
+				Schedule: "@every 1m",
+			},
 			Dependencies: []string{},
 		},
 		value: "SELECT * FROM {{ .self.database }}.{{ .self.table }} WHERE position >= {{ .bounds.start }} AND position < {{ .bounds.end }}",

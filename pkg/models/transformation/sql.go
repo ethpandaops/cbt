@@ -56,7 +56,8 @@ func (c *SQL) Validate() error {
 		return ErrSQLContentRequired
 	}
 
-	return nil
+	// Validate the embedded Config
+	return c.Config.Validate()
 }
 
 // GetType returns the transformation model type
@@ -65,8 +66,8 @@ func (c *SQL) GetType() string {
 }
 
 // GetConfig returns the transformation model configuration
-func (c *SQL) GetConfig() Config {
-	return c.Config
+func (c *SQL) GetConfig() *Config {
+	return &c.Config
 }
 
 // GetValue returns the SQL content

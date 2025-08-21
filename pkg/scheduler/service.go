@@ -182,12 +182,12 @@ func (s *service) reconcileSchedules() error {
 
 		// Forward fill task (always for transformation models)
 		forwardTask := fmt.Sprintf("%s%s:%s", TaskPrefix, transformation.GetID(), coordinator.DirectionForward)
-		desiredTasks[forwardTask] = config.Schedule
+		desiredTasks[forwardTask] = config.GetForwardSchedule()
 		// Register handler for this specific task type
 		mux.HandleFunc(forwardTask, s.HandleScheduledForward)
 
-		// Backfill task (only if enabled)
-		if config.Backfill != nil && config.Backfill.Enabled {
+		// Backfill task (only if configured)
+		if config.IsBackfillEnabled() {
 			backfillTask := fmt.Sprintf("%s%s:%s", TaskPrefix, transformation.GetID(), coordinator.DirectionBack)
 			desiredTasks[backfillTask] = config.Backfill.Schedule
 			// Register handler for this specific task type

@@ -1,10 +1,11 @@
 ---
 database: analytics
 table: block_propagation
-interval: 60
-schedule: "@every 10s"
+forwardfill:
+  interval: 60
+  schedule: "@every 10s"
 backfill:
-  enabled: true
+  interval: 60
   schedule: "@every 10s"
 tags:
   - propagation

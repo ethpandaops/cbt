@@ -283,7 +283,7 @@ func (v *dependencyValidator) GetEarliestPosition(ctx context.Context, modelID s
 	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
 	}
-	interval := model.GetConfig().Interval
+	interval := model.GetConfig().GetBackfillInterval()
 
 	// Round down to the nearest interval boundary
 	if maxOfMins > 0 && interval > 0 {
@@ -334,7 +334,7 @@ func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
 	}
-	interval := model.GetConfig().Interval
+	interval := model.GetConfig().GetForwardInterval()
 
 	deps := v.dag.GetDependencies(modelID)
 	if len(deps) == 0 {
