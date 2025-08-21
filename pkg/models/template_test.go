@@ -73,10 +73,9 @@ func TestRenderTransformation(t *testing.T) {
 	dep1 := &mockTransformationWithTemplate{
 		id: "dep.model1",
 		config: transformation.Config{
-			Database:  "dep_db",
-			Table:     "model1",
-			Partition: "toYYYYMMDD(timestamp)",
-			Interval:  100,
+			Database: "dep_db",
+			Table:    "model1",
+			Interval: 100,
 		},
 	}
 
@@ -101,7 +100,6 @@ func TestRenderTransformation(t *testing.T) {
 				config: transformation.Config{
 					Database:     "test_db",
 					Table:        "test_table",
-					Partition:    "toYYYYMMDD(timestamp)",
 					Interval:     100,
 					Dependencies: []string{},
 				},
@@ -119,7 +117,6 @@ func TestRenderTransformation(t *testing.T) {
 				config: transformation.Config{
 					Database:     "test_db",
 					Table:        "test_table2",
-					Partition:    "toYYYYMMDD(timestamp)",
 					Interval:     100,
 					Dependencies: []string{"dep.model1"},
 				},
@@ -137,7 +134,6 @@ func TestRenderTransformation(t *testing.T) {
 				config: transformation.Config{
 					Database:     "test_db",
 					Table:        "test_table3",
-					Partition:    "toYYYYMMDD(timestamp)",
 					Interval:     100,
 					Dependencies: []string{},
 				},
@@ -155,7 +151,6 @@ func TestRenderTransformation(t *testing.T) {
 				config: transformation.Config{
 					Database:     "test_db",
 					Table:        "test_table4",
-					Partition:    "toYYYYMMDD(timestamp)",
 					Interval:     100,
 					Dependencies: []string{},
 				},
@@ -205,9 +200,8 @@ func TestRenderExternal(t *testing.T) {
 			model: &mockExternalWithTemplate{
 				id: "ext.model1",
 				config: external.Config{
-					Database:  "ext_db",
-					Table:     "ext_table",
-					Partition: "toYYYYMMDD(timestamp)",
+					Database: "ext_db",
+					Table:    "ext_table",
 				},
 				typ:   external.ExternalTypeSQL,
 				value: "SELECT min(position) as min, max(position) as max FROM {{ .self.database }}.{{ .self.table }}",
@@ -220,9 +214,8 @@ func TestRenderExternal(t *testing.T) {
 			model: &mockExternalWithTemplate{
 				id: "ext.model2",
 				config: external.Config{
-					Database:  "ext_db2",
-					Table:     "ext_table2",
-					Partition: "toYYYYMMDD(timestamp)",
+					Database: "ext_db2",
+					Table:    "ext_table2",
 				},
 				typ:   external.ExternalTypeSQL,
 				value: "SELECT * FROM {{ .self.database }}.{{ .self.table }}{{ .clickhouse.local_suffix }}",
@@ -235,9 +228,8 @@ func TestRenderExternal(t *testing.T) {
 			model: &mockExternalWithTemplate{
 				id: "ext.model3",
 				config: external.Config{
-					Database:  "ext_db3",
-					Table:     "ext_table3",
-					Partition: "toYYYYMMDD(timestamp)",
+					Database: "ext_db3",
+					Table:    "ext_table3",
 				},
 				typ:   external.ExternalTypeSQL,
 				value: "SELECT * FROM {{ .invalid",
@@ -275,19 +267,17 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 	dep1 := &mockTransformationWithTemplate{
 		id: "dep.model1",
 		config: transformation.Config{
-			Database:  "dep_db",
-			Table:     "model1",
-			Partition: "toYYYYMMDD(timestamp)",
-			Interval:  100,
+			Database: "dep_db",
+			Table:    "model1",
+			Interval: 100,
 		},
 	}
 
 	ext1 := &mockExternalWithTemplate{
 		id: "ext.source1",
 		config: external.Config{
-			Database:  "ext_db",
-			Table:     "source1",
-			Partition: "toYYYYMMDD(timestamp)",
+			Database: "ext_db",
+			Table:    "source1",
 		},
 		typ: external.ExternalTypeSQL,
 	}
@@ -303,7 +293,6 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 		config: transformation.Config{
 			Database:     "test_db",
 			Table:        "test_table",
-			Partition:    "toYYYYMMDD(timestamp)",
 			Interval:     100,
 			Dependencies: []string{"dep.model1", "ext.source1"},
 		},
@@ -359,7 +348,6 @@ func TestBuildTransformationVariables_MissingDependency(t *testing.T) {
 		config: transformation.Config{
 			Database:     "test_db",
 			Table:        "test_table",
-			Partition:    "toYYYYMMDD(timestamp)",
 			Interval:     100,
 			Dependencies: []string{"missing.dep"},
 		},
@@ -387,7 +375,6 @@ func BenchmarkRenderTransformation(b *testing.B) {
 		config: transformation.Config{
 			Database:     "test_db",
 			Table:        "test_table",
-			Partition:    "toYYYYMMDD(timestamp)",
 			Interval:     100,
 			Dependencies: []string{},
 		},
@@ -414,9 +401,8 @@ func BenchmarkRenderExternal(b *testing.B) {
 	model := &mockExternalWithTemplate{
 		id: "ext.model",
 		config: external.Config{
-			Database:  "ext_db",
-			Table:     "ext_table",
-			Partition: "toYYYYMMDD(timestamp)",
+			Database: "ext_db",
+			Table:    "ext_table",
 		},
 		typ:   external.ExternalTypeSQL,
 		value: "SELECT min(position) as min, max(position) as max FROM {{ .self.database }}.{{ .self.table }}",

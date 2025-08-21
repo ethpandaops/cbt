@@ -1,7 +1,6 @@
 ---
 database: ethereum
 table: validator_entity
-partition: slot_start_date_time
 ttl: 30s
 lag: 10
 ---

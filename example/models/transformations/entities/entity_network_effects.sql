@@ -1,7 +1,6 @@
 ---
 database: analytics
 table: entity_network_effects
-partition: slot_start_date_time
 interval: 300
 schedule: "@every 30s"
 backfill:
@@ -40,8 +39,8 @@ FROM `{{ index .dep "analytics" "block_entity" "database" }}`.`{{ index .dep "an
 INNER JOIN `{{ index .dep "analytics" "block_propagation" "database" }}`.`{{ index .dep "analytics" "block_propagation" "table" }}` bp
     ON be.slot = bp.slot 
     AND be.block_root = bp.block_root
-WHERE be.{{ index .dep "analytics" "block_entity" "partition" }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
-  AND bp.{{ index .dep "analytics" "block_propagation" "partition" }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
+WHERE be.slot_start_date_time BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
+  AND bp.slot_start_date_time BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
 GROUP BY be.entity_name
 HAVING blocks_in_window > 0;
 
@@ -52,5 +51,5 @@ DELETE FROM
   ON CLUSTER '{{ .clickhouse.cluster }}'
 {{ end }}
 WHERE
-  {{ .self.partition }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
+  slot_start_date_time BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
   AND updated_date_time != fromUnixTimestamp({{ .task.start }});

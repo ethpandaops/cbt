@@ -57,10 +57,9 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 			"local_suffix": t.clickhouseCfg.LocalSuffix,
 		},
 		"self": map[string]interface{}{
-			"database":  config.Database,
-			"table":     config.Table,
-			"partition": config.Partition,
-			"interval":  config.Interval,
+			"database": config.Database,
+			"table":    config.Table,
+			"interval": config.Interval,
 		},
 		"task": map[string]interface{}{
 			"start": startTime.Unix(),
@@ -94,9 +93,8 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 			}
 
 			database[tConfig.Table] = map[string]interface{}{
-				"database":  tConfig.Database,
-				"table":     tConfig.Table,
-				"partition": tConfig.Partition,
+				"database": tConfig.Database,
+				"table":    tConfig.Table,
 			}
 
 			deps[tConfig.Database] = database
@@ -117,9 +115,8 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 			}
 
 			database[eConfig.Table] = map[string]interface{}{
-				"database":  eConfig.Database,
-				"table":     eConfig.Table,
-				"partition": eConfig.Partition,
+				"database": eConfig.Database,
+				"table":    eConfig.Table,
 			}
 
 			deps[eConfig.Database] = database
@@ -139,7 +136,6 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 		fmt.Sprintf("CLICKHOUSE_URL=%s", t.clickhouseCfg.URL),
 		fmt.Sprintf("SELF_DATABASE=%s", config.Database),
 		fmt.Sprintf("SELF_TABLE=%s", config.Table),
-		fmt.Sprintf("SELF_PARTITION=%s", config.Partition),
 		fmt.Sprintf("TASK_START=%d", startTime.Unix()),
 		fmt.Sprintf("TASK_MODEL=%s.%s", config.Database, config.Table),
 		fmt.Sprintf("TASK_INTERVAL=%d", interval),
@@ -172,7 +168,6 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 			env = append(env,
 				fmt.Sprintf("DEP_%s_DATABASE=%s", uppercaseName, tConfig.Database),
 				fmt.Sprintf("DEP_%s_TABLE=%s", uppercaseName, tConfig.Table),
-				fmt.Sprintf("DEP_%s_PARTITION=%s", uppercaseName, tConfig.Partition),
 			)
 		}
 
@@ -187,7 +182,6 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 			env = append(env,
 				fmt.Sprintf("DEP_%s_DATABASE=%s", uppercaseName, eConfig.Database),
 				fmt.Sprintf("DEP_%s_TABLE=%s", uppercaseName, eConfig.Table),
-				fmt.Sprintf("DEP_%s_PARTITION=%s", uppercaseName, eConfig.Partition),
 			)
 		}
 	}
@@ -221,9 +215,8 @@ func (t *TemplateEngine) buildExternalVariables(model External) map[string]inter
 			"local_suffix": t.clickhouseCfg.LocalSuffix,
 		},
 		"self": map[string]interface{}{
-			"database":  config.Database,
-			"table":     config.Table,
-			"partition": config.Partition,
+			"database": config.Database,
+			"table":    config.Table,
 		},
 	}
 

@@ -157,7 +157,6 @@ Models support Go template syntax with the following variables:
 - `{{ .clickhouse.local_suffix }}` - Local table suffix for cluster setups
 - `{{ .self.database }}` - Current model's database
 - `{{ .self.table }}` - Current model's table
-- `{{ .self.partition }}` - Current model's partition column
 
 #### Example
 
@@ -165,7 +164,6 @@ Models support Go template syntax with the following variables:
 ---
 database: ethereum
 table: beacon_blocks
-partition: slot_start_date_time
 ttl: 60s # Optional: how long to cache the min/max bounds for to reduce queries to the source data
 lag: 30  # Optional: ignore last 30 seconds of data to avoid incomplete data
 ---
@@ -177,7 +175,7 @@ FROM `{{ .self.database }}`.`{{ .self.table }}` FINAL
 
 ### Transformation Models
 
-Transformation models process data in intervals. Intervals are agnostic to the source data and are defined by the `partition` column. This could be a time interval, a block number etc.
+Transformation models process data in intervals. Intervals are agnostic to the source data and could be a time interval, a block number etc.
 
 > Note: CBT does not create transformation tables and **requires** you to create them manually by design.
 
@@ -189,7 +187,6 @@ Models support Go template syntax with the following variables:
 - `{{ .clickhouse.local_suffix }}` - Local table suffix for cluster setups
 - `{{ .self.database }}` - Current model's database
 - `{{ .self.table }}` - Current model's table
-- `{{ .self.partition }}` - Current model's partition column
 - `{{ .bounds.start }}` - Processing interval start
 - `{{ .bounds.end }}` - Processing interval end
 - `{{ .task.start }}` - Task start timestamp
@@ -201,7 +198,6 @@ Models support Go template syntax with the following variables:
 ---
 database: analytics
 table: block_propagation
-partition: slot_start_date_time
 interval: 3600
 schedule: "@every 1m" # How often to trigger the transformation
 backfill:
@@ -226,7 +222,7 @@ SELECT
     avg(propagation_slot_start_diff) as avg_propagation,
     {{ .bounds.start }} as position
 FROM `{{ index .dep "ethereum" "beacon_blocks" "database" }}`.`{{ index .dep "ethereum" "beacon_blocks" "table" }}`
-WHERE {{ index .dep "ethereum" "beacon_blocks" "partition" }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
+WHERE slot_start_date_time BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
 GROUP BY slot_start_date_time, slot, block_root;
 
 -- Lazy delete deuplicate old rows (optional) to allow intervals to be re-processed
@@ -236,7 +232,7 @@ DELETE FROM
   ON CLUSTER '{{ .clickhouse.cluster }}'
 {{ end }}
 WHERE
-  {{ .self.partition }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
+  slot_start_date_time BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
   AND updated_date_time != fromUnixTimestamp({{ .task.start }});
 ```
 
@@ -260,7 +256,6 @@ Environment variables provided to scripts:
 ```yaml
 database: analytics
 table: python_metrics
-partition: hour_start
 interval: 3600
 schedule: "@every 5m"
 backfill:
