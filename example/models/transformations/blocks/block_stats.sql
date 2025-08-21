@@ -1,7 +1,6 @@
 ---
 database: analytics
 table: hourly_block_stats
-partition: hour_start
 interval: 3600
 schedule: "@every 5m"
 backfill:
@@ -38,5 +37,5 @@ DELETE FROM
   ON CLUSTER '{{ .clickhouse.cluster }}'
 {{ end }}
 WHERE
-  {{ .self.partition }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
+  hour_start BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
   AND updated_date_time != fromUnixTimestamp({{ .task.start }})

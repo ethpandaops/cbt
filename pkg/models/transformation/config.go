@@ -12,8 +12,6 @@ var (
 	ErrDatabaseRequired = errors.New("database is required")
 	// ErrTableRequired is returned when table is not specified
 	ErrTableRequired = errors.New("table is required")
-	// ErrPartitionRequired is returned when partition is not specified
-	ErrPartitionRequired = errors.New("partition is required")
 	// ErrIntervalRequired is returned when interval is not specified
 	ErrIntervalRequired = errors.New("interval is required")
 	// ErrBackfillRequired is returned when backfill is not specified
@@ -28,7 +26,6 @@ var (
 type Config struct {
 	Database     string          `yaml:"database"`
 	Table        string          `yaml:"table"`
-	Partition    string          `yaml:"partition"`
 	Interval     uint64          `yaml:"interval"`
 	Schedule     string          `yaml:"schedule"`
 	Backfill     *BackfillConfig `yaml:"backfill,omitempty"`
@@ -51,10 +48,6 @@ func (c *Config) Validate() error {
 
 	if c.Table == "" {
 		return ErrTableRequired
-	}
-
-	if c.Partition == "" {
-		return ErrPartitionRequired
 	}
 
 	if c.Interval == 0 {

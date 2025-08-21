@@ -1,7 +1,6 @@
 ---
 database: analytics
 table: block_propagation
-partition: slot_start_date_time
 interval: 60
 schedule: "@every 10s"
 backfill:
@@ -29,7 +28,7 @@ SELECT
     max(propagation_slot_start_diff) as max_propagation,
     {{ .bounds.start }} as position
 FROM `{{ index .dep "ethereum" "beacon_blocks" "database" }}`.`{{ index .dep "ethereum" "beacon_blocks" "table" }}`
-WHERE {{ index .dep "ethereum" "beacon_blocks" "partition" }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
+WHERE slot_start_date_time BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
 GROUP BY slot_start_date_time, slot, block_root;
 
 -- Delete old rows
@@ -39,5 +38,5 @@ DELETE FROM
   ON CLUSTER '{{ .clickhouse.cluster }}'
 {{ end }}
 WHERE
-  {{ .self.partition }} BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
+  slot_start_date_time BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
   AND updated_date_time != fromUnixTimestamp({{ .task.start }});
