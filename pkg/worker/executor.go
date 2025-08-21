@@ -25,14 +25,14 @@ var (
 
 // ModelExecutor implements the execution of model transformations
 type ModelExecutor struct {
-	logger   *logrus.Logger
+	logger   logrus.FieldLogger
 	chClient clickhouse.ClientInterface
-	models   *models.Service
-	admin    *admin.Service
+	models   models.Service
+	admin    admin.Service
 }
 
 // NewModelExecutor creates a new model executor
-func NewModelExecutor(logger *logrus.Logger, chClient clickhouse.ClientInterface, modelsService *models.Service, adminManager *admin.Service) *ModelExecutor {
+func NewModelExecutor(logger logrus.FieldLogger, chClient clickhouse.ClientInterface, modelsService models.Service, adminManager admin.Service) *ModelExecutor {
 	return &ModelExecutor{
 		logger:   logger,
 		chClient: chClient,

@@ -3,8 +3,10 @@ package validation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,19 +21,46 @@ import (
 var (
 	// ErrNotSQLModel is returned when external model is not a SQL model
 	ErrNotSQLModel = errors.New("external model is not a SQL model")
+	// ErrInvalidUint64 is returned when a value cannot be unmarshaled as uint64
+	ErrInvalidUint64 = errors.New("failed to unmarshal value as uint64")
 )
+
+// flexUint64 is a custom type that can unmarshal from both string and number JSON values
+type flexUint64 uint64
+
+func (f *flexUint64) UnmarshalJSON(data []byte) error {
+	// Try to unmarshal as number first
+	var num uint64
+	if err := json.Unmarshal(data, &num); err == nil {
+		*f = flexUint64(num)
+		return nil
+	}
+
+	// Try to unmarshal as string
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		parsed, err := strconv.ParseUint(str, 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse string value %q as uint64: %w", str, err)
+		}
+		*f = flexUint64(parsed)
+		return nil
+	}
+
+	return fmt.Errorf("%w: expected number or string, got %s", ErrInvalidUint64, string(data))
+}
 
 // ExternalModelValidator implements the ExternalModelExecutor interface
 type ExternalModelValidator struct {
-	log      *logrus.Logger
-	admin    *admin.Service
+	log      logrus.FieldLogger
+	admin    admin.Service
 	chClient clickhouse.ClientInterface
-	models   *models.Service
+	models   models.Service
 }
 
 // NewExternalModelExecutor creates a new external model executor
 // The cacheManager can be nil if caching is not desired
-func NewExternalModelExecutor(log *logrus.Logger, chClient clickhouse.ClientInterface, adminService *admin.Service, modelsService *models.Service) *ExternalModelValidator {
+func NewExternalModelExecutor(log logrus.FieldLogger, chClient clickhouse.ClientInterface, adminService admin.Service, modelsService models.Service) *ExternalModelValidator {
 	return &ExternalModelValidator{
 		chClient: chClient,
 		log:      log,
@@ -149,8 +178,8 @@ func (e *ExternalModelValidator) GetMinMax(ctx context.Context, model models.Ext
 	}
 
 	var result struct {
-		MinPos uint64 `json:"min"`
-		MaxPos uint64 `json:"max"`
+		MinPos flexUint64 `json:"min"`
+		MaxPos flexUint64 `json:"max"`
 	}
 
 	// trim `;` and whitespace/newlines from end of query
@@ -162,12 +191,12 @@ func (e *ExternalModelValidator) GetMinMax(ctx context.Context, model models.Ext
 	}
 
 	// Store in cache (store original values before lag adjustment)
-	if err := e.storeInCache(ctx, model, result.MinPos, result.MaxPos); err != nil {
+	if err := e.storeInCache(ctx, model, uint64(result.MinPos), uint64(result.MaxPos)); err != nil {
 		// Log error but don't fail the operation - cache is not critical
 		e.log.WithError(err).WithField("model_id", model.GetID()).Debug("Failed to store in cache")
 	}
 
 	// Apply lag if configured
-	minPos, maxPos = e.applyLag(model, result.MinPos, result.MaxPos, false)
+	minPos, maxPos = e.applyLag(model, uint64(result.MinPos), uint64(result.MaxPos), false)
 	return minPos, maxPos, nil
 }

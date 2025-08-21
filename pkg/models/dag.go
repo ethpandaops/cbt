@@ -25,6 +25,36 @@ var (
 	ErrInvalidTransformationModelType = errors.New("invalid transformation model type")
 )
 
+// DAGReader provides read-only access to the dependency graph (ethPandaOps pattern)
+type DAGReader interface {
+	// GetNode retrieves a node by its ID
+	GetNode(id string) (Node, error)
+
+	// GetTransformationNode retrieves a transformation node by its ID
+	GetTransformationNode(id string) (Transformation, error)
+
+	// GetExternalNode retrieves an external node by its ID
+	GetExternalNode(id string) (External, error)
+
+	// GetDependencies returns direct dependencies of a node
+	GetDependencies(id string) []string
+
+	// GetDependents returns nodes that depend on the given node
+	GetDependents(id string) []string
+
+	// GetAllDependencies returns all transitive dependencies
+	GetAllDependencies(id string) []string
+
+	// GetAllDependents returns all transitive dependents
+	GetAllDependents(id string) []string
+
+	// GetTransformationNodes returns all transformation nodes
+	GetTransformationNodes() []Transformation
+
+	// IsPathBetween checks if there's a path between two nodes
+	IsPathBetween(from, to string) bool
+}
+
 // DependencyGraph manages the dependency graph for models
 type DependencyGraph struct {
 	dag   *dag.DAG
@@ -281,7 +311,7 @@ func (d *DependencyGraph) IsPathBetween(fromModelID, toModelID string) bool {
 func (d *DependencyGraph) GetTransformationNodes() []Transformation {
 	vertices := d.dag.GetVertices()
 
-	transformationNodes := make([]Transformation, 0)
+	transformationNodes := make([]Transformation, 0, len(vertices))
 	for _, vertex := range vertices {
 		node, ok := vertex.(Node)
 		if !ok {
@@ -297,3 +327,6 @@ func (d *DependencyGraph) GetTransformationNodes() []Transformation {
 
 	return transformationNodes
 }
+
+// Ensure DependencyGraph implements DAGReader
+var _ DAGReader = (*DependencyGraph)(nil)

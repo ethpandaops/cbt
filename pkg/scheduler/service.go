@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/coordinator"
@@ -29,14 +30,35 @@ var (
 	ErrScheduleRegistrationFailed = errors.New("failed to register scheduled tasks")
 )
 
-// Service manages scheduled tasks for transformations
-type Service struct {
-	log *logrus.Logger
+// Service defines the public interface for the scheduler
+type Service interface {
+	// Start initializes and starts the scheduler service
+	Start(ctx context.Context) error
+
+	// Stop gracefully shuts down the scheduler service
+	Stop() error
+
+	// Note: These methods are internal and used by asynq handlers
+	// They are exposed in the interface for testing purposes
+}
+
+// CoordinatorClient defines the minimal interface needed from coordinator
+type CoordinatorClient interface {
+	Process(transformation models.Transformation, direction coordinator.Direction)
+}
+
+// service manages scheduled tasks for transformations
+type service struct {
+	log logrus.FieldLogger // Using FieldLogger interface per ethPandaOps
 	cfg *Config
 
+	// Synchronization - per ethPandaOps standards
+	done chan struct{}  // Signal shutdown
+	wg   sync.WaitGroup // Track goroutines
+
 	redisOpt    *redis.Options
-	dag         *models.DependencyGraph
-	coordinator *coordinator.Service
+	dag         models.DAGReader
+	coordinator coordinator.Service
 
 	scheduler *asynq.Scheduler
 	server    *asynq.Server
@@ -45,7 +67,7 @@ type Service struct {
 }
 
 // NewService creates a new scheduler service
-func NewService(log *logrus.Logger, cfg *Config, redisOpt *redis.Options, dag *models.DependencyGraph, coord *coordinator.Service) (*Service, error) {
+func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, dag models.DAGReader, coord coordinator.Service) (Service, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -63,15 +85,16 @@ func NewService(log *logrus.Logger, cfg *Config, redisOpt *redis.Options, dag *m
 		Queues: map[string]int{
 			QueueName: 10,
 		},
-		Concurrency: 10,
+		Concurrency: cfg.Concurrency,
 	})
 
 	// Create inspector for managing tasks
 	inspector := asynq.NewInspector(asynqRedis)
 
-	return &Service{
-		log: log,
-		cfg: cfg,
+	return &service{
+		log:  log.WithField("service", "scheduler"), // Add service-specific field per ethPandaOps
+		cfg:  cfg,
+		done: make(chan struct{}),
 
 		redisOpt:    redisOpt,
 		dag:         dag,
@@ -84,10 +107,13 @@ func NewService(log *logrus.Logger, cfg *Config, redisOpt *redis.Options, dag *m
 }
 
 // Start initializes and starts the scheduler service
-func (s *Service) Start() error {
+func (s *service) Start(_ context.Context) error {
+	// Track scheduler goroutine
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		if runErr := s.scheduler.Run(); runErr != nil {
-			s.log.WithError(runErr).Fatal("Failed to run scheduler")
+			s.log.WithError(runErr).Error("Scheduler stopped with error")
 		}
 	}()
 
@@ -97,13 +123,16 @@ func (s *Service) Start() error {
 	}
 
 	// Start server in background
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		if runErr := s.server.Run(s.mux); runErr != nil {
-			s.log.WithError(runErr).Fatal("Failed to run scheduler server")
+			s.log.WithError(runErr).Error("Scheduler server stopped with error")
 		}
 	}()
 
 	// Start periodic cleanup of duplicate scheduled tasks
+	s.wg.Add(1)
 	go s.runPeriodicCleanup()
 
 	s.log.Info("Scheduler service started successfully")
@@ -112,7 +141,11 @@ func (s *Service) Start() error {
 }
 
 // Stop gracefully shuts down the scheduler service
-func (s *Service) Stop() error {
+func (s *service) Stop() error {
+	// Signal all goroutines to stop
+	close(s.done)
+
+	// Shutdown scheduler and server
 	if s.scheduler != nil {
 		s.scheduler.Shutdown()
 	}
@@ -121,11 +154,16 @@ func (s *Service) Stop() error {
 		s.server.Shutdown()
 	}
 
+	// Wait for all goroutines to complete
+	s.wg.Wait()
+
+	s.log.Info("Scheduler service stopped successfully")
+
 	return nil
 }
 
 // reconcileSchedules ensures scheduled tasks match current model configuration
-func (s *Service) reconcileSchedules() error {
+func (s *service) reconcileSchedules() error {
 	s.log.Info("Reconciling scheduled tasks with current configuration")
 
 	// Setup handlers for scheduled tasks
@@ -136,9 +174,10 @@ func (s *Service) reconcileSchedules() error {
 	// The scheduler handles deduplication internally using task IDs.
 
 	// Build desired state from current configuration
-	desiredTasks := make(map[string]string) // taskType -> schedule
+	transformations := s.dag.GetTransformationNodes()
+	desiredTasks := make(map[string]string, len(transformations)*2) // taskType -> schedule (forward + backfill)
 
-	for _, transformation := range s.dag.GetTransformationNodes() {
+	for _, transformation := range transformations {
 		config := transformation.GetConfig()
 
 		// Forward fill task (always for transformation models)
@@ -178,7 +217,7 @@ func (s *Service) reconcileSchedules() error {
 }
 
 // registerScheduledTask registers a new scheduled task
-func (s *Service) registerScheduledTask(taskType, schedule string) error {
+func (s *service) registerScheduledTask(taskType, schedule string) error {
 	// Extract model ID for logging
 	modelID := extractModelID(taskType)
 	operation := coordinator.DirectionForward
@@ -225,7 +264,7 @@ func extractModelID(taskType string) string {
 }
 
 // HandleScheduledForward processes scheduled forward fill checks
-func (s *Service) HandleScheduledForward(_ context.Context, t *asynq.Task) error {
+func (s *service) HandleScheduledForward(_ context.Context, t *asynq.Task) error {
 	modelID := extractModelID(t.Type())
 
 	transformation, err := s.dag.GetTransformationNode(modelID)
@@ -249,33 +288,41 @@ func (s *Service) HandleScheduledForward(_ context.Context, t *asynq.Task) error
 }
 
 // runPeriodicCleanup periodically removes duplicate scheduled tasks
-func (s *Service) runPeriodicCleanup() {
+func (s *service) runPeriodicCleanup() {
+	defer s.wg.Done()
+
 	for {
 		// Random interval between 1-2 minutes
 		interval := time.Duration(60+rand.Intn(60)) * time.Second // #nosec G404 - using weak RNG for non-security purpose
-		time.Sleep(interval)
+		timer := time.NewTimer(interval)
 
-		// Get all scheduled task entries
-		entries, err := s.inspector.SchedulerEntries()
-		if err != nil {
-			continue
-		}
-
-		// Group by task type to find duplicates
-		taskGroups := make(map[string][]*asynq.SchedulerEntry)
-		for _, entry := range entries {
-			// Only process our tasks
-			if strings.HasPrefix(entry.Task.Type(), TaskPrefix) {
-				taskGroups[entry.Task.Type()] = append(taskGroups[entry.Task.Type()], entry)
+		select {
+		case <-s.done:
+			timer.Stop()
+			return
+		case <-timer.C:
+			// Get all scheduled task entries
+			entries, err := s.inspector.SchedulerEntries()
+			if err != nil {
+				continue
 			}
-		}
 
-		// Remove duplicates, keeping the first one
-		for _, group := range taskGroups {
-			if len(group) > 1 {
-				// Keep first, remove rest
-				for i := 1; i < len(group); i++ {
-					_ = s.scheduler.Unregister(group[i].ID)
+			// Group by task type to find duplicates
+			taskGroups := make(map[string][]*asynq.SchedulerEntry, 10) // Add capacity hint
+			for _, entry := range entries {
+				// Only process our tasks
+				if strings.HasPrefix(entry.Task.Type(), TaskPrefix) {
+					taskGroups[entry.Task.Type()] = append(taskGroups[entry.Task.Type()], entry)
+				}
+			}
+
+			// Remove duplicates, keeping the first one
+			for _, group := range taskGroups {
+				if len(group) > 1 {
+					// Keep first, remove rest
+					for i := 1; i < len(group); i++ {
+						_ = s.scheduler.Unregister(group[i].ID)
+					}
 				}
 			}
 		}
@@ -283,7 +330,7 @@ func (s *Service) runPeriodicCleanup() {
 }
 
 // HandleScheduledBackfill processes scheduled backfill scans
-func (s *Service) HandleScheduledBackfill(_ context.Context, t *asynq.Task) error {
+func (s *service) HandleScheduledBackfill(_ context.Context, t *asynq.Task) error {
 	modelID := extractModelID(t.Type())
 
 	transformation, err := s.dag.GetTransformationNode(modelID)
@@ -305,3 +352,6 @@ func (s *Service) HandleScheduledBackfill(_ context.Context, t *asynq.Task) erro
 
 	return nil
 }
+
+// Ensure service implements the interface
+var _ Service = (*service)(nil)

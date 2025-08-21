@@ -16,7 +16,7 @@ healthCheckAddr: ":8080"
 # ClickHouse configuration
 clickhouse:
   # Connection URL (required)
-  url: "clickhouse://localhost:9000"
+  url: http://localhost:8123
   
   # Cluster configuration (optional, for distributed deployments)
   # cluster: "default"
@@ -46,9 +46,6 @@ redis:
 
 # Scheduling settings
 scheduler:
-  # How often to check for tasks to schedule
-  interval: 1m
-  
   # Maximum number of concurrent scheduling operations
   concurrency: 10
 

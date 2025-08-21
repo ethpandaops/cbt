@@ -49,6 +49,7 @@ tmp
 
 # spectest coverage reports
 report.txt
+coverage.out
 
 # Debug bins
 *__debug_bin*

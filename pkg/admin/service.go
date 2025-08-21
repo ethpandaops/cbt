@@ -16,14 +16,33 @@ var (
 	ErrInvalidModelID = errors.New("invalid model ID format: expected database.table")
 )
 
+// Service defines the public interface for the admin service
+type Service interface {
+	// Position tracking
+	GetLastPosition(ctx context.Context, modelID string) (uint64, error)
+	GetFirstPosition(ctx context.Context, modelID string) (uint64, error)
+	RecordCompletion(ctx context.Context, modelID string, position, interval uint64) error
+
+	// Coverage and gap management
+	GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error)
+	FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]GapInfo, error)
+
+	// Cache management
+	GetCacheManager() *CacheManager
+
+	// Admin table info
+	GetAdminDatabase() string
+	GetAdminTable() string
+}
+
 // GapInfo represents a gap in the processed data
 type GapInfo struct {
 	StartPos uint64
 	EndPos   uint64
 }
 
-// Service manages the admin tracking table for completed transformations
-type Service struct {
+// service manages the admin tracking table for completed transformations
+type service struct {
 	client        clickhouse.ClientInterface
 	cluster       string
 	localSuffix   string
@@ -34,10 +53,10 @@ type Service struct {
 }
 
 // NewService creates a new admin table manager
-func NewService(client clickhouse.ClientInterface, cluster, localSuffix, adminDatabase, adminTable string, redisClient *redis.Client) *Service {
+func NewService(client clickhouse.ClientInterface, cluster, localSuffix, adminDatabase, adminTable string, redisClient *redis.Client) Service {
 	cacheManager := NewCacheManager(redisClient)
 
-	return &Service{
+	return &service{
 		client:        client,
 		cluster:       cluster,
 		localSuffix:   localSuffix,
@@ -48,17 +67,17 @@ func NewService(client clickhouse.ClientInterface, cluster, localSuffix, adminDa
 }
 
 // GetAdminDatabase returns the admin database name
-func (a *Service) GetAdminDatabase() string {
+func (a *service) GetAdminDatabase() string {
 	return a.adminDatabase
 }
 
 // GetAdminTable returns the admin table name
-func (a *Service) GetAdminTable() string {
+func (a *service) GetAdminTable() string {
 	return a.adminTable
 }
 
 // RecordCompletion records a completed transformation in the admin table
-func (a *Service) RecordCompletion(ctx context.Context, modelID string, position, interval uint64) error {
+func (a *service) RecordCompletion(ctx context.Context, modelID string, position, interval uint64) error {
 	parts := strings.Split(modelID, ".")
 	if len(parts) != 2 {
 		return ErrInvalidModelID
@@ -75,7 +94,7 @@ func (a *Service) RecordCompletion(ctx context.Context, modelID string, position
 }
 
 // GetFirstPosition returns the first processed position for a model
-func (a *Service) GetFirstPosition(ctx context.Context, modelID string) (uint64, error) {
+func (a *service) GetFirstPosition(ctx context.Context, modelID string) (uint64, error) {
 	parts := strings.Split(modelID, ".")
 	if len(parts) != 2 {
 		return 0, ErrInvalidModelID
@@ -103,7 +122,7 @@ func (a *Service) GetFirstPosition(ctx context.Context, modelID string) (uint64,
 }
 
 // GetLastPosition returns the last processed position for a model
-func (a *Service) GetLastPosition(ctx context.Context, modelID string) (uint64, error) {
+func (a *service) GetLastPosition(ctx context.Context, modelID string) (uint64, error) {
 	parts := strings.Split(modelID, ".")
 	if len(parts) != 2 {
 		return 0, ErrInvalidModelID
@@ -131,7 +150,7 @@ func (a *Service) GetLastPosition(ctx context.Context, modelID string) (uint64, 
 }
 
 // GetCoverage checks if a range is fully covered in the admin table
-func (a *Service) GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error) {
+func (a *service) GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error) {
 	parts := strings.Split(modelID, ".")
 	if len(parts) != 2 {
 		return false, ErrInvalidModelID
@@ -168,31 +187,32 @@ func (a *Service) GetCoverage(ctx context.Context, modelID string, startPos, end
 }
 
 // FindGaps finds all gaps in the processed data for a model
-func (a *Service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]GapInfo, error) {
+func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]GapInfo, error) {
 	parts := strings.Split(modelID, ".")
 	if len(parts) != 2 {
 		return nil, ErrInvalidModelID
 	}
 
-	// Query to find gaps using a window function
+	// Query to find gaps using a self-join instead of window function
 	query := fmt.Sprintf(`
 		WITH positions AS (
 			SELECT 
 				position,
 				position + interval as end_pos,
-				lead(position) OVER (ORDER BY position) as next_position
+				row_number() OVER (ORDER BY position) as rn
 			FROM %s.%s FINAL
 			WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position <= %d
 			ORDER BY position
 		)
 		SELECT 
-			end_pos as gap_start,
-			next_position as gap_end
-		FROM positions
-		WHERE next_position > end_pos
-		  AND next_position - end_pos >= %d
-		ORDER BY gap_start
+			p1.end_pos as gap_start,
+			p2.position as gap_end
+		FROM positions p1
+		INNER JOIN positions p2 ON p1.rn + 1 = p2.rn
+		WHERE p2.position > p1.end_pos
+		  AND p2.position - p1.end_pos >= %d
+		ORDER BY gap_start DESC
 	`, a.adminDatabase, a.adminTable, parts[0], parts[1], minPos, maxPos, interval)
 
 	var gapResults []struct {
@@ -231,44 +251,17 @@ func (a *Service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 	}
 
 	if firstPosResult.FirstPos != nil && *firstPosResult.FirstPos > minPos {
-		// There's a gap at the beginning
-		gaps = append([]GapInfo{{StartPos: minPos, EndPos: *firstPosResult.FirstPos}}, gaps...)
+		// There's a gap at the beginning - append at end since we're processing DESC
+		gaps = append(gaps, GapInfo{StartPos: minPos, EndPos: *firstPosResult.FirstPos})
 	}
 
 	return gaps, nil
 }
 
-// DeleteRange deletes entries in a range from the admin table
-func (a *Service) DeleteRange(ctx context.Context, modelID string, startPos, endPos uint64) error {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return ErrInvalidModelID
-	}
-
-	// Use ALTER TABLE DELETE for immediate deletion in ReplacingMergeTree
-	var query string
-	if a.cluster != "" {
-		tableName := fmt.Sprintf("%s.%s", a.adminDatabase, a.adminTable)
-		if a.localSuffix != "" {
-			tableName = fmt.Sprintf("%s.%s%s", a.adminDatabase, a.adminTable, a.localSuffix)
-		}
-		query = fmt.Sprintf(`
-			ALTER TABLE %s ON CLUSTER '%s'
-			DELETE WHERE database = '%s' AND table = '%s'
-			  AND position >= %d AND position < %d
-		`, tableName, a.cluster, parts[0], parts[1], startPos, endPos)
-	} else {
-		query = fmt.Sprintf(`
-			ALTER TABLE %s.%s
-			DELETE WHERE database = '%s' AND table = '%s'
-			  AND position >= %d AND position < %d
-		`, a.adminDatabase, a.adminTable, parts[0], parts[1], startPos, endPos)
-	}
-
-	return a.client.Execute(ctx, query)
-}
-
 // GetCacheManager returns the cache manager instance
-func (a *Service) GetCacheManager() *CacheManager {
+func (a *service) GetCacheManager() *CacheManager {
 	return a.cacheManager
 }
+
+// Ensure service implements the interface
+var _ Service = (*service)(nil)

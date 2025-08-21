@@ -25,31 +25,21 @@ var (
 	ErrDependenciesNotSatisfied = errors.New("dependencies not satisfied")
 )
 
-// getWorkerID returns the worker ID based on task metadata and hostname
-func getWorkerID(ctx context.Context) string {
-	// Asynq provides task metadata through helper functions
-	// The task ID contains queue and other info but not the worker ID directly
-	// Worker identification is typically done through hostname or config
-
+// getWorkerID returns the worker ID based on hostname
+func getWorkerID() string {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return "worker-unknown"
 	}
-
-	// Include task ID to show which specific task instance
-	// For now, just return hostname since asynq doesn't expose worker ID directly
-	// Task ID is available but worker ID would need to be set during server creation
-	_ = ctx // context might contain task metadata in future versions
-
 	return hostname
 }
 
 // TaskHandler handles task execution
 type TaskHandler struct {
-	log             *logrus.Logger
+	log             logrus.FieldLogger
 	chClient        clickhouse.ClientInterface
-	admin           *admin.Service
-	validator       *validation.DependencyValidator
+	admin           admin.Service
+	validator       validation.Validator
 	modelExecutor   Executor
 	transformations map[string]models.Transformation
 }
@@ -71,14 +61,14 @@ type Executor interface {
 
 // NewTaskHandler creates a new task handler
 func NewTaskHandler(
-	logger *logrus.Logger,
+	logger logrus.FieldLogger,
 	chClient clickhouse.ClientInterface,
-	adminService *admin.Service,
-	validator *validation.DependencyValidator,
+	adminService admin.Service,
+	validator validation.Validator,
 	modelExecutor Executor,
 	transformations []models.Transformation,
 ) *TaskHandler {
-	transformationsMap := make(map[string]models.Transformation)
+	transformationsMap := make(map[string]models.Transformation, len(transformations)) // Add capacity hint
 	for _, transformation := range transformations {
 		transformationsMap[transformation.GetID()] = transformation
 	}
@@ -110,7 +100,7 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 	startTime := time.Now()
 
 	// Get worker ID from hostname or use default
-	workerID := getWorkerID(ctx)
+	workerID := getWorkerID()
 
 	// Record task start
 	observability.RecordTaskStart(payload.ModelID, workerID)

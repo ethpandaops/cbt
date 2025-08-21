@@ -25,6 +25,24 @@ var (
 	ErrShutdownErrors = errors.New("errors during shutdown")
 )
 
+// Service defines the public interface for the coordinator
+type Service interface {
+	// Start initializes and starts the coordinator service
+	Start(ctx context.Context) error
+
+	// Stop gracefully shuts down the coordinator service
+	Stop() error
+
+	// Process handles transformation processing in the specified direction
+	Process(transformation models.Transformation, direction Direction)
+}
+
+// PositionTracker defines the minimal interface needed from admin service
+type PositionTracker interface {
+	GetLastPosition(ctx context.Context, modelID string) (uint64, error)
+	FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]admin.GapInfo, error)
+}
+
 // Direction represents the processing direction for tasks
 type Direction string
 
@@ -35,50 +53,58 @@ const (
 	DirectionBack Direction = "back"
 )
 
-// Service coordinates task processing and dependencies
-type Service struct {
-	log *logrus.Logger
+// taskOperation represents an operation on the processed tasks tracker
+type taskOperation struct {
+	taskID   string
+	response chan bool // For check operations
+}
 
-	// Synchronization
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+// service coordinates task processing and dependencies
+type service struct {
+	log logrus.FieldLogger
 
-	// Track last processed task IDs to avoid duplicate processing
-	processedTasks map[string]bool
-	taskMutex      sync.RWMutex
+	// Synchronization - per ethPandaOps standards
+	done chan struct{}  // Signal shutdown
+	wg   sync.WaitGroup // Track goroutines
+
+	// Channel-based task tracking (ethPandaOps: prefer channels over mutexes)
+	taskCheck chan taskOperation // Check if task is processed
+	taskMark  chan string        // Mark task as processed
 
 	redisOpt  *redis.Options
-	dag       *models.DependencyGraph
-	admin     *admin.Service
-	validator *validation.DependencyValidator
+	dag       models.DAGReader
+	admin     PositionTracker
+	validator validation.Validator
 
 	queueManager *tasks.QueueManager
 	inspector    *asynq.Inspector
 }
 
 // NewService creates a new coordinator service
-func NewService(log *logrus.Logger, redisOpt *redis.Options, dag *models.DependencyGraph, adminService *admin.Service, validator *validation.DependencyValidator) (*Service, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	return &Service{
-		log:       log,
+func NewService(log logrus.FieldLogger, redisOpt *redis.Options, dag models.DAGReader, adminService PositionTracker, validator validation.Validator) (Service, error) {
+	return &service{
+		log:       log.WithField("service", "coordinator"),
 		redisOpt:  redisOpt,
 		dag:       dag,
 		admin:     adminService,
 		validator: validator,
-		ctx:       ctx,
-		cancel:    cancel,
+		done:      make(chan struct{}),
+		taskCheck: make(chan taskOperation),
+		taskMark:  make(chan string, 100), // Buffered to avoid blocking
 	}, nil
 }
 
 // Start initializes and starts the coordinator service
-func (s *Service) Start() error {
+func (s *service) Start(_ context.Context) error {
 	asynqRedis := r.NewAsynqRedisOptions(s.redisOpt)
 
 	s.queueManager = tasks.NewQueueManager(asynqRedis)
 
 	s.inspector = asynq.NewInspector(*asynqRedis)
+
+	// Start task tracker goroutine (channel-based state management)
+	s.wg.Add(1)
+	go s.taskTracker()
 
 	// Keep existing completed task polling
 	s.wg.Add(1)
@@ -90,8 +116,14 @@ func (s *Service) Start() error {
 }
 
 // Stop gracefully shuts down the coordinator service
-func (s *Service) Stop() error {
+func (s *service) Stop() error {
 	var errs []error
+
+	// Signal all goroutines to stop
+	close(s.done)
+
+	// Wait for all goroutines to complete
+	s.wg.Wait()
 
 	if s.inspector != nil {
 		if err := s.inspector.Close(); err != nil {
@@ -118,7 +150,7 @@ func (s *Service) Stop() error {
 }
 
 // Process handles transformation processing in the specified direction
-func (s *Service) Process(transformation models.Transformation, direction Direction) {
+func (s *service) Process(transformation models.Transformation, direction Direction) {
 	switch direction {
 	case DirectionForward:
 		s.processForward(transformation)
@@ -127,9 +159,8 @@ func (s *Service) Process(transformation models.Transformation, direction Direct
 	}
 }
 
-func (s *Service) processForward(transformation models.Transformation) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func (s *service) processForward(transformation models.Transformation) {
+	ctx := context.Background()
 
 	// Get last processed position
 	lastPos, err := s.admin.GetLastPosition(ctx, transformation.GetID())
@@ -167,18 +198,19 @@ func (s *Service) processForward(transformation models.Transformation) {
 
 	config := transformation.GetConfig()
 
-	s.checkAndEnqueuePositionWithTrigger(transformation, nextPos, config.Interval)
+	s.checkAndEnqueuePositionWithTrigger(ctx, transformation, nextPos, config.Interval)
 }
 
-func (s *Service) processBack(transformation models.Transformation) {
+func (s *service) processBack(transformation models.Transformation) {
 	if transformation.GetConfig().Backfill == nil || !transformation.GetConfig().Backfill.Enabled {
 		return
 	}
 
-	s.checkBackfillOpportunities(transformation)
+	ctx := context.Background()
+	s.checkBackfillOpportunities(ctx, transformation)
 }
 
-func (s *Service) checkAndEnqueuePositionWithTrigger(transformation models.Transformation, position, interval uint64) {
+func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, transformation models.Transformation, position, interval uint64) {
 	// Create task payload
 	payload := tasks.TaskPayload{
 		ModelID:    transformation.GetID(),
@@ -206,7 +238,7 @@ func (s *Service) checkAndEnqueuePositionWithTrigger(transformation models.Trans
 	// Validate dependencies
 	depStartTime := time.Now()
 
-	validationResult, err := s.validator.ValidateDependencies(s.ctx, transformation.GetID(), position, interval)
+	validationResult, err := s.validator.ValidateDependencies(ctx, transformation.GetID(), position, interval)
 	depDuration := time.Since(depStartTime).Seconds()
 
 	if err != nil {
@@ -250,11 +282,11 @@ func (s *Service) checkAndEnqueuePositionWithTrigger(transformation models.Trans
 	}).Info("Enqueued transformation task")
 }
 
-func (s *Service) checkBackfillOpportunities(transformation models.Transformation) {
+func (s *service) checkBackfillOpportunities(ctx context.Context, transformation models.Transformation) {
 	config := transformation.GetConfig()
 
 	// Get the range to check for gaps
-	lastPos, err := s.admin.GetLastPosition(s.ctx, transformation.GetID())
+	lastPos, err := s.admin.GetLastPosition(ctx, transformation.GetID())
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", transformation.GetID()).Debug("Failed to get last position for gap scan")
 
@@ -274,7 +306,7 @@ func (s *Service) checkBackfillOpportunities(transformation models.Transformatio
 	}
 
 	// Get initial position to determine scan range
-	initialPos, err := s.validator.GetInitialPosition(s.ctx, transformation.GetID())
+	initialPos, err := s.validator.GetEarliestPosition(ctx, transformation.GetID())
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", transformation.GetID()).Debug("Failed to get initial position for gap scan")
 
@@ -297,26 +329,36 @@ func (s *Service) checkBackfillOpportunities(transformation models.Transformatio
 	}
 
 	// Find all gaps in the processed data
-	gaps, err := s.admin.FindGaps(s.ctx, transformation.GetID(), initialPos, lastPos, config.Interval)
+	gaps, err := s.admin.FindGaps(ctx, transformation.GetID(), initialPos, lastPos, config.Interval)
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", transformation.GetID()).Error("Failed to find gaps")
 
 		return
 	}
 
-	// Process each gap
+	// Process gaps - queue only one task per gap to gradually fill it
 	for _, gap := range gaps {
-		// Process the gap in intervals
-		for pos := gap.StartPos; pos < gap.EndPos; {
-			// Calculate remaining gap size
-			gapSize := gap.EndPos - pos
-			intervalToUse := config.Interval
+		gapSize := gap.EndPos - gap.StartPos
+		intervalToUse := config.Interval
 
-			// If gap is smaller than model interval, use gap size to avoid overlap
-			if gapSize < config.Interval {
-				intervalToUse = gapSize
-			}
+		// If gap is smaller than model interval, use gap size to avoid overlap
+		if gapSize < config.Interval {
+			intervalToUse = gapSize
+		}
 
+		// Start from the end of the gap and work backwards (most recent first)
+		// This ensures we fill the most recent part of each gap first
+		pos := gap.EndPos - intervalToUse
+
+		// Check if task is already pending before logging
+		payload := tasks.TaskPayload{
+			ModelID:  transformation.GetID(),
+			Position: pos,
+			Interval: intervalToUse,
+		}
+
+		isPending, err := s.queueManager.IsTaskPendingOrRunning(payload)
+		if err == nil && !isPending {
 			s.log.WithFields(logrus.Fields{
 				"model_id":       transformation.GetID(),
 				"gap_start":      gap.StartPos,
@@ -327,13 +369,16 @@ func (s *Service) checkBackfillOpportunities(transformation models.Transformatio
 				"gap_size":       gapSize,
 			}).Info("Found backfill opportunity")
 
-			s.checkAndEnqueuePositionWithTrigger(transformation, pos, intervalToUse)
-			pos += intervalToUse
+			s.checkAndEnqueuePositionWithTrigger(ctx, transformation, pos, intervalToUse)
+
+			// Only queue one task per gap - the next task will be queued
+			// after this one completes and the gap is re-scanned
+			break
 		}
 	}
 }
 
-func (s *Service) pollCompletedTasks() {
+func (s *service) pollCompletedTasks() {
 	defer s.wg.Done()
 
 	ticker := time.NewTicker(5 * time.Second)
@@ -341,7 +386,7 @@ func (s *Service) pollCompletedTasks() {
 
 	for {
 		select {
-		case <-s.ctx.Done():
+		case <-s.done:
 			return
 		case <-ticker.C:
 			s.checkCompletedTasks()
@@ -349,7 +394,62 @@ func (s *Service) pollCompletedTasks() {
 	}
 }
 
-func (s *Service) checkCompletedTasks() {
+// taskTracker manages task processing state using channels (ethPandaOps pattern)
+func (s *service) taskTracker() {
+	defer s.wg.Done()
+
+	processedTasks := make(map[string]bool, 100)
+
+	for {
+		select {
+		case <-s.done:
+			return
+		case op := <-s.taskCheck:
+			// Check if task is processed and respond
+			processed := processedTasks[op.taskID]
+			select {
+			case op.response <- processed:
+			case <-s.done:
+				return
+			}
+		case taskID := <-s.taskMark:
+			// Mark task as processed
+			processedTasks[taskID] = true
+			// Clean up old entries if map gets too large
+			if len(processedTasks) > 10000 {
+				// Keep recent entries only
+				newMap := make(map[string]bool, 100)
+				processedTasks = newMap
+			}
+		}
+	}
+}
+
+// isTaskProcessed checks if a task has been processed (channel-based)
+func (s *service) isTaskProcessed(taskID string) bool {
+	response := make(chan bool, 1)
+	select {
+	case s.taskCheck <- taskOperation{taskID: taskID, response: response}:
+		select {
+		case processed := <-response:
+			return processed
+		case <-s.done:
+			return false
+		}
+	case <-s.done:
+		return false
+	}
+}
+
+// markTaskProcessed marks a task as processed (channel-based)
+func (s *service) markTaskProcessed(taskID string) {
+	select {
+	case s.taskMark <- taskID:
+	case <-s.done:
+	}
+}
+
+func (s *service) checkCompletedTasks() {
 	// Get all model queues
 	for _, transformation := range s.dag.GetTransformationNodes() {
 		// List completed tasks for this model's queue
@@ -360,32 +460,23 @@ func (s *Service) checkCompletedTasks() {
 		}
 
 		for _, taskInfo := range completedTasks {
-			// Check if we've already processed this task
-			s.taskMutex.RLock()
-			processed := s.processedTasks[taskInfo.ID]
-			s.taskMutex.RUnlock()
-
-			if !processed {
+			// Check if we've already processed this task (channel-based)
+			if !s.isTaskProcessed(taskInfo.ID) {
 				// Parse the task payload to get position and interval
 				var payload tasks.TaskPayload
 				if err := json.Unmarshal(taskInfo.Payload, &payload); err == nil {
-					s.onTaskComplete(payload)
+					ctx := context.Background()
+					s.onTaskComplete(ctx, payload)
 				}
 
-				// Mark as processed
-				s.taskMutex.Lock()
-				s.processedTasks[taskInfo.ID] = true
-				// Clean up old entries if map gets too large
-				if len(s.processedTasks) > 10000 {
-					s.processedTasks = make(map[string]bool)
-				}
-				s.taskMutex.Unlock()
+				// Mark as processed (channel-based)
+				s.markTaskProcessed(taskInfo.ID)
 			}
 		}
 	}
 }
 
-func (s *Service) onTaskComplete(payload tasks.TaskPayload) {
+func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload) {
 	s.log.WithFields(logrus.Fields{
 		"model_id": payload.ModelID,
 		"position": payload.Position,
@@ -406,7 +497,7 @@ func (s *Service) onTaskComplete(payload tasks.TaskPayload) {
 		config := model.GetConfig()
 
 		// Calculate next position for dependent
-		lastPos, err := s.admin.GetLastPosition(s.ctx, depModelID)
+		lastPos, err := s.admin.GetLastPosition(ctx, depModelID)
 		if err != nil {
 			continue
 		}
@@ -414,7 +505,7 @@ func (s *Service) onTaskComplete(payload tasks.TaskPayload) {
 		nextPos := lastPos
 		if nextPos == 0 {
 			// First run - calculate initial position
-			initialPos, err := s.validator.GetInitialPosition(s.ctx, depModelID)
+			initialPos, err := s.validator.GetInitialPosition(ctx, depModelID)
 			if err != nil {
 				continue
 			}
@@ -422,6 +513,9 @@ func (s *Service) onTaskComplete(payload tasks.TaskPayload) {
 		}
 
 		// Check if this completion unblocks the dependent
-		s.checkAndEnqueuePositionWithTrigger(model, nextPos, config.Interval)
+		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, config.Interval)
 	}
 }
+
+// Ensure service implements the interface
+var _ Service = (*service)(nil)
