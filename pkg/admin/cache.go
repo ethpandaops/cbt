@@ -70,9 +70,3 @@ func (c *CacheManager) SetExternal(ctx context.Context, cache CacheExternal) err
 
 	return c.redisClient.Set(ctx, key, data, cache.TTL).Err()
 }
-
-// InvalidateExternal removes external model bounds from cache
-func (c *CacheManager) InvalidateExternal(ctx context.Context, modelID string) error {
-	key := c.keyPrefix + modelID
-	return c.redisClient.Del(ctx, key).Err()
-}

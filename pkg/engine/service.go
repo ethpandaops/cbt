@@ -26,11 +26,11 @@ type Service struct {
 	log    *logrus.Logger
 
 	chClient    clickhouse.ClientInterface
-	coordinator *coordinator.Service
-	scheduler   *scheduler.Service
-	worker      *worker.Service
-	admin       *admin.Service
-	models      *models.Service
+	coordinator coordinator.Service
+	scheduler   scheduler.Service
+	worker      worker.Service
+	admin       admin.Service
+	models      models.Service
 
 	// Servers
 	healthServer *http.Server
@@ -102,6 +102,8 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 func (a *Service) Start() error {
 	a.log.Info("Starting CBT Engine...")
 
+	ctx := context.Background()
+
 	// Start metrics server
 	observability.StartMetricsServer(a.config.MetricsAddr)
 	a.log.WithField("addr", a.config.MetricsAddr).Info("Started metrics server")
@@ -127,17 +129,17 @@ func (a *Service) Start() error {
 	}
 
 	// Start coordinator service
-	if err := a.coordinator.Start(); err != nil {
+	if err := a.coordinator.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start coordinator: %w", err)
 	}
 
 	// Start scheduler service
-	if err := a.scheduler.Start(); err != nil {
+	if err := a.scheduler.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start scheduler: %w", err)
 	}
 
 	// Start worker service
-	if err := a.worker.Start(); err != nil {
+	if err := a.worker.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start worker: %w", err)
 	}
 

@@ -23,6 +23,22 @@ var (
 	ErrClickHouseResponse       = errors.New("clickhouse error")
 )
 
+// ClientInterface defines the methods for interacting with ClickHouse
+type ClientInterface interface {
+	// QueryOne executes a query and returns a single result
+	QueryOne(ctx context.Context, query string, dest interface{}) error
+	// QueryMany executes a query and returns multiple results
+	QueryMany(ctx context.Context, query string, dest interface{}) error
+	// Execute runs a query without expecting results
+	Execute(ctx context.Context, query string) error
+	// BulkInsert performs a bulk insert operation
+	BulkInsert(ctx context.Context, table string, data interface{}) error
+	// Start initializes the client
+	Start() error
+	// Stop closes the client
+	Stop() error
+}
+
 // client implements the ClientInterface using HTTP
 type client struct {
 	log        logrus.FieldLogger
@@ -305,39 +321,4 @@ func (c *client) getTimeout(ctx context.Context, operation string) time.Duration
 	default:
 		return 30 * time.Second
 	}
-}
-
-func (c *client) IsStorageEmpty(ctx context.Context, table string, conditions map[string]interface{}) (bool, error) {
-	// Build the query
-	query := fmt.Sprintf("SELECT COUNT(*) as count FROM %s FINAL", table)
-
-	if len(conditions) > 0 {
-		query += " WHERE "
-
-		var conditionParts []string
-
-		for key, value := range conditions {
-			// Handle different value types
-			switch v := value.(type) {
-			case string:
-				conditionParts = append(conditionParts, fmt.Sprintf("%s = '%s'", key, v))
-			case int, int64, uint64:
-				conditionParts = append(conditionParts, fmt.Sprintf("%s = %v", key, v))
-			default:
-				conditionParts = append(conditionParts, fmt.Sprintf("%s = '%v'", key, v))
-			}
-		}
-
-		query += strings.Join(conditionParts, " AND ")
-	}
-
-	var result struct {
-		Count uint64 `json:"count"`
-	}
-
-	if err := c.QueryOne(ctx, query, &result); err != nil {
-		return false, fmt.Errorf("failed to check if table is empty: %w", err)
-	}
-
-	return result.Count == 0, nil
 }

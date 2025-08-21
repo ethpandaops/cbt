@@ -66,28 +66,6 @@ func (q *QueueManager) IsTaskPendingOrRunning(task TaskPayload) (bool, error) {
 		info.State == asynq.TaskStateRetry, nil
 }
 
-// WasRecentlyCompleted checks if a task was recently completed
-func (q *QueueManager) WasRecentlyCompleted(task TaskPayload, within time.Duration) (bool, error) {
-	info, err := q.inspector.GetTaskInfo(task.QueueName(), task.UniqueID())
-	if err != nil {
-		if strings.Contains(err.Error(), "NOT FOUND") || strings.Contains(err.Error(), "queue not found") || strings.Contains(err.Error(), "task not found") {
-			return false, nil
-		}
-		return false, err
-	}
-
-	if info.State != asynq.TaskStateCompleted {
-		return false, nil
-	}
-
-	return time.Since(info.CompletedAt) <= within, nil
-}
-
-// GetQueueStats returns queue statistics
-func (q *QueueManager) GetQueueStats(queueName string) (*asynq.QueueInfo, error) {
-	return q.inspector.GetQueueInfo(queueName)
-}
-
 // Close closes the queue manager
 func (q *QueueManager) Close() error {
 	return q.client.Close()

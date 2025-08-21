@@ -12,12 +12,24 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// DependencyValidator implements the DependencyValidator interface
-type DependencyValidator struct {
-	log             *logrus.Logger
-	admin           *admin.Service
+// Validator defines the interface for dependency validation (ethPandaOps pattern)
+type Validator interface {
+	// ValidateDependencies checks if all dependencies are satisfied for a given position
+	ValidateDependencies(ctx context.Context, modelID string, position, interval uint64) (Result, error)
+
+	// GetInitialPosition calculates the initial position for a model based on its dependencies
+	GetInitialPosition(ctx context.Context, modelID string) (uint64, error)
+
+	// GetEarliestPosition gets the earliest available position for a model
+	GetEarliestPosition(ctx context.Context, modelID string) (uint64, error)
+}
+
+// dependencyValidator implements the Validator interface
+type dependencyValidator struct {
+	log             logrus.FieldLogger
+	admin           admin.Service
 	externalManager *ExternalModelValidator
-	dag             *models.DependencyGraph
+	dag             models.DAGReader
 }
 
 // DependencyStatus represents the status of a single dependency
@@ -50,15 +62,15 @@ var (
 
 // NewDependencyValidator creates a new dependency validator
 func NewDependencyValidator(
-	log *logrus.Logger,
+	log logrus.FieldLogger,
 	chClient clickhouse.ClientInterface,
-	adminService *admin.Service,
-	modelsService *models.Service,
-) *DependencyValidator {
+	adminService admin.Service,
+	modelsService models.Service,
+) Validator {
 	externalManager := NewExternalModelExecutor(log, chClient, adminService, modelsService)
 
-	return &DependencyValidator{
-		log:             log,
+	return &dependencyValidator{
+		log:             log.WithField("service", "validator"),
 		admin:           adminService,
 		externalManager: externalManager,
 		dag:             modelsService.GetDAG(),
@@ -66,7 +78,7 @@ func NewDependencyValidator(
 }
 
 // ValidateDependencies checks if all dependencies are satisfied for a model at a given position
-func (v *DependencyValidator) ValidateDependencies(ctx context.Context, modelID string, position, interval uint64) (Result, error) {
+func (v *dependencyValidator) ValidateDependencies(ctx context.Context, modelID string, position, interval uint64) (Result, error) {
 	_, err := v.dag.GetNode(modelID)
 	if err != nil {
 		return Result{
@@ -149,7 +161,7 @@ func (v *DependencyValidator) ValidateDependencies(ctx context.Context, modelID 
 	}, nil
 }
 
-func (v *DependencyValidator) validateExternalDependency(ctx context.Context, model models.External, position, interval uint64) (DependencyStatus, error) {
+func (v *dependencyValidator) validateExternalDependency(ctx context.Context, model models.External, position, interval uint64) (DependencyStatus, error) {
 	status := DependencyStatus{
 		ModelID: model.GetID(),
 	}
@@ -204,7 +216,7 @@ func (v *DependencyValidator) validateExternalDependency(ctx context.Context, mo
 	return status, nil
 }
 
-func (v *DependencyValidator) validateTransformationDependency(ctx context.Context, model models.Transformation, position, interval uint64) (DependencyStatus, error) {
+func (v *dependencyValidator) validateTransformationDependency(ctx context.Context, model models.Transformation, position, interval uint64) (DependencyStatus, error) {
 	status := DependencyStatus{
 		ModelID: model.GetID(),
 	}
@@ -235,7 +247,7 @@ func (v *DependencyValidator) validateTransformationDependency(ctx context.Conte
 
 // GetEarliestPosition calculates the earliest position for a model based on its dependencies
 // Returns the earliest position where all dependencies have data available (for backfill scanning)
-func (v *DependencyValidator) GetEarliestPosition(ctx context.Context, modelID string) (uint64, error) {
+func (v *dependencyValidator) GetEarliestPosition(ctx context.Context, modelID string) (uint64, error) {
 	v.log.WithField("model_id", modelID).Debug("GetEarliestPosition called")
 
 	deps := v.dag.GetDependencies(modelID)
@@ -305,7 +317,7 @@ func (v *DependencyValidator) GetEarliestPosition(ctx context.Context, modelID s
 
 // GetInitialPosition calculates the initial position for a model starting from the head (most recent data)
 // Returns the latest position where all dependencies have data available minus one interval
-func (v *DependencyValidator) GetInitialPosition(ctx context.Context, modelID string) (uint64, error) {
+func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID string) (uint64, error) {
 	v.log.WithField("model_id", modelID).Debug("GetInitialPosition called (head-first)")
 
 	// Get the model's interval
@@ -371,7 +383,7 @@ func (v *DependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 	return alignedPos, nil
 }
 
-func (v *DependencyValidator) getLatestPositionForDependency(ctx context.Context, depID string) (uint64, error) {
+func (v *dependencyValidator) getLatestPositionForDependency(ctx context.Context, depID string) (uint64, error) {
 	depNode, err := v.dag.GetNode(depID)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %s", ErrDependencyNotFound, depID)
@@ -395,7 +407,7 @@ func (v *DependencyValidator) getLatestPositionForDependency(ctx context.Context
 	return 0, fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)
 }
 
-func (v *DependencyValidator) getTransformationModelLatestPosition(ctx context.Context, depID string) (uint64, error) {
+func (v *dependencyValidator) getTransformationModelLatestPosition(ctx context.Context, depID string) (uint64, error) {
 	// Get the last position
 	maxPos, err := v.admin.GetLastPosition(ctx, depID)
 	if err != nil {
@@ -413,7 +425,7 @@ func (v *DependencyValidator) getTransformationModelLatestPosition(ctx context.C
 	return maxPos, nil
 }
 
-func (v *DependencyValidator) getEarliestPositionForDependency(ctx context.Context, depID string) (uint64, error) {
+func (v *dependencyValidator) getEarliestPositionForDependency(ctx context.Context, depID string) (uint64, error) {
 	depNode, err := v.dag.GetNode(depID)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %s", ErrDependencyNotFound, depID)
@@ -437,7 +449,7 @@ func (v *DependencyValidator) getEarliestPositionForDependency(ctx context.Conte
 	return 0, fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)
 }
 
-func (v *DependencyValidator) getTransformationModelEarliestPosition(ctx context.Context, depID string) (uint64, error) {
+func (v *dependencyValidator) getTransformationModelEarliestPosition(ctx context.Context, depID string) (uint64, error) {
 	// Get the first position
 	minPos, err := v.admin.GetFirstPosition(ctx, depID)
 	if err != nil {
@@ -454,3 +466,6 @@ func (v *DependencyValidator) getTransformationModelEarliestPosition(ctx context
 
 	return minPos, nil
 }
+
+// Ensure dependencyValidator implements Validator interface
+var _ Validator = (*dependencyValidator)(nil)

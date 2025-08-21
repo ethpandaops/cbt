@@ -90,15 +90,6 @@ var (
 		[]string{"component", "error_type"},
 	)
 
-	// ExternalCacheHits tracks cache hits for external model bounds
-	ExternalCacheHits = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "cbt_external_cache_hits_total",
-			Help: "Total number of cache hits for external model bounds",
-		},
-		[]string{"model"},
-	)
-
 	// ExternalCacheMisses tracks cache misses for external model bounds
 	ExternalCacheMisses = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -153,11 +144,6 @@ func RecordTaskEnqueued(model string) {
 // RecordError records an error
 func RecordError(component, errorType string) {
 	ErrorsTotal.WithLabelValues(component, errorType).Inc()
-}
-
-// RecordExternalCacheHit records a cache hit for external model bounds
-func RecordExternalCacheHit(model string) {
-	ExternalCacheHits.WithLabelValues(model).Inc()
 }
 
 // RecordExternalCacheMiss records a cache miss for external model bounds

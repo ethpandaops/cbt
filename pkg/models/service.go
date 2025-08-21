@@ -9,10 +9,25 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Service encapsulates the worker application logic
-type Service struct {
+// Service defines the interface for the models service (ethPandaOps pattern)
+type Service interface {
+	// Lifecycle methods
+	Start() error
+	Stop() error
+
+	// DAG operations
+	GetDAG() DAGReader
+
+	// Rendering operations
+	RenderTransformation(model Transformation, position, interval uint64, startTime time.Time) (string, error)
+	RenderExternal(model External) (string, error)
+	GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error)
+}
+
+// service encapsulates the worker application logic
+type service struct {
 	config *Config
-	log    *logrus.Logger
+	log    logrus.FieldLogger
 
 	dag                  *DependencyGraph
 	templateEngine       *TemplateEngine
@@ -21,13 +36,13 @@ type Service struct {
 }
 
 // NewService creates a new worker application
-func NewService(log *logrus.Logger, cfg *Config, _ *redis.Client, clickhouseCfg *clickhouse.Config) (*Service, error) {
+func NewService(log logrus.FieldLogger, cfg *Config, _ *redis.Client, clickhouseCfg *clickhouse.Config) (Service, error) {
 	dag := NewDependencyGraph()
 	templateEngine := NewTemplateEngine(clickhouseCfg, dag)
 
-	return &Service{
+	return &service{
 		config: cfg,
-		log:    log,
+		log:    log.WithField("service", "models"),
 
 		dag:            dag,
 		templateEngine: templateEngine,
@@ -35,7 +50,7 @@ func NewService(log *logrus.Logger, cfg *Config, _ *redis.Client, clickhouseCfg 
 }
 
 // Start initializes the models service and builds the dependency graph
-func (s *Service) Start() error {
+func (s *service) Start() error {
 	if err := s.parseModels(); err != nil {
 		return err
 	}
@@ -50,11 +65,11 @@ func (s *Service) Start() error {
 }
 
 // Stop gracefully shuts down the models service
-func (s *Service) Stop() error {
+func (s *service) Stop() error {
 	return nil
 }
 
-func (s *Service) parseModels() error {
+func (s *service) parseModels() error {
 	externalFiles, err := DiscoverPaths(s.config.External.Paths)
 	if err != nil {
 		return fmt.Errorf("failed to discover models: %w", err)
@@ -90,26 +105,29 @@ func (s *Service) parseModels() error {
 	return nil
 }
 
-func (s *Service) buildDAG() error {
+func (s *service) buildDAG() error {
 	return s.dag.BuildGraph(s.transformationModels, s.externalModels)
 }
 
 // GetDAG returns the dependency graph
-func (s *Service) GetDAG() *DependencyGraph {
+func (s *service) GetDAG() DAGReader {
 	return s.dag
 }
 
 // RenderTransformation renders a transformation model template with variables
-func (s *Service) RenderTransformation(model Transformation, position, interval uint64, startTime time.Time) (string, error) {
+func (s *service) RenderTransformation(model Transformation, position, interval uint64, startTime time.Time) (string, error) {
 	return s.templateEngine.RenderTransformation(model, position, interval, startTime)
 }
 
 // GetTransformationEnvironmentVariables returns environment variables for a transformation
-func (s *Service) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error) {
+func (s *service) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error) {
 	return s.templateEngine.GetTransformationEnvironmentVariables(model, position, interval, startTime)
 }
 
 // RenderExternal renders an external model template with variables
-func (s *Service) RenderExternal(model External) (string, error) {
+func (s *service) RenderExternal(model External) (string, error) {
 	return s.templateEngine.RenderExternal(model)
 }
+
+// Ensure service implements Service interface
+var _ Service = (*service)(nil)

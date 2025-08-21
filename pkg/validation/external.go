@@ -52,15 +52,15 @@ func (f *flexUint64) UnmarshalJSON(data []byte) error {
 
 // ExternalModelValidator implements the ExternalModelExecutor interface
 type ExternalModelValidator struct {
-	log      *logrus.Logger
-	admin    *admin.Service
+	log      logrus.FieldLogger
+	admin    admin.Service
 	chClient clickhouse.ClientInterface
-	models   *models.Service
+	models   models.Service
 }
 
 // NewExternalModelExecutor creates a new external model executor
 // The cacheManager can be nil if caching is not desired
-func NewExternalModelExecutor(log *logrus.Logger, chClient clickhouse.ClientInterface, adminService *admin.Service, modelsService *models.Service) *ExternalModelValidator {
+func NewExternalModelExecutor(log logrus.FieldLogger, chClient clickhouse.ClientInterface, adminService admin.Service, modelsService models.Service) *ExternalModelValidator {
 	return &ExternalModelValidator{
 		chClient: chClient,
 		log:      log,

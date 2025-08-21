@@ -2,7 +2,6 @@
 package observability
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"sync"
@@ -42,17 +41,4 @@ func StartMetricsServer(addr string) {
 			}
 		}()
 	})
-}
-
-// StopMetricsServer gracefully stops the Prometheus metrics server.
-func StopMetricsServer(ctx context.Context) error {
-	if metricsServerInstance != nil {
-		if err := metricsServerInstance.Shutdown(ctx); err != nil {
-			logrus.WithError(err).Error("Failed to stop metrics server")
-
-			return err
-		}
-	}
-
-	return nil
 }

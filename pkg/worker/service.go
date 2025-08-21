@@ -1,9 +1,11 @@
 package worker
 
 import (
+	"context"
 	"fmt"
 	_ "net/http/pprof" //nolint:gosec // pprof is intentionally exposed when pprofAddr is configured
 	"slices"
+	"sync"
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
@@ -16,29 +18,43 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Service encapsulates the worker application logic
-type Service struct {
+// Service defines the public interface for the worker service
+type Service interface {
+	// Start initializes and starts the worker service
+	Start(ctx context.Context) error
+
+	// Stop gracefully shuts down the worker service
+	Stop() error
+}
+
+// service encapsulates the worker application logic
+type service struct {
 	config *Config
-	log    *logrus.Logger
+	log    logrus.FieldLogger
+
+	// Synchronization - per ethPandaOps standards
+	done chan struct{}  // Signal shutdown
+	wg   sync.WaitGroup // Track goroutines
 
 	chClient  clickhouse.ClientInterface
-	admin     *admin.Service
-	models    *models.Service
-	validator *validation.DependencyValidator
+	admin     admin.Service
+	models    models.Service
+	validator validation.Validator
 	redisOpt  *redis.Options
 
 	server *asynq.Server
 }
 
 // NewService creates a new worker application
-func NewService(log *logrus.Logger, cfg *Config, chClient clickhouse.ClientInterface, adminService *admin.Service, modelsService *models.Service, redisOpt *redis.Options, validator *validation.DependencyValidator) (*Service, error) {
+func NewService(log logrus.FieldLogger, cfg *Config, chClient clickhouse.ClientInterface, adminService admin.Service, modelsService models.Service, redisOpt *redis.Options, validator validation.Validator) (Service, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	return &Service{
-		log:       log,
+	return &service{
+		log:       log.WithField("service", "worker"),
 		config:    cfg,
+		done:      make(chan struct{}),
 		chClient:  chClient,
 		admin:     adminService,
 		models:    modelsService,
@@ -48,7 +64,7 @@ func NewService(log *logrus.Logger, cfg *Config, chClient clickhouse.ClientInter
 }
 
 // Start initializes and starts the worker service
-func (s *Service) Start() error {
+func (s *service) Start(_ context.Context) error {
 	transformations := filteredTransformations(s.models, s.config.Tags)
 
 	modelExecutor := NewModelExecutor(s.log, s.chClient, s.models, s.admin)
@@ -56,8 +72,8 @@ func (s *Service) Start() error {
 	// Create handler with filtered models (for processing)
 	handler := tasks.NewTaskHandler(s.log, s.chClient, s.admin, s.validator, modelExecutor, transformations)
 
-	// Configure queues
-	queues := make(map[string]int)
+	// Configure queues with capacity hint
+	queues := make(map[string]int, len(transformations))
 	for _, transformation := range transformations {
 		queues[transformation.GetID()] = 10
 	}
@@ -79,10 +95,12 @@ func (s *Service) Start() error {
 		mux.HandleFunc(taskType, handlerFunc)
 	}
 
-	// Start server in background
+	// Start server in background with proper lifecycle management
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		if runErr := srv.Run(mux); runErr != nil {
-			s.log.WithError(runErr).Fatal("Failed to run worker server")
+			s.log.WithError(runErr).Error("Worker server stopped with error")
 		}
 	}()
 
@@ -94,15 +112,23 @@ func (s *Service) Start() error {
 }
 
 // Stop gracefully shuts down the worker application
-func (s *Service) Stop() error {
+func (s *service) Stop() error {
+	// Signal all goroutines to stop
+	close(s.done)
+
 	if s.server != nil {
 		s.server.Shutdown()
 	}
 
+	// Wait for all goroutines to complete
+	s.wg.Wait()
+
+	s.log.Info("Worker service stopped successfully")
+
 	return nil
 }
 
-func filteredTransformations(modelsService *models.Service, tags []string) []models.Transformation {
+func filteredTransformations(modelsService models.Service, tags []string) []models.Transformation {
 	dag := modelsService.GetDAG()
 
 	transformationNodes := dag.GetTransformationNodes()
@@ -112,7 +138,7 @@ func filteredTransformations(modelsService *models.Service, tags []string) []mod
 		return transformationNodes
 	}
 
-	filteredTransformations := make([]models.Transformation, 0)
+	filteredTransformations := make([]models.Transformation, 0, len(transformationNodes))
 
 	for _, tag := range tags {
 		for _, transformation := range transformationNodes {
@@ -124,3 +150,6 @@ func filteredTransformations(modelsService *models.Service, tags []string) []mod
 
 	return filteredTransformations
 }
+
+// Ensure service implements the interface
+var _ Service = (*service)(nil)
