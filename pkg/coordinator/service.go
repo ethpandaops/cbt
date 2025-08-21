@@ -217,11 +217,35 @@ func (s *service) processForward(transformation models.Transformation) {
 
 	config := transformation.GetConfig()
 
-	s.checkAndEnqueuePositionWithTrigger(ctx, transformation, nextPos, config.Interval)
+	// Don't process beyond max limit if configured
+	if config.Limits != nil && config.Limits.Max > 0 && nextPos >= config.Limits.Max {
+		s.log.WithFields(logrus.Fields{
+			"model_id":   transformation.GetID(),
+			"position":   nextPos,
+			"limits_max": config.Limits.Max,
+		}).Debug("Position is at or beyond max limit, skipping forward processing")
+		return
+	}
+
+	// Adjust interval if it would exceed max limit
+	interval := config.GetForwardInterval()
+	if config.Limits != nil && config.Limits.Max > 0 && nextPos+interval > config.Limits.Max {
+		// Reduce interval to stay within max limit
+		interval = config.Limits.Max - nextPos
+		s.log.WithFields(logrus.Fields{
+			"model_id":          transformation.GetID(),
+			"position":          nextPos,
+			"original_interval": config.GetForwardInterval(),
+			"adjusted_interval": interval,
+			"limits_max":        config.Limits.Max,
+		}).Debug("Adjusted interval to respect max limit")
+	}
+
+	s.checkAndEnqueuePositionWithTrigger(ctx, transformation, nextPos, interval)
 }
 
 func (s *service) processBack(transformation models.Transformation) {
-	if transformation.GetConfig().Backfill == nil || !transformation.GetConfig().Backfill.Enabled {
+	if !transformation.GetConfig().IsBackfillEnabled() {
 		return
 	}
 
@@ -315,10 +339,10 @@ func (s *service) checkBackfillOpportunities(ctx context.Context, transformation
 	s.log.WithFields(logrus.Fields{
 		"model_id": transformation.GetID(),
 		"last_pos": lastPos,
-		"interval": config.Interval,
+		"interval": config.GetBackfillInterval(),
 	}).Debug("Got last position for gap scanning")
 
-	if lastPos < config.Interval {
+	if lastPos < config.GetBackfillInterval() {
 		s.log.WithField("model_id", transformation.GetID()).Debug("No data yet, skipping gap scan")
 
 		return // No data yet
@@ -333,12 +357,12 @@ func (s *service) checkBackfillOpportunities(ctx context.Context, transformation
 	}
 
 	// Use the maximum of the configured minimum and the calculated initial position
-	if config.Backfill != nil && config.Backfill.Minimum > initialPos {
-		initialPos = config.Backfill.Minimum
+	if config.Limits != nil && config.Limits.Min > initialPos {
+		initialPos = config.Limits.Min
 		s.log.WithFields(logrus.Fields{
-			"model_id":         transformation.GetID(),
-			"initial_pos":      initialPos,
-			"backfill_minimum": config.Backfill.Minimum,
+			"model_id":    transformation.GetID(),
+			"initial_pos": initialPos,
+			"limits_min":  config.Limits.Min,
 		}).Debug("Using configured minimum position for gap scanning")
 	} else {
 		s.log.WithFields(logrus.Fields{
@@ -347,8 +371,19 @@ func (s *service) checkBackfillOpportunities(ctx context.Context, transformation
 		}).Debug("Got initial position for gap scanning")
 	}
 
+	// Apply max limit if configured
+	maxPos := lastPos
+	if config.Limits != nil && config.Limits.Max > 0 && config.Limits.Max < lastPos {
+		maxPos = config.Limits.Max
+		s.log.WithFields(logrus.Fields{
+			"model_id":   transformation.GetID(),
+			"last_pos":   lastPos,
+			"limits_max": config.Limits.Max,
+		}).Debug("Applying maximum position limit for gap scanning")
+	}
+
 	// Find all gaps in the processed data
-	gaps, err := s.admin.FindGaps(ctx, transformation.GetID(), initialPos, lastPos, config.Interval)
+	gaps, err := s.admin.FindGaps(ctx, transformation.GetID(), initialPos, maxPos, config.GetBackfillInterval())
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", transformation.GetID()).Error("Failed to find gaps")
 
@@ -358,10 +393,10 @@ func (s *service) checkBackfillOpportunities(ctx context.Context, transformation
 	// Process gaps - queue only one task per gap to gradually fill it
 	for _, gap := range gaps {
 		gapSize := gap.EndPos - gap.StartPos
-		intervalToUse := config.Interval
+		intervalToUse := config.GetBackfillInterval()
 
 		// If gap is smaller than model interval, use gap size to avoid overlap
-		if gapSize < config.Interval {
+		if gapSize < config.GetBackfillInterval() {
 			intervalToUse = gapSize
 		}
 
@@ -384,7 +419,7 @@ func (s *service) checkBackfillOpportunities(ctx context.Context, transformation
 				"gap_end":        gap.EndPos,
 				"position":       pos,
 				"interval":       intervalToUse,
-				"model_interval": config.Interval,
+				"model_interval": config.GetBackfillInterval(),
 				"gap_size":       gapSize,
 			}).Info("Found backfill opportunity")
 
@@ -532,7 +567,7 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		}
 
 		// Check if this completion unblocks the dependent
-		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, config.Interval)
+		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, config.GetForwardInterval())
 	}
 }
 

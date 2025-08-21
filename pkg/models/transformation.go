@@ -34,7 +34,7 @@ const (
 type Transformation interface {
 	GetType() string
 	GetID() string
-	GetConfig() transformation.Config
+	GetConfig() *transformation.Config
 	GetValue() string
 }
 

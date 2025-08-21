@@ -1,10 +1,14 @@
 ---
 database: analytics
 table: hourly_block_stats
-interval: 3600
-schedule: "@every 5m"
+limits:
+  min: 1000  # Optional: minimum position to process
+  max: 0     # Optional: maximum position to process (0 = no limit)
+forwardfill:
+  interval: 3600
+  schedule: "@every 5m"
 backfill:
-  enabled: true
+  interval: 3600
   schedule: "@every 5m"
 tags:
   - aggregation

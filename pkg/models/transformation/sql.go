@@ -65,8 +65,8 @@ func (c *SQL) GetType() string {
 }
 
 // GetConfig returns the transformation model configuration
-func (c *SQL) GetConfig() Config {
-	return c.Config
+func (c *SQL) GetConfig() *Config {
+	return &c.Config
 }
 
 // GetValue returns the SQL content

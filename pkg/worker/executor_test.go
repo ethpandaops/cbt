@@ -425,7 +425,7 @@ type mockExecutorTransformation struct {
 }
 
 func (m *mockExecutorTransformation) GetID() string                     { return m.id }
-func (m *mockExecutorTransformation) GetConfig() transformation.Config  { return m.conf }
+func (m *mockExecutorTransformation) GetConfig() *transformation.Config { return &m.conf }
 func (m *mockExecutorTransformation) GetValue() string                  { return m.value }
 func (m *mockExecutorTransformation) GetDependencies() []string         { return []string{} }
 func (m *mockExecutorTransformation) GetSQL() string                    { return m.sql }

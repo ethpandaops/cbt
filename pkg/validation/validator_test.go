@@ -504,12 +504,18 @@ type mockTransformation struct {
 }
 
 func (m *mockTransformation) GetID() string { return m.id }
-func (m *mockTransformation) GetConfig() transformation.Config {
+func (m *mockTransformation) GetConfig() *transformation.Config {
 	if m.interval == 0 {
 		m.interval = 100 // Default interval
 	}
-	return transformation.Config{
-		Interval: m.interval,
+	return &transformation.Config{
+		Database: "test_db",
+		Table:    "test_table",
+		ForwardFill: &transformation.ForwardFillConfig{
+			Interval: m.interval,
+			Schedule: "@every 1m",
+		},
+		Dependencies: []string{},
 	}
 }
 func (m *mockTransformation) GetValue() string                  { return "" }

@@ -1,9 +1,10 @@
 database: analytics
 table: entity_changes
-interval: 120  # 2 minute intervals
-schedule: "@every 1m"
+forwardfill:
+  interval: 120  # 2 minute intervals
+  schedule: "@every 1m"
 backfill:
-  enabled: true
+  interval: 120  # Same as forward fill, but can be different if needed
   schedule: "@every 5m"
 tags:
   - python

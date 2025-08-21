@@ -255,10 +255,17 @@ func TestHandleScheduledBackfill(t *testing.T) {
 					&mockTransformation{
 						id: "test.model",
 						conf: transformation.Config{
+							Database: "test_db",
+							Table:    "model",
+							ForwardFill: &transformation.ForwardFillConfig{
+								Interval: 100,
+								Schedule: "@every 1m",
+							},
 							Backfill: &transformation.BackfillConfig{
-								Enabled:  true,
+								Interval: 100,
 								Schedule: "*/5 * * * *",
 							},
+							Dependencies: []string{},
 						},
 					},
 				}
@@ -440,7 +447,7 @@ type mockTransformation struct {
 }
 
 func (m *mockTransformation) GetID() string                     { return m.id }
-func (m *mockTransformation) GetConfig() transformation.Config  { return m.conf }
+func (m *mockTransformation) GetConfig() *transformation.Config { return &m.conf }
 func (m *mockTransformation) GetValue() string                  { return "" }
 func (m *mockTransformation) GetDependencies() []string         { return m.deps }
 func (m *mockTransformation) GetSQL() string                    { return m.sql }

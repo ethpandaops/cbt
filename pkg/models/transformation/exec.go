@@ -53,8 +53,8 @@ func (c *Exec) GetType() string {
 }
 
 // GetConfig returns the transformation model configuration
-func (c *Exec) GetConfig() Config {
-	return c.Config
+func (c *Exec) GetConfig() *Config {
+	return &c.Config
 }
 
 // GetValue returns the exec command

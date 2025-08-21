@@ -318,10 +318,16 @@ type mockTransformation struct {
 }
 
 func (m *mockTransformation) GetID() string { return m.id }
-func (m *mockTransformation) GetConfig() transformation.Config {
-	return transformation.Config{
-		Tags:     m.tags,
-		Interval: m.interval,
+func (m *mockTransformation) GetConfig() *transformation.Config {
+	return &transformation.Config{
+		Database: "test_db",
+		Table:    "test_table",
+		ForwardFill: &transformation.ForwardFillConfig{
+			Interval: m.interval,
+			Schedule: "@every 1m",
+		},
+		Tags:         m.tags,
+		Dependencies: []string{},
 	}
 }
 func (m *mockTransformation) GetValue() string                  { return "" }

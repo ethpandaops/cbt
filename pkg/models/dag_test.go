@@ -19,7 +19,7 @@ type mockTransformation struct {
 
 func (m *mockTransformation) GetID() string                     { return m.id }
 func (m *mockTransformation) GetDependencies() []string         { return m.dependencies }
-func (m *mockTransformation) GetConfig() transformation.Config  { return m.config }
+func (m *mockTransformation) GetConfig() *transformation.Config { return &m.config }
 func (m *mockTransformation) GetSQL() string                    { return "" }
 func (m *mockTransformation) GetType() string                   { return "transformation" }
 func (m *mockTransformation) GetValue() string                  { return "" }
