@@ -29,6 +29,11 @@ var (
 type flexUint64 uint64
 
 func (f *flexUint64) UnmarshalJSON(data []byte) error {
+	// Check for null value first
+	if string(data) == "null" {
+		return fmt.Errorf("%w: received null value, which likely indicates missing data", ErrInvalidUint64)
+	}
+
 	// Try to unmarshal as number first
 	var num uint64
 	if err := json.Unmarshal(data, &num); err == nil {
@@ -118,7 +123,12 @@ func (e *ExternalModelValidator) tryGetFromCache(ctx context.Context, model mode
 		return 0, 0, false
 	}
 
-	cached, err := e.admin.GetCacheManager().GetExternal(ctx, model.GetID())
+	cacheManager := e.admin.GetCacheManager()
+	if cacheManager == nil {
+		return 0, 0, false
+	}
+
+	cached, err := cacheManager.GetExternal(ctx, model.GetID())
 	if err != nil || cached == nil {
 		observability.RecordExternalCacheMiss(model.GetID())
 		return 0, 0, false
@@ -135,6 +145,11 @@ func (e *ExternalModelValidator) storeInCache(ctx context.Context, model models.
 		return nil
 	}
 
+	cacheManager := e.admin.GetCacheManager()
+	if cacheManager == nil {
+		return nil
+	}
+
 	cache := admin.CacheExternal{
 		ModelID:   model.GetID(),
 		Min:       minPos,
@@ -143,7 +158,7 @@ func (e *ExternalModelValidator) storeInCache(ctx context.Context, model models.
 		TTL:       *modelConfig.TTL,
 	}
 
-	err := e.admin.GetCacheManager().SetExternal(ctx, cache)
+	err := cacheManager.SetExternal(ctx, cache)
 	if err != nil {
 		e.log.WithError(err).WithField("model", model.GetID()).Warn("Failed to cache external model bounds")
 
@@ -182,8 +197,12 @@ func (e *ExternalModelValidator) GetMinMax(ctx context.Context, model models.Ext
 		MaxPos flexUint64 `json:"max"`
 	}
 
-	// trim `;` and whitespace/newlines from end of query
-	query = strings.TrimSpace(strings.TrimSuffix(query, ";"))
+	// Split by semicolon and take the first query statement
+	// This handles cases where there might be newlines or multiple statements
+	parts := strings.Split(query, ";")
+	if len(parts) > 0 {
+		query = strings.TrimSpace(parts[0])
+	}
 
 	if err := e.chClient.QueryOne(ctx, query, &result); err != nil {
 		return 0, 0, fmt.Errorf("failed to get min/max for external model %s.%s: %w",
