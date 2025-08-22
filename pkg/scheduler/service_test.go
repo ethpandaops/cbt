@@ -35,6 +35,14 @@ func TestNewService(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid config with consolidation schedule",
+			cfg: &Config{
+				Concurrency:   10,
+				Consolidation: "@every 5m",
+			},
+			wantErr: false,
+		},
+		{
 			name: "invalid config - zero concurrency",
 			cfg: &Config{
 				Concurrency: 0,
@@ -93,6 +101,22 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid config with custom consolidation",
+			cfg: &Config{
+				Concurrency:   10,
+				Consolidation: "@hourly",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid config with cron consolidation",
+			cfg: &Config{
+				Concurrency:   10,
+				Consolidation: "0 */2 * * *", // Every 2 hours
+			},
+			wantErr: false,
+		},
+		{
 			name: "zero concurrency",
 			cfg: &Config{
 				Concurrency: 0,
@@ -137,12 +161,12 @@ func TestExtractModelID(t *testing.T) {
 	}{
 		{
 			name:     "forward task",
-			taskType: "cbt:analytics.block_propagation:forward",
+			taskType: "transformation:analytics.block_propagation:forward",
 			expected: "analytics.block_propagation",
 		},
 		{
 			name:     "back task",
-			taskType: "cbt:test.model:back",
+			taskType: "transformation:test.model:back",
 			expected: "test.model",
 		},
 		{
@@ -157,7 +181,12 @@ func TestExtractModelID(t *testing.T) {
 		},
 		{
 			name:     "just prefix",
-			taskType: "cbt:",
+			taskType: "transformation:",
+			expected: "",
+		},
+		{
+			name:     "consolidation task",
+			taskType: "consolidation",
 			expected: "",
 		},
 	}
@@ -181,7 +210,7 @@ func TestHandleScheduledForward(t *testing.T) {
 	}{
 		{
 			name:     "successful forward processing",
-			taskType: "cbt:test.model:forward",
+			taskType: "transformation:test.model:forward",
 			setupMocks: func(dag *mockDAGReader, _ *mockCoordinator) {
 				dag.transformations = []models.Transformation{
 					&mockTransformation{
@@ -195,7 +224,7 @@ func TestHandleScheduledForward(t *testing.T) {
 		},
 		{
 			name:     "node not found",
-			taskType: "cbt:unknown.model:forward",
+			taskType: "transformation:unknown.model:forward",
 			setupMocks: func(dag *mockDAGReader, _ *mockCoordinator) {
 				dag.nodeNotFound = true
 			},
@@ -249,7 +278,7 @@ func TestHandleScheduledBackfill(t *testing.T) {
 	}{
 		{
 			name:     "successful backfill processing",
-			taskType: "cbt:test.model:back",
+			taskType: "transformation:test.model:back",
 			setupMocks: func(dag *mockDAGReader, _ *mockCoordinator) {
 				dag.transformations = []models.Transformation{
 					&mockTransformation{
@@ -275,7 +304,7 @@ func TestHandleScheduledBackfill(t *testing.T) {
 		},
 		{
 			name:     "node not found",
-			taskType: "cbt:unknown.model:back",
+			taskType: "transformation:unknown.model:back",
 			setupMocks: func(dag *mockDAGReader, _ *mockCoordinator) {
 				dag.nodeNotFound = true
 			},
@@ -338,9 +367,35 @@ func TestServiceStopWithoutStart(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// Test HandleConsolidation
+func TestHandleConsolidation(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+	mockDAG := &mockDAGReader{}
+	mockCoord := &mockCoordinator{}
+
+	// Create service manually to avoid Redis dependency
+	svc := &service{
+		log:         log.WithField("service", "scheduler"),
+		cfg:         &Config{Concurrency: 1},
+		done:        make(chan struct{}),
+		dag:         mockDAG,
+		coordinator: mockCoord,
+	}
+
+	// Create asynq task
+	task := asynq.NewTask(ConsolidationTaskType, nil)
+
+	err := svc.HandleConsolidation(context.Background(), task)
+	require.NoError(t, err)
+
+	// Should have called RunConsolidation once
+	assert.Equal(t, 1, mockCoord.consolidationCalls)
+}
+
 // Benchmark tests
 func BenchmarkExtractModelID(b *testing.B) {
-	taskType := "cbt:analytics.block_propagation:forward"
+	taskType := "transformation:analytics.block_propagation:forward"
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -420,8 +475,9 @@ func (m *mockDAGReader) IsPathBetween(_, _ string) bool {
 var _ models.DAGReader = (*mockDAGReader)(nil)
 
 type mockCoordinator struct {
-	processCalls int
-	processErr   error
+	processCalls       int
+	processErr         error
+	consolidationCalls int
 }
 
 func (m *mockCoordinator) Start(_ context.Context) error {
@@ -434,6 +490,10 @@ func (m *mockCoordinator) Stop() error {
 
 func (m *mockCoordinator) Process(_ models.Transformation, _ coordinator.Direction) {
 	m.processCalls++
+}
+
+func (m *mockCoordinator) RunConsolidation(_ context.Context) {
+	m.consolidationCalls++
 }
 
 var _ coordinator.Service = (*mockCoordinator)(nil)

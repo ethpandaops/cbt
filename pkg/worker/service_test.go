@@ -268,7 +268,13 @@ var _ clickhouse.ClientInterface = (*mockClickhouseClient)(nil)
 
 type mockAdminService struct{}
 
-func (m *mockAdminService) GetLastPosition(_ context.Context, _ string) (uint64, error) {
+func (m *mockAdminService) GetLastProcessedEndPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+func (m *mockAdminService) GetLastProcessedPosition(_ context.Context, _ string) (uint64, error) {
 	return 0, nil
 }
 func (m *mockAdminService) GetFirstPosition(_ context.Context, _ string) (uint64, error) {
@@ -282,6 +288,9 @@ func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64)
 }
 func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
 	return []admin.GapInfo{}, nil
+}
+func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
+	return 0, nil
 }
 func (m *mockAdminService) GetCacheManager() *admin.CacheManager { return nil }
 func (m *mockAdminService) GetAdminDatabase() string             { return "admin_db" }

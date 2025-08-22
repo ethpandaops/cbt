@@ -68,8 +68,8 @@ clickhouse:
   
   # Admin table configuration (optional)
   # Defaults to admin.cbt if not specified
-  # admin_database: admin
-  # admin_table: cbt
+  # adminDatabase: admin
+  # adminTable: cbt
   
   # Query timeout
   queryTimeout: 30s
@@ -90,11 +90,14 @@ redis:
 
 # Scheduling settings
 scheduler:
-  # How often to check for tasks to schedule
-  interval: 1m
-  
   # Maximum number of concurrent scheduling operations
   concurrency: 10
+  
+  # Admin table consolidation schedule (optional)
+  # Controls how often the admin table is consolidated to optimize storage
+  # Uses asynq cron format: @every duration, @hourly, @daily, or cron expression
+  # Default: @every 10m
+  consolidation: "@every 10m"
 
 # Worker settings
 worker:
@@ -347,8 +350,8 @@ The admin table location is configurable in your `config.yaml`:
 clickhouse:
   url: http://localhost:8123
   # Optional: Custom admin table (defaults shown)
-  admin_database: admin  # Default: "admin"
-  admin_table: cbt       # Default: "cbt"
+  adminDatabase: admin  # Default: "admin"
+  adminTable: cbt       # Default: "cbt"
 ```
 
 This allows running multiple CBT instances on the same cluster (e.g., `dev_admin.cbt`, `prod_admin.cbt`).
@@ -413,8 +416,8 @@ If you need to use a different database or table name:
 1. Update your `config.yaml`:
 ```yaml
 clickhouse:
-  admin_database: custom_admin
-  admin_table: custom_tracking
+  adminDatabase: custom_admin
+  adminTable: custom_tracking
 ```
 
 2. Create the tables using your custom names:
@@ -465,29 +468,128 @@ CBT uses comprehensive dependency validation to ensure data consistency across y
 
 ### Dependency Validation Rules
 
+CBT uses a sophisticated validation system to determine when a model can process data. The system calculates a valid processing range based on all dependencies, then checks if the requested interval falls within that range.
+
+#### How Dependency Bounds Are Calculated
+
+1. **External Models**: Query their min/max SQL to get available data range
+   - If `lag` is configured: `adjusted_max = max - lag` (to avoid incomplete recent data)
+   - These bounds are cached based on the `ttl` configuration
+
+2. **Transformation Models**: Query the admin table for processed data range
+   - `min`: First processed position (earliest data available)
+   - `max`: Last processed end position (latest data available)
+
+#### Valid Range Calculation
+
+The valid range for a model is calculated using this formula:
+
+```
+min_valid = MAX(MIN(external_mins), MAX(transformation_mins))
+max_valid = MIN(all dependency maxes)
+```
+
+##### Understanding min_valid Calculation
+
+The minimum valid position combines two different behaviors:
+
+**1. External Dependencies: MIN(external_mins)**
+- External models represent source data (e.g., could be partitioned on time, block number etc. )
+- Typically external models receive new data moving forward in time and assume no backfill
+- We use MIN because we can start processing from when ANY external dependency source has data
+- Example: If `blocks` starts at position 1000 and `transactions` starts at 900, we can begin at 900
+
+**2. Transformation Dependencies: MAX(transformation_mins)**  
+- Transformation models are derived data that may have gaps or incomplete history
+- We use MAX because we need ALL transformation dependencies to have data before we can start
+- Example: If `hourly_stats` starts at 1500 and `daily_summary` starts at 2000, we consider the available data starts at 2000
+
+**3. Final Combination: MAX(external_min, transformation_max)**
+- Takes the more restrictive of the two requirements
+- Ensures both conditions are satisfied:
+  - At least one external source has data (external_min)
+  - All transformation dependencies have data (transformation_max)
+
+##### Understanding max_valid Calculation
+
+**MIN(all dependency maxes)**
+- Much simpler: we must stop at the earliest endpoint of ANY dependency
+- Doesn't matter if it's external or transformation - if any dependency runs out of data, we must stop
+- This ensures we never try to process beyond what's available
+- Example: If we have maxes of [5000, 4000, 4500], we stop at 4000
+
+##### Why This Formula?
+
+This approach reflects real-world data pipeline behaviors:
+- **External sources** are typically reliable and continuous, rarely backfilling data
+- **Transformations** may be incomplete, have processing gaps, or start at different times
+- The formula ensures data consistency while allowing maximum flexibility in processing ranges
+
+#### Configured Limits
+
+After calculating the valid range from dependencies, configured limits are applied:
+
+```yaml
+limits:
+  min: 1704067200  # Don't process before this position
+  max: 1735689600  # Don't process after this position
+```
+
+Final range:
+- `final_min = MAX(calculated_min, configured_min)`
+- `final_max = MIN(calculated_max, configured_max)`
+
+#### Validation Flow
+
 ```
 ┌──────────────────────────────────────────────────────┐
 │           VALIDATION DECISION TREE                   │
 ├──────────────────────────────────────────────────────┤
 │                                                      │
-│  For each dependency:                                │
+│  1. Calculate Valid Range:                           │
+│     a. Collect all dependency bounds                 │
+│        - External: Query min/max, apply lag          │
+│        - Transformation: Get first/last from admin   │
+│     b. Apply formula:                                │
+│        min = MAX(MIN(externals), MAX(transforms))    │
+│        max = MIN(all dependency maxes)               │
+│     c. Apply configured limits if present            │
 │                                                      │
-│  Is it External?                                     │
-│    ├─ YES → Check min/max bounds                     │
-│    │         ├─ Apply lag if configured              │
-│    │         │   (max = max - lag seconds)           │
-│    │         ├─ Outside bounds? → FAIL ❌            │
-│    │         └─ Within bounds? → PASS ✅             │
-│    │                                                 │
-│    └─ NO (Transformation) →                          │
-│            Check admin.cbt coverage                  │
-│              ├─ Not covered? → FAIL ❌               │
-│              └─ Fully covered? → PASS ✅             │
+│  2. Check Requested Interval:                        │
+│     position >= min_valid AND                        │
+│     position + interval <= max_valid                 │
+│        ├─ YES → CAN PROCESS ✅                       │
+│        └─ NO → CANNOT PROCESS ❌                     │
 │                                                      │
-│  All dependencies pass? → CAN PROCESS ✅             │
-│  Any dependency fails? → CANNOT PROCESS ❌           │
 └──────────────────────────────────────────────────────┘
 ```
+
+#### Example Scenario
+
+Consider a model with these dependencies:
+- External: `ethereum.blocks` (min: 1000, max: 5000, lag: 100)
+- External: `ethereum.transactions` (min: 900, max: 4900)
+- Transformation: `analytics.hourly` (min: 1500, max: 4500)
+- Transformation: `analytics.daily` (min: 2000, max: 4000)
+
+**Step-by-step calculation:**
+
+1. **Apply lag to external models:**
+   - `ethereum.blocks`: max becomes 4900 (5000 - 100 lag)
+   - `ethereum.transactions`: max stays 4900 (no lag)
+
+2. **Calculate min_valid:**
+   - External mins: MIN(1000, 900) = 900 ← Can start when first external has data
+   - Transformation mins: MAX(1500, 2000) = 2000 ← Need all transformations
+   - Final: MAX(900, 2000) = 2000 ← More restrictive requirement wins
+
+3. **Calculate max_valid:**
+   - All maxes: [4900, 4900, 4500, 4000]
+   - Final: MIN(all) = 4000 ← Stop at earliest endpoint
+
+4. **Result:** Valid range is [2000, 4000]
+   - Can't start before 2000 (waiting for `analytics.daily`)
+   - Must stop at 4000 (where `analytics.daily` ends)
 
 ### Key Validation Features
 

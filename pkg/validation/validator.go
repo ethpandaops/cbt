@@ -22,6 +22,11 @@ type Validator interface {
 
 	// GetEarliestPosition gets the earliest available position for a model
 	GetEarliestPosition(ctx context.Context, modelID string) (uint64, error)
+
+	// GetValidRange returns the valid position range [min, max] for a model based on its dependencies
+	// min = MAX(MIN(external_mins), MAX(transformation_mins))
+	// max = MIN(MAX(external_maxs), MIN(transformation_maxs))
+	GetValidRange(ctx context.Context, modelID string) (minPos, maxPos uint64, err error)
 }
 
 // ExternalValidator defines the interface for external model validation
@@ -37,20 +42,10 @@ type dependencyValidator struct {
 	dag             models.DAGReader
 }
 
-// DependencyStatus represents the status of a single dependency
-type DependencyStatus struct {
-	ModelID   string
-	Available bool
-	MinPos    uint64
-	MaxPos    uint64
-	Error     error
-}
-
 // Result contains the result of dependency validation
 type Result struct {
-	CanProcess   bool
-	Dependencies []DependencyStatus
-	Errors       []error
+	CanProcess bool
+	Errors     []error
 }
 
 // Validation-specific errors
@@ -84,71 +79,34 @@ func NewDependencyValidator(
 
 // ValidateDependencies checks if all dependencies are satisfied for a model at a given position
 func (v *dependencyValidator) ValidateDependencies(ctx context.Context, modelID string, position, interval uint64) (Result, error) {
-	_, err := v.dag.GetNode(modelID)
+	// Get the valid range for this model
+	minValid, maxValid, err := v.GetValidRange(ctx, modelID)
 	if err != nil {
 		return Result{
 			CanProcess: false,
-			Errors:     []error{fmt.Errorf("%w: %s", ErrModelNotFound, modelID)},
+			Errors:     []error{err},
 		}, nil
 	}
 
-	deps := v.dag.GetDependencies(modelID)
-	if len(deps) == 0 {
-		v.log.WithField("model_id", modelID).Debug("No dependencies to validate")
-		return Result{CanProcess: true}, nil
-	}
+	// Check if the requested position falls within the valid range
+	requestedEnd := position + interval
+	canProcess := position >= minValid && requestedEnd <= maxValid
 
-	depStatuses := make([]DependencyStatus, 0, len(deps))
-	var errs []error
-	canProcess := true
+	if !canProcess {
+		v.log.WithFields(logrus.Fields{
+			"model_id":      modelID,
+			"position":      position,
+			"interval":      interval,
+			"requested_end": requestedEnd,
+			"valid_min":     minValid,
+			"valid_max":     maxValid,
+		}).Debug("Position outside valid range")
 
-	for _, depID := range deps {
-		depNode, err := v.dag.GetNode(depID)
-		if err != nil {
-			status := DependencyStatus{
-				ModelID:   depID,
-				Available: false,
-				Error:     fmt.Errorf("%w: %s", ErrDependencyNotFound, depID),
-			}
-			depStatuses = append(depStatuses, status)
-			errs = append(errs, status.Error)
-			canProcess = false
-			continue
-		}
-
-		var status DependencyStatus
-
-		switch depNode.NodeType {
-		case models.NodeTypeTransformation:
-			model, ok := depNode.Model.(models.Transformation)
-			if !ok {
-				errs = append(errs, fmt.Errorf("%w: %T", ErrInvalidModelType, depNode.Model))
-				canProcess = false
-				continue
-			}
-
-			status, err = v.validateTransformationDependency(ctx, model, position, interval)
-		case models.NodeTypeExternal:
-			model, ok := depNode.Model.(models.External)
-			if !ok {
-				errs = append(errs, fmt.Errorf("%w: %T", ErrInvalidModelType, depNode.Model))
-				canProcess = false
-				continue
-			}
-
-			status, err = v.validateExternalDependency(ctx, model, position, interval)
-		}
-
-		if err != nil {
-			errs = append(errs, err)
-			canProcess = false
-		}
-
-		if !status.Available {
-			canProcess = false
-		}
-
-		depStatuses = append(depStatuses, status)
+		return Result{
+			CanProcess: false,
+			Errors: []error{fmt.Errorf("%w: position %d with interval %d is outside valid range [%d, %d]",
+				ErrRangeNotAvailable, position, interval, minValid, maxValid)},
+		}, nil
 	}
 
 	v.log.WithFields(logrus.Fields{
@@ -156,155 +114,13 @@ func (v *dependencyValidator) ValidateDependencies(ctx context.Context, modelID 
 		"position":    position,
 		"interval":    interval,
 		"can_process": canProcess,
-		"dep_count":   len(deps),
+		"valid_min":   minValid,
+		"valid_max":   maxValid,
 	}).Debug("Dependency validation complete")
 
 	return Result{
-		CanProcess:   canProcess,
-		Dependencies: depStatuses,
-		Errors:       errs,
+		CanProcess: canProcess,
 	}, nil
-}
-
-func (v *dependencyValidator) validateExternalDependency(ctx context.Context, model models.External, position, interval uint64) (DependencyStatus, error) {
-	status := DependencyStatus{
-		ModelID: model.GetID(),
-	}
-
-	minPos, maxPos, err := v.externalManager.GetMinMax(ctx, model)
-	if err != nil {
-		status.Error = fmt.Errorf("failed to get external model bounds: %w", err)
-		return status, err
-	}
-
-	status.MinPos = minPos
-	status.MaxPos = maxPos
-
-	// Check if required range is available
-	requiredStart := position
-	requiredEnd := position + interval
-
-	// Quick check: if completely outside bounds, no need to query
-	if requiredStart < minPos || requiredStart > maxPos {
-		status.Available = false
-		status.Error = fmt.Errorf("%w for model %s: required range [%d, %d), model has [%d, %d]",
-			ErrRangeNotAvailable, status.ModelID, requiredStart, requiredEnd, minPos, maxPos)
-		v.log.WithFields(logrus.Fields{
-			"dep_model": status.ModelID,
-			"available": status.Available,
-			"min":       minPos,
-			"max":       maxPos,
-			"req_start": requiredStart,
-			"req_end":   requiredEnd,
-		}).Debug("External dependency outside bounds")
-
-		return status, nil
-	}
-
-	status.Available = requiredStart >= minPos && requiredEnd <= maxPos
-
-	if !status.Available {
-		status.Error = fmt.Errorf("%w for model %s: no data in range [%d, %d)",
-			ErrRangeNotAvailable, status.ModelID, requiredStart, requiredEnd)
-	}
-
-	v.log.WithFields(logrus.Fields{
-		"dep_model": status.ModelID,
-		"available": status.Available,
-		"min":       minPos,
-		"max":       maxPos,
-		"req_start": requiredStart,
-		"req_end":   requiredEnd,
-		"has_data":  status.Available,
-	}).Debug("Validated external dependency")
-
-	return status, nil
-}
-
-func (v *dependencyValidator) validateTransformationDependency(ctx context.Context, model models.Transformation, position, interval uint64) (DependencyStatus, error) {
-	status := DependencyStatus{
-		ModelID: model.GetID(),
-	}
-
-	// Check range coverage in admin table
-	available, err := v.admin.GetCoverage(ctx, model.GetID(), position, position+interval)
-	if err != nil {
-		status.Error = fmt.Errorf("failed to check coverage for %s: %w", model.GetID(), err)
-		return status, err
-	}
-
-	status.Available = available
-
-	if !available {
-		status.Error = fmt.Errorf("%w for model %s: range [%d, %d)",
-			ErrRangeNotCovered, model.GetID(), position, position+interval)
-	}
-
-	v.log.WithFields(logrus.Fields{
-		"dep_model": model.GetID(),
-		"available": available,
-		"position":  position,
-		"interval":  interval,
-	}).Debug("Validated transformation dependency")
-
-	return status, nil
-}
-
-// collectDependencyMinPositions groups dependencies by type and collects their minimum positions
-func (v *dependencyValidator) collectDependencyMinPositions(ctx context.Context, deps []string) (externalMins, transformationMins []uint64, err error) {
-	externalMins = []uint64{}
-	transformationMins = []uint64{}
-
-	for _, depID := range deps {
-		depNode, err := v.dag.GetNode(depID)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%w: %s", ErrDependencyNotFound, depID)
-		}
-
-		minPos, err := v.getEarliestPositionForDependency(ctx, depID)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		// Group by dependency type
-		switch depNode.NodeType {
-		case models.NodeTypeExternal:
-			externalMins = append(externalMins, minPos)
-		case models.NodeTypeTransformation:
-			transformationMins = append(transformationMins, minPos)
-		default:
-			return nil, nil, fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)
-		}
-	}
-
-	return externalMins, transformationMins, nil
-}
-
-// calculateBackfillPosition calculates the final backfill position based on dependency types
-func (v *dependencyValidator) calculateBackfillPosition(externalMins, transformationMins []uint64) uint64 {
-	// Calculate the min of external dependencies
-	externalMin := findMin(externalMins)
-
-	// Calculate the max of transformation dependencies
-	transformationMax := findMax(transformationMins)
-
-	// Take the max of (external_min, transformation_max)
-	switch {
-	case len(transformationMins) > 0 && len(externalMins) > 0:
-		// Both types exist - take the max
-		if transformationMax > externalMin {
-			return transformationMax
-		}
-		return externalMin
-	case len(transformationMins) > 0:
-		// Only transformations
-		return transformationMax
-	case len(externalMins) > 0:
-		// Only externals
-		return externalMin
-	default:
-		return 0
-	}
 }
 
 // findMin returns the minimum value from a slice of uint64
@@ -340,30 +156,17 @@ func findMax(values []uint64) uint64 {
 func (v *dependencyValidator) GetEarliestPosition(ctx context.Context, modelID string) (uint64, error) {
 	v.log.WithField("model_id", modelID).Debug("GetEarliestPosition called")
 
-	deps := v.dag.GetDependencies(modelID)
-	if len(deps) == 0 {
-		return 0, nil // No dependencies, start from 0
-	}
-
-	// Collect min positions grouped by dependency type
-	externalMins, transformationMins, err := v.collectDependencyMinPositions(ctx, deps)
+	// Use GetValidRange to get the valid range
+	minPos, _, err := v.GetValidRange(ctx, modelID)
 	if err != nil {
+		// Return 0 for invalid models (backward compatibility)
+		if errors.Is(err, ErrModelNotFound) || errors.Is(err, ErrNotTransformationModel) {
+			return 0, nil
+		}
 		return 0, err
 	}
 
-	// Calculate the final position based on dependency types
-	maxOfMins := v.calculateBackfillPosition(externalMins, transformationMins)
-
-	v.log.WithFields(logrus.Fields{
-		"model_id":             modelID,
-		"external_count":       len(externalMins),
-		"transformation_count": len(transformationMins),
-		"external_min":         findMin(externalMins),
-		"transformation_max":   findMax(transformationMins),
-		"final_position":       maxOfMins,
-	}).Debug("Calculated dependency positions")
-
-	// Get the model's interval
+	// Get the model's interval for alignment
 	node, err := v.dag.GetNode(modelID)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %s", ErrModelNotFound, modelID)
@@ -379,34 +182,37 @@ func (v *dependencyValidator) GetEarliestPosition(ctx context.Context, modelID s
 	}
 	interval := model.GetConfig().GetBackfillInterval()
 
-	// Round down to the nearest interval boundary
-	if maxOfMins > 0 && interval > 0 {
-		// Align to interval boundary
-		alignedPos := (maxOfMins / interval) * interval
+	// For backfill gap detection, we want to start from where data is available
+	// Don't round up past the actual data availability point
+	if minPos > 0 && interval > 0 {
+		// Align to interval boundary (round down)
+		alignedPos := (minPos / interval) * interval
 
-		// If rounding down puts us before the data starts, round up instead
-		if alignedPos < maxOfMins {
+		// For backfill, if rounding down would start before data is available,
+		// use the actual data start position instead of rounding up past it
+		if alignedPos < minPos {
 			v.log.WithFields(logrus.Fields{
-				"model_id":   modelID,
-				"maxOfMins":  maxOfMins,
-				"alignedPos": alignedPos,
-				"interval":   interval,
-				"rounded_up": alignedPos + interval,
-			}).Debug("Rounding up initial position")
-			alignedPos += interval
+				"model_id":            modelID,
+				"data_available_from": minPos,
+				"would_align_to":      alignedPos,
+				"interval":            interval,
+				"using_actual_start":  minPos,
+			}).Debug("Using actual data start position for backfill (not rounding up)")
+			// Use the actual position where data starts
+			return minPos, nil
 		}
 
 		v.log.WithFields(logrus.Fields{
 			"model_id":   modelID,
-			"maxOfMins":  maxOfMins,
+			"minPos":     minPos,
 			"alignedPos": alignedPos,
 			"interval":   interval,
-		}).Debug("Calculated initial position")
+		}).Debug("Using aligned position for backfill")
 
 		return alignedPos, nil
 	}
 
-	return maxOfMins, nil
+	return minPos, nil
 }
 
 // GetInitialPosition calculates the initial position for a model starting from the head (most recent data)
@@ -430,45 +236,30 @@ func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 	}
 	interval := model.GetConfig().GetForwardInterval()
 
-	deps := v.dag.GetDependencies(modelID)
-	if len(deps) == 0 {
-		// No dependencies - get the latest available data from external sources
-		// This shouldn't normally happen as transformations typically have dependencies
-		return 0, nil
-	}
-
-	minOfMaxs := ^uint64(0) // Start with max uint64
-
-	for _, depID := range deps {
-		maxPos, err := v.getLatestPositionForDependency(ctx, depID)
-		if err != nil {
-			return 0, err
-		}
-
-		// Find the minimum of all maximums - this ensures all dependencies have data
-		if maxPos < minOfMaxs {
-			minOfMaxs = maxPos
-		}
+	// Use GetValidRange to get the valid range
+	_, maxPos, err := v.GetValidRange(ctx, modelID)
+	if err != nil {
+		return 0, err
 	}
 
 	// If no data available
-	if minOfMaxs == 0 || minOfMaxs == ^uint64(0) {
+	if maxPos == 0 || maxPos == ^uint64(0) {
 		return 0, nil
 	}
 
-	// Start one interval before the minimum of maximums to ensure we have a full interval of data
-	if minOfMaxs < interval {
+	// Start one interval before the maximum to ensure we have a full interval of data
+	if maxPos < interval {
 		return 0, nil // Not enough data for even one interval
 	}
 
-	startPos := minOfMaxs - interval
+	startPos := maxPos - interval
 
 	// Align to interval boundary (round down)
 	alignedPos := (startPos / interval) * interval
 
 	v.log.WithFields(logrus.Fields{
 		"model_id":   modelID,
-		"minOfMaxs":  minOfMaxs,
+		"maxPos":     maxPos,
 		"startPos":   startPos,
 		"alignedPos": alignedPos,
 		"interval":   interval,
@@ -477,88 +268,193 @@ func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 	return alignedPos, nil
 }
 
-func (v *dependencyValidator) getLatestPositionForDependency(ctx context.Context, depID string) (uint64, error) {
-	depNode, err := v.dag.GetNode(depID)
-	if err != nil {
-		return 0, fmt.Errorf("%w: %s", ErrDependencyNotFound, depID)
-	}
-
-	switch depNode.NodeType {
-	case models.NodeTypeExternal:
-		externalModel, ok := depNode.Model.(models.External)
-		if !ok {
-			return 0, fmt.Errorf("%w: %T", ErrInvalidModelType, depNode.Model)
-		}
-		_, maxPos, err := v.externalManager.GetMinMax(ctx, externalModel)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get external model bounds for %s: %w", depID, err)
-		}
-		return maxPos, nil
-	case models.NodeTypeTransformation:
-		return v.getTransformationModelLatestPosition(ctx, depID)
-	}
-
-	return 0, fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)
+// dependencyBounds holds min/max bounds for dependencies
+type dependencyBounds struct {
+	externalMins       []uint64
+	externalMaxs       []uint64
+	transformationMins []uint64
+	transformationMaxs []uint64
 }
 
-func (v *dependencyValidator) getTransformationModelLatestPosition(ctx context.Context, depID string) (uint64, error) {
-	// Get the last position
-	maxPos, err := v.admin.GetLastPosition(ctx, depID)
+// collectExternalBounds collects bounds for an external dependency
+func (v *dependencyValidator) collectExternalBounds(ctx context.Context, depNode models.Node, depID string) (minDep, maxDep uint64, err error) {
+	externalModel, ok := depNode.Model.(models.External)
+	if !ok {
+		return 0, 0, fmt.Errorf("%w: %T", ErrInvalidModelType, depNode.Model)
+	}
+
+	// Get min/max for external model (with lag applied if configured)
+	minDep, maxDep, err = v.externalManager.GetMinMax(ctx, externalModel)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get last position for %s: %w", depID, err)
+		return 0, 0, fmt.Errorf("failed to get bounds for external %s: %w", depID, err)
 	}
 
-	// If no data exists yet (maxPos == 0), check dependencies recursively
-	if maxPos == 0 {
-		maxPos, err = v.GetInitialPosition(ctx, depID)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get initial position for dependency %s: %w", depID, err)
-		}
-	}
-
-	return maxPos, nil
+	return minDep, maxDep, nil
 }
 
-func (v *dependencyValidator) getEarliestPositionForDependency(ctx context.Context, depID string) (uint64, error) {
-	depNode, err := v.dag.GetNode(depID)
+// collectTransformationBounds collects bounds for a transformation dependency
+func (v *dependencyValidator) collectTransformationBounds(ctx context.Context, depID string) (minDep, maxDep uint64, err error) {
+	// Get first and last position for transformation
+	minDep, err = v.admin.GetFirstPosition(ctx, depID)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %s", ErrDependencyNotFound, depID)
+		return 0, 0, fmt.Errorf("failed to get first position for %s: %w", depID, err)
 	}
 
-	switch depNode.NodeType {
-	case models.NodeTypeExternal:
-		externalModel, ok := depNode.Model.(models.External)
-		if !ok {
-			return 0, fmt.Errorf("%w: %T", ErrInvalidModelType, depNode.Model)
-		}
-		minPos, _, err := v.externalManager.GetMinMax(ctx, externalModel)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get external model bounds for %s: %w", depID, err)
-		}
-		return minPos, nil
-	case models.NodeTypeTransformation:
-		return v.getTransformationModelEarliestPosition(ctx, depID)
+	maxDep, err = v.admin.GetLastProcessedEndPosition(ctx, depID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get last position for %s: %w", depID, err)
 	}
 
-	return 0, fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)
+	return minDep, maxDep, nil
 }
 
-func (v *dependencyValidator) getTransformationModelEarliestPosition(ctx context.Context, depID string) (uint64, error) {
-	// Get the first position
-	minPos, err := v.admin.GetFirstPosition(ctx, depID)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get first position for %s: %w", depID, err)
+// collectDependencyBounds collects all dependency bounds for a model
+func (v *dependencyValidator) collectDependencyBounds(ctx context.Context, deps []string) (*dependencyBounds, error) {
+	bounds := &dependencyBounds{
+		externalMins:       []uint64{},
+		externalMaxs:       []uint64{},
+		transformationMins: []uint64{},
+		transformationMaxs: []uint64{},
 	}
 
-	// If no data exists yet (minPos == 0), fall back to checking dependencies recursively
-	if minPos == 0 {
-		minPos, err = v.GetEarliestPosition(ctx, depID)
+	for _, depID := range deps {
+		depNode, err := v.dag.GetNode(depID)
 		if err != nil {
-			return 0, fmt.Errorf("failed to get initial position for dependency %s: %w", depID, err)
+			return nil, fmt.Errorf("%w: %s", ErrDependencyNotFound, depID)
+		}
+
+		switch depNode.NodeType {
+		case models.NodeTypeExternal:
+			minDep, maxDep, err := v.collectExternalBounds(ctx, depNode, depID)
+			if err != nil {
+				return nil, err
+			}
+			bounds.externalMins = append(bounds.externalMins, minDep)
+			bounds.externalMaxs = append(bounds.externalMaxs, maxDep)
+
+		case models.NodeTypeTransformation:
+			minDep, maxDep, err := v.collectTransformationBounds(ctx, depID)
+			if err != nil {
+				return nil, err
+			}
+			// Only include transformations that have data
+			if minDep > 0 {
+				bounds.transformationMins = append(bounds.transformationMins, minDep)
+			}
+			if maxDep > 0 {
+				bounds.transformationMaxs = append(bounds.transformationMaxs, maxDep)
+			}
+
+		default:
+			return nil, fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)
 		}
 	}
 
-	return minPos, nil
+	return bounds, nil
+}
+
+// calculateFinalRange calculates the final min/max from collected bounds
+// min = MAX(MIN(external_mins), MAX(transformation_mins))
+// max = MIN of all maxes (both external and transformation)
+func (v *dependencyValidator) calculateFinalRange(bounds *dependencyBounds) (minPos, maxPos uint64) {
+	// Calculate min position: MAX(MIN(external_mins), MAX(transformation_mins))
+	// Special case: external models can start from their earliest data (they forward fill)
+	// but transformations need ALL to have data (they may not backfill consistently)
+	var finalMin uint64
+	if len(bounds.externalMins) > 0 {
+		finalMin = findMin(bounds.externalMins)
+	}
+	if len(bounds.transformationMins) > 0 {
+		transformationMax := findMax(bounds.transformationMins)
+		if transformationMax > finalMin {
+			finalMin = transformationMax
+		}
+	}
+
+	// Calculate max position: MIN of ALL dependency maxes
+	// We must stop at the earliest endpoint of any dependency
+	finalMax := ^uint64(0) // Start with max uint64
+
+	// Combine all maxes and find the minimum
+	allMaxes := make([]uint64, 0, len(bounds.externalMaxs)+len(bounds.transformationMaxs))
+	allMaxes = append(allMaxes, bounds.externalMaxs...)
+	allMaxes = append(allMaxes, bounds.transformationMaxs...)
+	if len(allMaxes) > 0 {
+		finalMax = findMin(allMaxes)
+	}
+
+	return finalMin, finalMax
+}
+
+// GetValidRange returns the valid position range [min, max] for a model based on its dependencies
+// This is the single source of truth for calculating valid ranges
+// min = MAX(MIN(external_mins), MAX(transformation_mins))
+// max = MIN(all dependency maxes)
+func (v *dependencyValidator) GetValidRange(ctx context.Context, modelID string) (minPos, maxPos uint64, err error) {
+	v.log.WithField("model_id", modelID).Debug("GetValidRange called")
+
+	// Get the model to check if it's a transformation
+	node, err := v.dag.GetNode(modelID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("%w: %s", ErrModelNotFound, modelID)
+	}
+
+	if node.NodeType != models.NodeTypeTransformation {
+		return 0, 0, fmt.Errorf("%w: %s", ErrNotTransformationModel, modelID)
+	}
+
+	model, ok := node.Model.(models.Transformation)
+	if !ok {
+		return 0, 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
+	}
+
+	// Get the model's configuration
+	config := model.GetConfig()
+
+	deps := v.dag.GetDependencies(modelID)
+	if len(deps) == 0 {
+		// No dependencies - no valid range (model needs dependencies to process)
+		return 0, 0, nil
+	}
+
+	// Collect all dependency bounds
+	bounds, err := v.collectDependencyBounds(ctx, deps)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// Calculate the final range
+	finalMin, finalMax := v.calculateFinalRange(bounds)
+
+	// Apply configured limits if any
+	if config.Limits != nil {
+		if config.Limits.Min > 0 && config.Limits.Min > finalMin {
+			finalMin = config.Limits.Min
+		}
+		if config.Limits.Max > 0 && config.Limits.Max < finalMax {
+			finalMax = config.Limits.Max
+		}
+	}
+
+	// Ensure min <= max
+	if finalMin > finalMax {
+		// No valid range
+		return 0, 0, nil
+	}
+
+	v.log.WithFields(logrus.Fields{
+		"model_id":             modelID,
+		"external_count":       len(bounds.externalMins),
+		"transformation_count": len(bounds.transformationMins),
+		"external_min":         findMin(bounds.externalMins),
+		"external_max":         findMax(bounds.externalMaxs),
+		"transformation_min":   findMin(bounds.transformationMins),
+		"transformation_max":   findMax(bounds.transformationMaxs),
+		"final_min":            finalMin,
+		"final_max":            finalMax,
+	}).Debug("Calculated valid range for model")
+
+	return finalMin, finalMax, nil
 }
 
 // Ensure dependencyValidator implements Validator interface

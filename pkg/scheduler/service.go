@@ -19,8 +19,10 @@ import (
 )
 
 const (
-	// TaskPrefix is the prefix for all scheduled tasks
-	TaskPrefix = "cbt:"
+	// TransformationTaskPrefix is the prefix for transformation scheduled tasks
+	TransformationTaskPrefix = "transformation:"
+	// ConsolidationTaskType is the task type for consolidation
+	ConsolidationTaskType = "consolidation"
 	// QueueName is the queue name for scheduler tasks
 	QueueName = "scheduler"
 )
@@ -179,21 +181,45 @@ func (s *service) reconcileSchedules() error {
 
 	for _, transformation := range transformations {
 		config := transformation.GetConfig()
+		modelID := transformation.GetID()
 
-		// Forward fill task (always for transformation models)
-		forwardTask := fmt.Sprintf("%s%s:%s", TaskPrefix, transformation.GetID(), coordinator.DirectionForward)
-		desiredTasks[forwardTask] = config.GetForwardSchedule()
-		// Register handler for this specific task type
-		mux.HandleFunc(forwardTask, s.HandleScheduledForward)
+		// Forward fill task (only if configured)
+		if config.ForwardFill != nil && config.GetForwardSchedule() != "" {
+			forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
+			desiredTasks[forwardTask] = config.GetForwardSchedule()
+			// Register handler for this specific task type
+			mux.HandleFunc(forwardTask, s.HandleScheduledForward)
+			s.log.WithFields(logrus.Fields{
+				"model_id": modelID,
+				"schedule": config.GetForwardSchedule(),
+			}).Debug("Registering forward fill task")
+		}
 
 		// Backfill task (only if configured)
-		if config.IsBackfillEnabled() {
-			backfillTask := fmt.Sprintf("%s%s:%s", TaskPrefix, transformation.GetID(), coordinator.DirectionBack)
+		if config.IsBackfillEnabled() && config.Backfill.Schedule != "" {
+			backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
 			desiredTasks[backfillTask] = config.Backfill.Schedule
 			// Register handler for this specific task type
 			mux.HandleFunc(backfillTask, s.HandleScheduledBackfill)
+			s.log.WithFields(logrus.Fields{
+				"model_id": modelID,
+				"schedule": config.Backfill.Schedule,
+			}).Debug("Registering backfill task")
+		}
+
+		// Warn if no tasks were registered for this transformation
+		hasForward := config.ForwardFill != nil && config.GetForwardSchedule() != ""
+		hasBackfill := config.IsBackfillEnabled() && config.Backfill.Schedule != ""
+		if !hasForward && !hasBackfill {
+			s.log.WithField("model_id", modelID).Warn("Transformation has no scheduled tasks (neither forward fill nor backfill configured)")
 		}
 	}
+
+	// Register consolidation task
+	mux.HandleFunc(ConsolidationTaskType, s.HandleConsolidation)
+	// Use configured consolidation schedule, or default if not set
+	consolidationSchedule := s.cfg.Consolidation
+	desiredTasks[ConsolidationTaskType] = consolidationSchedule
 
 	// Store the mux for later use
 	s.mux = mux
@@ -218,13 +244,6 @@ func (s *service) reconcileSchedules() error {
 
 // registerScheduledTask registers a new scheduled task
 func (s *service) registerScheduledTask(taskType, schedule string) error {
-	// Extract model ID for logging
-	modelID := extractModelID(taskType)
-	operation := coordinator.DirectionForward
-	if strings.HasSuffix(taskType, fmt.Sprintf(":%s", coordinator.DirectionBack)) {
-		operation = coordinator.DirectionBack
-	}
-
 	// Create the task
 	task := asynq.NewTask(taskType, nil)
 
@@ -238,24 +257,55 @@ func (s *service) registerScheduledTask(taskType, schedule string) error {
 		return fmt.Errorf("failed to register %s with schedule %s: %w", taskType, schedule, err)
 	}
 
-	s.log.WithFields(logrus.Fields{
-		"task_type": taskType,
-		"model_id":  modelID,
-		"operation": operation,
-		"schedule":  schedule,
-		"entry_id":  entryID,
-	}).Info("Registered scheduled task")
+	// Check if this is the consolidation task (special case)
+	if taskType == ConsolidationTaskType {
+		s.log.WithFields(logrus.Fields{
+			"task_type": taskType,
+			"schedule":  schedule,
+			"entry_id":  entryID,
+		}).Info("Registered consolidation task")
 
-	// Update metrics
-	observability.ScheduledTasksRegistered.WithLabelValues(modelID, string(operation)).Set(1)
+		// Update metrics for consolidation
+		observability.ScheduledTasksRegistered.WithLabelValues("consolidation", "maintenance").Set(1)
+	} else {
+		// Regular transformation task
+		modelID := extractModelID(taskType)
+		operation := coordinator.DirectionForward
+		if strings.HasSuffix(taskType, fmt.Sprintf(":%s", coordinator.DirectionBack)) {
+			operation = coordinator.DirectionBack
+		}
+
+		s.log.WithFields(logrus.Fields{
+			"task_type": taskType,
+			"model_id":  modelID,
+			"operation": operation,
+			"schedule":  schedule,
+			"entry_id":  entryID,
+		}).Info("Registered scheduled task")
+
+		// Update metrics
+		observability.ScheduledTasksRegistered.WithLabelValues(modelID, string(operation)).Set(1)
+	}
 
 	return nil
 }
 
 // extractModelID extracts the model ID from a task type
-// Example: "cbt:analytics.block_propagation:forward" -> "analytics.block_propagation"
+// Example: "transformation:analytics.block_propagation:forward" -> "analytics.block_propagation"
 func extractModelID(taskType string) string {
-	trimmed := strings.TrimPrefix(taskType, TaskPrefix)
+	// Only extract model ID from transformation tasks
+	if !strings.HasPrefix(taskType, TransformationTaskPrefix) {
+		// Handle tasks without the transformation prefix (like consolidation)
+		if strings.Contains(taskType, ":") {
+			// Legacy format without prefix: "test.model:forward"
+			parts := strings.Split(taskType, ":")
+			return parts[0]
+		}
+		// Not a transformation task (e.g., "consolidation")
+		return ""
+	}
+
+	trimmed := strings.TrimPrefix(taskType, TransformationTaskPrefix)
 	parts := strings.Split(trimmed, ":")
 	if len(parts) > 0 {
 		return parts[0]
@@ -310,9 +360,10 @@ func (s *service) runPeriodicCleanup() {
 			// Group by task type to find duplicates
 			taskGroups := make(map[string][]*asynq.SchedulerEntry, 10) // Add capacity hint
 			for _, entry := range entries {
-				// Only process our tasks
-				if strings.HasPrefix(entry.Task.Type(), TaskPrefix) {
-					taskGroups[entry.Task.Type()] = append(taskGroups[entry.Task.Type()], entry)
+				// Only process our tasks (transformation or consolidation)
+				taskType := entry.Task.Type()
+				if strings.HasPrefix(taskType, TransformationTaskPrefix) || taskType == ConsolidationTaskType {
+					taskGroups[taskType] = append(taskGroups[taskType], entry)
 				}
 			}
 
@@ -349,6 +400,22 @@ func (s *service) HandleScheduledBackfill(_ context.Context, t *asynq.Task) erro
 	observability.ScheduledTaskExecutions.WithLabelValues(
 		modelID, string(coordinator.DirectionBack), "success",
 	).Inc()
+
+	return nil
+}
+
+// HandleConsolidation triggers admin table consolidation
+func (s *service) HandleConsolidation(ctx context.Context, _ *asynq.Task) error {
+	s.log.Info("Running admin table consolidation")
+
+	// Call the coordinator to actually run the consolidation
+	// This ensures only one instance handles it at a time via asynq
+	if consolidator, ok := s.coordinator.(interface{ RunConsolidation(context.Context) }); ok {
+		consolidator.RunConsolidation(ctx)
+		s.log.Info("Admin consolidation completed")
+	} else {
+		s.log.Debug("Coordinator doesn't support consolidation")
+	}
 
 	return nil
 }

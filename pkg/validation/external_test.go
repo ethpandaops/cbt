@@ -53,7 +53,15 @@ type testAdminService struct {
 	cacheManager *admin.CacheManager
 }
 
-func (m *testAdminService) GetLastPosition(_ context.Context, _ string) (uint64, error) {
+func (m *testAdminService) GetLastProcessedEndPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *testAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *testAdminService) GetLastProcessedPosition(_ context.Context, _ string) (uint64, error) {
 	return 0, nil
 }
 
@@ -71,6 +79,10 @@ func (m *testAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64)
 
 func (m *testAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
 	return nil, nil
+}
+
+func (m *testAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
+	return 0, nil
 }
 
 func (m *testAdminService) GetCacheManager() *admin.CacheManager {

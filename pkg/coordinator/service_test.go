@@ -161,10 +161,32 @@ type mockPositionTracker struct {
 	mu             sync.RWMutex
 }
 
-func (m *mockPositionTracker) GetLastPosition(_ context.Context, modelID string) (uint64, error) {
+func (m *mockPositionTracker) GetLastProcessedEndPosition(_ context.Context, modelID string) (uint64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if pos, ok := m.lastPositions[modelID]; ok {
+		return pos, nil
+	}
+	return 0, nil
+}
+
+func (m *mockPositionTracker) GetNextUnprocessedPosition(_ context.Context, modelID string) (uint64, error) {
+	// For mock purposes, this is the same as GetLastProcessedEndPosition
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if pos, ok := m.lastPositions[modelID]; ok {
+		return pos, nil
+	}
+	return 0, nil
+}
+
+func (m *mockPositionTracker) GetLastProcessedPosition(_ context.Context, modelID string) (uint64, error) {
+	// For mock purposes, return the last position if it exists, otherwise 0
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if pos, ok := m.lastPositions[modelID]; ok {
+		// In real implementation, this would be just the position without interval
+		// For testing, we'll return the position directly
 		return pos, nil
 	}
 	return 0, nil

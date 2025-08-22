@@ -30,10 +30,10 @@ clickhouse:
 redis:
   url: "redis://redis:6379"
 
-# Coordinator-specific settings (ignored by worker and CLI)
-scheduling:
-  interval: 1m
-  maxConcurrentSchedules: 10
+# Scheduler settings
+scheduler:
+  concurrency: 10
+  consolidation: "@every 10m"
 
 # Worker-specific settings (ignored by coordinator and CLI)
 worker:

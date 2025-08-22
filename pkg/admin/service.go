@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/redis/go-redis/v9"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -19,13 +20,18 @@ var (
 // Service defines the public interface for the admin service
 type Service interface {
 	// Position tracking
-	GetLastPosition(ctx context.Context, modelID string) (uint64, error)
+	GetLastProcessedEndPosition(ctx context.Context, modelID string) (uint64, error) // Returns end of last processed range
+	GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error)  // Returns next position for forward fill
+	GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error)    // Returns position of last record
 	GetFirstPosition(ctx context.Context, modelID string) (uint64, error)
 	RecordCompletion(ctx context.Context, modelID string, position, interval uint64) error
 
 	// Coverage and gap management
 	GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error)
 	FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]GapInfo, error)
+
+	// Consolidation
+	ConsolidateHistoricalData(ctx context.Context, modelID string) (int, error)
 
 	// Cache management
 	GetCacheManager() *CacheManager
@@ -43,6 +49,8 @@ type GapInfo struct {
 
 // service manages the admin tracking table for completed transformations
 type service struct {
+	log logrus.FieldLogger
+
 	client        clickhouse.ClientInterface
 	cluster       string
 	localSuffix   string
@@ -53,10 +61,11 @@ type service struct {
 }
 
 // NewService creates a new admin table manager
-func NewService(client clickhouse.ClientInterface, cluster, localSuffix, adminDatabase, adminTable string, redisClient *redis.Client) Service {
+func NewService(log logrus.FieldLogger, client clickhouse.ClientInterface, cluster, localSuffix, adminDatabase, adminTable string, redisClient *redis.Client) Service {
 	cacheManager := NewCacheManager(redisClient)
 
 	return &service{
+		log:           log.WithField("service", "admin"),
 		client:        client,
 		cluster:       cluster,
 		localSuffix:   localSuffix,
@@ -82,6 +91,15 @@ func (a *service) RecordCompletion(ctx context.Context, modelID string, position
 	if len(parts) != 2 {
 		return ErrInvalidModelID
 	}
+
+	// Log what we're recording for better debugging
+	a.log.WithFields(logrus.Fields{
+		"model_id":    modelID,
+		"position":    position,
+		"interval":    interval,
+		"range_start": position,
+		"range_end":   position + interval,
+	}).Debug("Recording task completion in admin table")
 
 	// Using string formatting with proper escaping
 	// In production, consider using parameterized queries for better security
@@ -121,15 +139,51 @@ func (a *service) GetFirstPosition(ctx context.Context, modelID string) (uint64,
 	return result.FirstPos, nil
 }
 
-// GetLastPosition returns the last processed position for a model
-func (a *service) GetLastPosition(ctx context.Context, modelID string) (uint64, error) {
+// GetLastProcessedEndPosition returns the end of the last processed range (max(position + interval))
+// This is the position where forward processing should continue from
+func (a *service) GetLastProcessedEndPosition(ctx context.Context, modelID string) (uint64, error) {
 	parts := strings.Split(modelID, ".")
 	if len(parts) != 2 {
 		return 0, ErrInvalidModelID
 	}
 
 	query := fmt.Sprintf(`
-		SELECT coalesce(max(position + interval), 0) as last_pos
+		SELECT coalesce(max(position + interval), 0) as last_end_pos
+		FROM %s.%s FINAL
+		WHERE database = '%s' AND table = '%s'
+	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
+
+	var result struct {
+		LastEndPos uint64 `json:"last_end_pos,string"`
+	}
+
+	err := a.client.QueryOne(ctx, query, &result)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	return result.LastEndPos, nil
+}
+
+// GetNextUnprocessedPosition returns the next position to process for forward fill
+// This is equivalent to GetLastProcessedEndPosition but with clearer naming
+func (a *service) GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error) {
+	return a.GetLastProcessedEndPosition(ctx, modelID)
+}
+
+// GetLastProcessedPosition returns the position of the last processed record (max(position))
+// This is useful for understanding the actual last record processed, not where to continue from
+func (a *service) GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error) {
+	parts := strings.Split(modelID, ".")
+	if len(parts) != 2 {
+		return 0, ErrInvalidModelID
+	}
+
+	query := fmt.Sprintf(`
+		SELECT coalesce(max(position), 0) as last_pos
 		FROM %s.%s FINAL
 		WHERE database = '%s' AND table = '%s'
 	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
@@ -193,25 +247,65 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 		return nil, ErrInvalidModelID
 	}
 
-	// Query to find gaps using a self-join instead of window function
+	// Log the gap detection parameters
+	a.log.WithFields(logrus.Fields{
+		"model_id": modelID,
+		"min_pos":  minPos,
+		"max_pos":  maxPos,
+		"interval": interval,
+	}).Debug("Finding gaps in processed data - scanning admin table")
+
+	// Use a similar approach to consolidation but find gaps instead
+	// This properly handles overlapping and contiguous ranges
+	// Note: ClickHouse doesn't allow window functions in WHERE clauses,
+	// so we calculate prev_max_end in a CTE first
 	query := fmt.Sprintf(`
-		WITH positions AS (
-			SELECT 
+		WITH ordered_rows AS (
+			SELECT
 				position,
+				interval,
 				position + interval as end_pos,
 				row_number() OVER (ORDER BY position) as rn
 			FROM %s.%s FINAL
 			WHERE database = '%s' AND table = '%s'
-			  AND position >= %d AND position <= %d
+			  AND position >= %d AND position < %d
 			ORDER BY position
+		),
+		with_max AS (
+			SELECT
+				position,
+				interval,
+				end_pos,
+				rn,
+				max(end_pos) OVER (ORDER BY position ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as max_end_so_far
+			FROM ordered_rows
+		),
+		with_lag AS (
+			SELECT
+				position,
+				end_pos,
+				rn,
+				max_end_so_far,
+				-- Get the max_end_so_far from the previous row
+				if(rn > 1, 
+				   any(max_end_so_far) OVER (ORDER BY position ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING),
+				   0) as prev_max_end
+			FROM with_max
+		),
+		gaps AS (
+			SELECT
+				prev_max_end as gap_start,
+				position as gap_end
+			FROM with_lag
+			WHERE rn > 1 
+			  AND prev_max_end IS NOT NULL
+			  AND position > prev_max_end
+			  AND position - prev_max_end >= %d
 		)
 		SELECT 
-			p1.end_pos as gap_start,
-			p2.position as gap_end
-		FROM positions p1
-		INNER JOIN positions p2 ON p1.rn + 1 = p2.rn
-		WHERE p2.position > p1.end_pos
-		  AND p2.position - p1.end_pos >= %d
+			gap_start,
+			gap_end
+		FROM gaps
 		ORDER BY gap_start DESC
 	`, a.adminDatabase, a.adminTable, parts[0], parts[1], minPos, maxPos, interval)
 
@@ -227,6 +321,13 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 
 	gaps := make([]GapInfo, 0, len(gapResults))
 	for _, result := range gapResults {
+		a.log.WithFields(logrus.Fields{
+			"model_id":  modelID,
+			"gap_start": result.GapStart,
+			"gap_end":   result.GapEnd,
+			"gap_size":  result.GapEnd - result.GapStart,
+		}).Debug("Found gap between consolidated ranges")
+
 		gaps = append(gaps, GapInfo{
 			StartPos: result.GapStart,
 			EndPos:   result.GapEnd,
@@ -252,10 +353,190 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 
 	if firstPosResult.FirstPos != nil && *firstPosResult.FirstPos > minPos {
 		// There's a gap at the beginning - append at end since we're processing DESC
+		a.log.WithFields(logrus.Fields{
+			"model_id":  modelID,
+			"gap_start": minPos,
+			"gap_end":   *firstPosResult.FirstPos,
+			"gap_size":  *firstPosResult.FirstPos - minPos,
+			"first_pos": *firstPosResult.FirstPos,
+			"min_pos":   minPos,
+		}).Debug("Found gap at beginning of range")
+
 		gaps = append(gaps, GapInfo{StartPos: minPos, EndPos: *firstPosResult.FirstPos})
 	}
 
+	// Log summary of gaps found
+	if len(gaps) > 0 {
+		a.log.WithFields(logrus.Fields{
+			"model_id":   modelID,
+			"gap_count":  len(gaps),
+			"total_gaps": gaps,
+		}).Debug("Gap detection complete")
+	}
+
 	return gaps, nil
+}
+
+// ConsolidateHistoricalData consolidates historical admin table rows for a model
+func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string) (int, error) {
+	parts := strings.Split(modelID, ".")
+	if len(parts) != 2 {
+		return 0, ErrInvalidModelID
+	}
+
+	database := parts[0]
+	table := parts[1]
+
+	// Find contiguous/overlapping ranges that can be consolidated
+	// This merges both overlapping and contiguous ranges into single consolidated ranges
+	// Uses window functions compatible with ClickHouse v25
+	rangeQuery := fmt.Sprintf(`
+		WITH ordered_rows AS (
+			SELECT
+				position,
+				interval,
+				position + interval as end_pos,
+				row_number() OVER (ORDER BY position) as rn
+			FROM %s.%s FINAL
+			WHERE database = '%s' AND table = '%s'
+			ORDER BY position
+		),
+		with_lag AS (
+			SELECT 
+				position,
+				interval,
+				end_pos,
+				rn,
+				any(end_pos) OVER (ORDER BY position ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) as prev_end
+			FROM ordered_rows
+		),
+		with_max AS (
+			SELECT
+				position,
+				interval,
+				end_pos,
+				rn,
+				prev_end,
+				max(end_pos) OVER (ORDER BY position ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as max_end_so_far
+			FROM with_lag
+		),
+		with_groups AS (
+			SELECT
+				position,
+				interval,
+				end_pos,
+				CASE 
+					WHEN rn = 1 THEN 1
+					WHEN position > any(max_end_so_far) OVER (ORDER BY position ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) THEN 1
+					ELSE 0
+				END as new_group
+			FROM with_max
+		),
+		with_group_ids AS (
+			SELECT
+				position,
+				interval,
+				end_pos,
+				sum(new_group) OVER (ORDER BY position) as group_id
+			FROM with_groups
+		),
+		consolidated_ranges AS (
+			SELECT
+				group_id,
+				MIN(position) as start_pos,
+				MAX(end_pos) as end_pos,
+				COUNT(*) as row_count
+			FROM with_group_ids
+			GROUP BY group_id
+		)
+		SELECT
+			start_pos,
+			end_pos,
+			row_count
+		FROM consolidated_ranges
+		WHERE row_count > 1
+		ORDER BY row_count DESC, start_pos
+		LIMIT 1
+	`, a.adminDatabase, a.adminTable, database, table)
+
+	var rangeResult struct {
+		StartPos uint64 `json:"start_pos,string"`
+		EndPos   uint64 `json:"end_pos,string"`
+		RowCount int    `json:"row_count,string"`
+	}
+
+	err := a.client.QueryOne(ctx, rangeQuery, &rangeResult)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil // No contiguous ranges found
+		}
+		return 0, fmt.Errorf("failed to find contiguous ranges: %w", err)
+	}
+
+	// Check if we actually got valid results (not zeros/nulls)
+	// If all fields are zero, it means no ranges were found
+	if rangeResult.RowCount == 0 || (rangeResult.StartPos == 0 && rangeResult.EndPos == 0) {
+		return 0, nil // No valid ranges to consolidate
+	}
+
+	// Don't consolidate a single row - it would just create a duplicate
+	if rangeResult.RowCount == 1 {
+		return 0, nil // Single row doesn't need consolidation
+	}
+
+	// Log what we're about to consolidate for debugging
+	a.log.WithFields(logrus.Fields{
+		"model_id":  modelID,
+		"row_count": rangeResult.RowCount,
+		"start_pos": rangeResult.StartPos,
+		"end_pos":   rangeResult.EndPos,
+		"interval":  rangeResult.EndPos - rangeResult.StartPos,
+	}).Debug("Consolidating admin table rows")
+
+	// Insert the consolidated row FIRST to avoid gaps
+	consolidatedInterval := rangeResult.EndPos - rangeResult.StartPos
+	insertQuery := fmt.Sprintf(`
+		INSERT INTO %s.%s (updated_date_time, database, table, position, interval)
+		VALUES (now(), '%s', '%s', %d, %d)
+	`, a.adminDatabase, a.adminTable, database, table, rangeResult.StartPos, consolidatedInterval)
+
+	if err := a.client.Execute(ctx, insertQuery); err != nil {
+		return 0, fmt.Errorf("failed to insert consolidated row: %w", err)
+	}
+
+	// Delete old rows EXCEPT the consolidated row we just inserted
+	// This ensures we don't create gaps and don't delete our new row
+	// Use lazy DELETE and handle cluster mode if configured
+	var deleteQuery string
+	if a.cluster != "" {
+		// Cluster mode: use local suffix and ON CLUSTER
+		deleteQuery = fmt.Sprintf(`
+			DELETE FROM %s.%s%s ON CLUSTER '%s'
+			WHERE database = '%s' AND table = '%s'
+			  AND position >= %d AND position < %d
+			  AND NOT (position = %d AND interval = %d)
+		`, a.adminDatabase, a.adminTable, a.localSuffix, a.cluster,
+			database, table, rangeResult.StartPos, rangeResult.EndPos,
+			rangeResult.StartPos, consolidatedInterval)
+	} else {
+		// Non-cluster mode: simple DELETE
+		deleteQuery = fmt.Sprintf(`
+			DELETE FROM %s.%s
+			WHERE database = '%s' AND table = '%s'
+			  AND position >= %d AND position < %d
+			  AND NOT (position = %d AND interval = %d)
+		`, a.adminDatabase, a.adminTable,
+			database, table, rangeResult.StartPos, rangeResult.EndPos,
+			rangeResult.StartPos, consolidatedInterval)
+	}
+
+	if err := a.client.Execute(ctx, deleteQuery); err != nil {
+		// Log error but don't fail - the consolidated row will eventually replace the old ones
+		// due to ReplacingMergeTree behavior
+		return rangeResult.RowCount, fmt.Errorf("consolidated row inserted but failed to delete old rows: %w", err)
+	}
+
+	return rangeResult.RowCount, nil
 }
 
 // GetCacheManager returns the cache manager instance
