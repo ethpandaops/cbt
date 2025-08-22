@@ -395,7 +395,13 @@ type mockExecutorAdminService struct {
 	recordErr error
 }
 
-func (m *mockExecutorAdminService) GetLastPosition(_ context.Context, _ string) (uint64, error) {
+func (m *mockExecutorAdminService) GetLastProcessedEndPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+func (m *mockExecutorAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+func (m *mockExecutorAdminService) GetLastProcessedPosition(_ context.Context, _ string) (uint64, error) {
 	return 0, nil
 }
 func (m *mockExecutorAdminService) GetFirstPosition(_ context.Context, _ string) (uint64, error) {
@@ -409,6 +415,9 @@ func (m *mockExecutorAdminService) GetCoverage(_ context.Context, _ string, _, _
 }
 func (m *mockExecutorAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
 	return []admin.GapInfo{}, nil
+}
+func (m *mockExecutorAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
+	return 0, nil
 }
 func (m *mockExecutorAdminService) GetCacheManager() *admin.CacheManager { return nil }
 func (m *mockExecutorAdminService) GetAdminDatabase() string             { return "admin_db" }

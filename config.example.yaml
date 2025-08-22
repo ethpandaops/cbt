@@ -24,8 +24,8 @@ clickhouse:
   
   # Admin table configuration (optional)
   # Defaults to admin.cbt if not specified
-  # admin_database: admin
-  # admin_table: cbt
+  # adminDatabase: admin
+  # adminTable: cbt
   
   # Query timeout
   queryTimeout: 30s
@@ -48,6 +48,12 @@ redis:
 scheduler:
   # Maximum number of concurrent scheduling operations
   concurrency: 10
+  
+  # Admin table consolidation schedule (optional)
+  # Controls how often the admin table is consolidated to optimize storage
+  # Uses asynq cron format: @every duration, @hourly, @daily, or cron expression
+  # Default: @every 10m
+  consolidation: "@every 10m"
 
 # Worker settings
 worker:

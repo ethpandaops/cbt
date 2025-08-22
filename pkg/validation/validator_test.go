@@ -37,7 +37,7 @@ func TestValidateDependencies(t *testing.T) {
 		wantErr        bool
 	}{
 		{
-			name:     "no dependencies - should allow processing",
+			name:     "no dependencies - should not allow processing (no valid range)",
 			modelID:  "model.test",
 			position: 1000,
 			interval: 100,
@@ -46,8 +46,7 @@ func TestValidateDependencies(t *testing.T) {
 				dag.nodes["model.test"] = models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}}
 			},
 			expectedResult: Result{
-				CanProcess:   true,
-				Dependencies: nil,
+				CanProcess: false, // No dependencies means no valid range
 			},
 			wantErr: false,
 		},
@@ -63,21 +62,25 @@ func TestValidateDependencies(t *testing.T) {
 					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
 					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
 				}
-				admin.coverage = true // Dependencies are covered
+				// Set up data for dependencies
+				admin.firstPositions = map[string]uint64{
+					"dep.model1": 500,
+					"dep.model2": 600,
+				}
+				admin.lastPositions = map[string]uint64{
+					"dep.model1": 2000,
+					"dep.model2": 2000,
+				}
 			},
 			expectedResult: Result{
 				CanProcess: true,
-				Dependencies: []DependencyStatus{
-					{ModelID: "dep.model1", Available: true},
-					{ModelID: "dep.model2", Available: true},
-				},
 			},
 			wantErr: false,
 		},
 		{
-			name:     "dependency not satisfied - insufficient data",
+			name:     "dependency not satisfied - position before data",
 			modelID:  "model.test",
-			position: 1000,
+			position: 100,
 			interval: 100,
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"dep.model1"}
@@ -85,13 +88,16 @@ func TestValidateDependencies(t *testing.T) {
 					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
 					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
 				}
-				admin.coverage = false // No coverage
+				// Dependency has data starting from 1000
+				admin.firstPositions = map[string]uint64{
+					"dep.model1": 1000,
+				}
+				admin.lastPositions = map[string]uint64{
+					"dep.model1": 2000,
+				}
 			},
 			expectedResult: Result{
 				CanProcess: false,
-				Dependencies: []DependencyStatus{
-					{ModelID: "dep.model1", Available: false},
-				},
 			},
 			wantErr: false,
 		},
@@ -160,13 +166,6 @@ func TestValidateDependencies(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expectedResult.CanProcess, result.CanProcess)
-				if tt.expectedResult.Dependencies != nil {
-					assert.Equal(t, len(tt.expectedResult.Dependencies), len(result.Dependencies))
-					for i, expected := range tt.expectedResult.Dependencies {
-						assert.Equal(t, expected.ModelID, result.Dependencies[i].ModelID)
-						assert.Equal(t, expected.Available, result.Dependencies[i].Available)
-					}
-				}
 			}
 		})
 	}
@@ -443,7 +442,7 @@ func newMockAdmin() *mockAdmin {
 	}
 }
 
-func (m *mockAdmin) GetLastPosition(ctx context.Context, modelID string) (uint64, error) {
+func (m *mockAdmin) GetLastProcessedEndPosition(ctx context.Context, modelID string) (uint64, error) {
 	if m.slowOperation {
 		select {
 		case <-time.After(m.operationDelay):
@@ -453,6 +452,33 @@ func (m *mockAdmin) GetLastPosition(ctx context.Context, modelID string) (uint64
 		}
 	}
 
+	pos, ok := m.lastPositions[modelID]
+	if !ok {
+		return 0, nil
+	}
+	return pos, nil
+}
+
+func (m *mockAdmin) GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error) {
+	// For mock purposes, this is the same as GetLastProcessedEndPosition
+	if m.slowOperation {
+		select {
+		case <-time.After(m.operationDelay):
+			// Operation completed
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		}
+	}
+
+	pos, ok := m.lastPositions[modelID]
+	if !ok {
+		return 0, nil
+	}
+	return pos, nil
+}
+
+func (m *mockAdmin) GetLastProcessedPosition(_ context.Context, modelID string) (uint64, error) {
+	// For mock purposes, return the last position if it exists
 	pos, ok := m.lastPositions[modelID]
 	if !ok {
 		return 0, nil
@@ -485,6 +511,10 @@ func (m *mockAdmin) GetCoverage(ctx context.Context, _ string, _, _ uint64) (boo
 
 func (m *mockAdmin) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
 	return []admin.GapInfo{}, nil
+}
+
+func (m *mockAdmin) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
+	return 0, nil
 }
 
 func (m *mockAdmin) GetCacheManager() *admin.CacheManager {
@@ -598,7 +628,7 @@ func TestGetEarliestPosition(t *testing.T) {
 					"ext.model3": 150,
 				}
 			},
-			expectedPos: 100, // Minimum of external mins
+			expectedPos: 100, // Minimum of external mins (can start from earliest external data)
 			wantErr:     false,
 		},
 		{
@@ -634,7 +664,7 @@ func TestGetEarliestPosition(t *testing.T) {
 					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
 				}
 				admin.firstPositions = map[string]uint64{
-					"ext.model1": 50, // External min will be 50
+					"ext.model1": 50, // External min will be 50 (MIN of externals)
 					"ext.model2": 100,
 					"dep.model1": 200, // Transformation max will be 250
 					"dep.model2": 250,
@@ -656,7 +686,7 @@ func TestGetEarliestPosition(t *testing.T) {
 					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
 				}
 				admin.firstPositions = map[string]uint64{
-					"ext.model1": 300, // External min will be 300
+					"ext.model1": 300, // External MIN will be 300 (can start from earliest)
 					"ext.model2": 350,
 					"dep.model1": 100, // Transformation max will be 150
 					"dep.model2": 150,
@@ -713,103 +743,6 @@ func TestGetEarliestPosition(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expectedPos, pos)
-			}
-		})
-	}
-}
-
-// Test external dependency validation
-func TestValidateExternalDependency(t *testing.T) {
-	tests := []struct {
-		name           string
-		modelID        string
-		position       uint64
-		interval       uint64
-		setupMocks     func(*mockDAGReader, *mockAdmin)
-		expectedResult DependencyStatus
-		wantErr        bool
-	}{
-		{
-			name:     "external dependency available",
-			modelID:  "model.test",
-			position: 1000,
-			interval: 100,
-			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
-				dag.dependencies = []string{"ext.model1"}
-				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
-					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
-				}
-				// Mock using admin's first/last positions for external bounds
-				admin.firstPositions["ext.model1"] = 0
-				admin.lastPositions["ext.model1"] = 2000
-			},
-			expectedResult: DependencyStatus{
-				ModelID:   "ext.model1",
-				Available: true,
-				MinPos:    0,
-				MaxPos:    2000,
-			},
-			wantErr: false,
-		},
-		{
-			name:     "external dependency not available - out of bounds",
-			modelID:  "model.test",
-			position: 3000,
-			interval: 100,
-			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
-				dag.dependencies = []string{"ext.model1"}
-				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
-					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
-				}
-				// Mock using admin's first/last positions for external bounds
-				admin.firstPositions["ext.model1"] = 0
-				admin.lastPositions["ext.model1"] = 2000
-			},
-			expectedResult: DependencyStatus{
-				ModelID:   "ext.model1",
-				Available: false,
-				MinPos:    0,
-				MaxPos:    2000,
-			},
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			mockDAG := newMockDAGReader()
-			mockAdmin := newMockAdmin()
-
-			tt.setupMocks(mockDAG, mockAdmin)
-
-			// Setup model for test
-			mockDAG.nodes["model.test"] = models.Node{
-				NodeType: models.NodeTypeTransformation,
-				Model:    &mockTransformation{id: "model.test", interval: 100},
-			}
-
-			validator := &dependencyValidator{
-				log:   logrus.New(),
-				dag:   mockDAG,
-				admin: mockAdmin,
-				externalManager: &mockExternalModelValidator{
-					admin: mockAdmin,
-				},
-			}
-
-			result, err := validator.ValidateDependencies(ctx, tt.modelID, tt.position, tt.interval)
-
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				if len(result.Dependencies) > 0 {
-					assert.Equal(t, tt.expectedResult.Available, result.Dependencies[0].Available)
-					assert.Equal(t, tt.expectedResult.ModelID, result.Dependencies[0].ModelID)
-				}
 			}
 		})
 	}
@@ -878,3 +811,191 @@ func (m *mockClickhouseClient) BulkInsert(_ context.Context, _ string, _ interfa
 }
 func (m *mockClickhouseClient) Start() error { return nil }
 func (m *mockClickhouseClient) Stop() error  { return nil }
+
+// TestGetValidRange specifically tests the corrected validation formula
+// min = MAX(MIN(external_mins), MAX(transformation_mins))
+// max = MIN(all dependency maxes)
+func TestGetValidRange(t *testing.T) {
+	tests := []struct {
+		name        string
+		modelID     string
+		setupMocks  func(*mockDAGReader, *mockAdmin)
+		expectedMin uint64
+		expectedMax uint64
+		wantErr     bool
+	}{
+		{
+			name:    "no dependencies returns 0,0",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, _ *mockAdmin) {
+				dag.dependencies = []string{}
+				dag.nodes["model.test"] = models.Node{
+					NodeType: models.NodeTypeTransformation,
+					Model:    &mockTransformation{id: "model.test", interval: 100},
+				}
+			},
+			expectedMin: 0,
+			expectedMax: 0,
+			wantErr:     false,
+		},
+		{
+			name:    "only external deps - min=MIN(externals), max=MIN(all maxes)",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"ext.model1", "ext.model2", "ext.model3"}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
+					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
+					"ext.model3": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model3"}},
+				}
+				// External models: mins and maxes
+				admin.firstPositions = map[string]uint64{
+					"ext.model1": 100,
+					"ext.model2": 200,
+					"ext.model3": 150,
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.model1": 5000,
+					"ext.model2": 4000,
+					"ext.model3": 4500,
+				}
+			},
+			expectedMin: 100,  // Minimum of externals: 100, 200, 150 results in 100
+			expectedMax: 4000, // Minimum of all maxes: 5000, 4000, 4500 results in 4000
+			wantErr:     false,
+		},
+		{
+			name:    "only transformation deps - min=MAX(transformations), max=MIN(all maxes)",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"dep.model1", "dep.model2", "dep.model3"}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
+					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
+					"dep.model3": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model3", interval: 100}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"dep.model1": 100,
+					"dep.model2": 300,
+					"dep.model3": 200,
+				}
+				admin.lastPositions = map[string]uint64{
+					"dep.model1": 5000,
+					"dep.model2": 4000,
+					"dep.model3": 6000,
+				}
+			},
+			expectedMin: 300,  // Maximum of transformations: 100, 300, 200 results in 300
+			expectedMax: 4000, // Minimum of all maxes: 5000, 4000, 6000 results in 4000
+			wantErr:     false,
+		},
+		{
+			name:    "mixed deps - formula applied correctly",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"ext.model1", "ext.model2", "dep.model1", "dep.model2"}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
+					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
+					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
+					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"ext.model1": 50, // External mins: MIN(50, 100) = 50
+					"ext.model2": 100,
+					"dep.model1": 200, // Transformation mins: MAX(200, 250) = 250
+					"dep.model2": 250,
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.model1": 5000, // All maxes: MIN(5000, 3000, 4000, 3500) = 3000
+					"ext.model2": 3000,
+					"dep.model1": 4000,
+					"dep.model2": 3500,
+				}
+			},
+			expectedMin: 250,  // MAX(MIN(externals)=50, MAX(transformations)=250) = 250
+			expectedMax: 3000, // MIN(all maxes) = 3000
+			wantErr:     false,
+		},
+		{
+			name:    "max calculation uses MIN of ALL dependency maxes",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"ext.model1", "dep.model1", "dep.model2"}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
+					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
+					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"ext.model1": 100,
+					"dep.model1": 100,
+					"dep.model2": 100,
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.model1": 2000, // External max
+					"dep.model1": 5000, // Transformation max (higher)
+					"dep.model2": 1500, // Transformation max (lowest - should be used)
+				}
+			},
+			expectedMin: 100,  // MAX(MIN(externals)=100, MAX(transformations)=100) = 100
+			expectedMax: 1500, // MIN(2000, 5000, 1500) = 1500 (uses MIN of ALL)
+			wantErr:     false,
+		},
+		{
+			name:    "model not found",
+			modelID: "model.nonexistent",
+			setupMocks: func(dag *mockDAGReader, _ *mockAdmin) {
+				dag.nodes = map[string]models.Node{}
+			},
+			expectedMin: 0,
+			expectedMax: 0,
+			wantErr:     true,
+		},
+		{
+			name:    "not a transformation model",
+			modelID: "model.external",
+			setupMocks: func(dag *mockDAGReader, _ *mockAdmin) {
+				dag.nodes = map[string]models.Node{
+					"model.external": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "model.external"}},
+				}
+			},
+			expectedMin: 0,
+			expectedMax: 0,
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			mockDAG := newMockDAGReader()
+			mockAdmin := newMockAdmin()
+
+			tt.setupMocks(mockDAG, mockAdmin)
+
+			validator := &dependencyValidator{
+				log:   logrus.New(),
+				dag:   mockDAG,
+				admin: mockAdmin,
+				externalManager: &mockExternalModelValidator{
+					admin: mockAdmin,
+				},
+			}
+
+			minPos, maxPos, err := validator.GetValidRange(ctx, tt.modelID)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedMin, minPos, "min position mismatch")
+				assert.Equal(t, tt.expectedMax, maxPos, "max position mismatch")
+			}
+		})
+	}
+}

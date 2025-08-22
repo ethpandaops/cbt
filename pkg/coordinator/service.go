@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	r "github.com/ethpandaops/cbt/pkg/redis"
 	"github.com/ethpandaops/cbt/pkg/tasks"
@@ -39,7 +40,9 @@ type Service interface {
 
 // PositionTracker defines the minimal interface needed from admin service
 type PositionTracker interface {
-	GetLastPosition(ctx context.Context, modelID string) (uint64, error)
+	GetLastProcessedEndPosition(ctx context.Context, modelID string) (uint64, error)
+	GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error)
+	GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error)
 	FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]admin.GapInfo, error)
 }
 
@@ -169,17 +172,17 @@ func (s *service) Stop() error {
 }
 
 // Process handles transformation processing in the specified direction
-func (s *service) Process(transformation models.Transformation, direction Direction) {
+func (s *service) Process(trans models.Transformation, direction Direction) {
 	switch direction {
 	case DirectionForward:
-		s.processForward(transformation)
+		s.processForward(trans)
 	case DirectionBack:
-		s.processBack(transformation)
+		s.processBack(trans)
 	}
 }
 
-func (s *service) processForward(transformation models.Transformation) {
-	config := transformation.GetConfig()
+func (s *service) processForward(trans models.Transformation) {
+	config := trans.GetConfig()
 
 	// Skip if no forward fill configured
 	if config.ForwardFill == nil {
@@ -188,44 +191,41 @@ func (s *service) processForward(transformation models.Transformation) {
 
 	ctx := context.Background()
 
-	// Get last processed position
-	lastPos, err := s.admin.GetLastPosition(ctx, transformation.GetID())
+	// Get the next position to process for forward fill
+	nextPos, err := s.admin.GetNextUnprocessedPosition(ctx, trans.GetID())
 	if err != nil {
-		s.log.WithError(err).WithField("model_id", transformation.GetID()).Error("Failed to get last position")
+		s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to get next unprocessed position")
 
 		return
 	}
 
 	s.log.WithFields(logrus.Fields{
-		"model_id": transformation.GetID(),
-		"last_pos": lastPos,
-	}).Debug("Got last position from admin table")
+		"model_id": trans.GetID(),
+		"next_pos": nextPos,
+	}).Debug("Got next unprocessed position for forward fill")
 
 	// If this is the first run, calculate initial position
-	if lastPos == 0 {
-		s.log.WithField("model_id", transformation.GetID()).Debug("Last position is 0, calculating initial position")
+	if nextPos == 0 {
+		s.log.WithField("model_id", trans.GetID()).Debug("No data processed yet, calculating initial position")
 
-		initialPos, err := s.validator.GetInitialPosition(ctx, transformation.GetID())
+		initialPos, err := s.validator.GetInitialPosition(ctx, trans.GetID())
 		if err != nil {
-			s.log.WithError(err).WithField("model_id", transformation.GetID()).Error("Failed to calculate initial position")
+			s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to calculate initial position")
 			return
 		}
 
 		s.log.WithFields(logrus.Fields{
-			"model_id":    transformation.GetID(),
+			"model_id":    trans.GetID(),
 			"initial_pos": initialPos,
 		}).Debug("Calculated initial position")
 
-		lastPos = initialPos
+		nextPos = initialPos
 	}
-
-	// Check forward processing
-	nextPos := lastPos
 
 	// Don't process beyond max limit if configured
 	if config.Limits != nil && config.Limits.Max > 0 && nextPos >= config.Limits.Max {
 		s.log.WithFields(logrus.Fields{
-			"model_id":   transformation.GetID(),
+			"model_id":   trans.GetID(),
 			"position":   nextPos,
 			"limits_max": config.Limits.Max,
 		}).Debug("Position is at or beyond max limit, skipping forward processing")
@@ -238,7 +238,7 @@ func (s *service) processForward(transformation models.Transformation) {
 		// Reduce interval to stay within max limit
 		interval = config.Limits.Max - nextPos
 		s.log.WithFields(logrus.Fields{
-			"model_id":          transformation.GetID(),
+			"model_id":          trans.GetID(),
 			"position":          nextPos,
 			"original_interval": config.GetForwardInterval(),
 			"adjusted_interval": interval,
@@ -246,22 +246,22 @@ func (s *service) processForward(transformation models.Transformation) {
 		}).Debug("Adjusted interval to respect max limit")
 	}
 
-	s.checkAndEnqueuePositionWithTrigger(ctx, transformation, nextPos, interval)
+	s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval)
 }
 
-func (s *service) processBack(transformation models.Transformation) {
-	if !transformation.GetConfig().IsBackfillEnabled() {
+func (s *service) processBack(trans models.Transformation) {
+	if !trans.GetConfig().IsBackfillEnabled() {
 		return
 	}
 
 	ctx := context.Background()
-	s.checkBackfillOpportunities(ctx, transformation)
+	s.checkBackfillOpportunities(ctx, trans)
 }
 
-func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, transformation models.Transformation, position, interval uint64) {
+func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64) {
 	// Create task payload
 	payload := tasks.TaskPayload{
-		ModelID:    transformation.GetID(),
+		ModelID:    trans.GetID(),
 		Position:   position,
 		Interval:   interval,
 		EnqueuedAt: time.Now(),
@@ -286,34 +286,34 @@ func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, transf
 	// Validate dependencies
 	depStartTime := time.Now()
 
-	validationResult, err := s.validator.ValidateDependencies(ctx, transformation.GetID(), position, interval)
+	validationResult, err := s.validator.ValidateDependencies(ctx, trans.GetID(), position, interval)
 	depDuration := time.Since(depStartTime).Seconds()
 
 	if err != nil {
 		s.log.WithError(err).WithFields(logrus.Fields{
-			"model_id": transformation.GetID(),
+			"model_id": trans.GetID(),
 			"position": position,
 		}).Error("Failed to validate dependencies")
-		observability.RecordDependencyValidation(transformation.GetID(), "error", depDuration)
+		observability.RecordDependencyValidation(trans.GetID(), "error", depDuration)
 		observability.RecordError("coordinator", "dependency_validation_error")
 		return
 	}
 
 	if !validationResult.CanProcess {
 		s.log.WithFields(logrus.Fields{
-			"model_id": transformation.GetID(),
+			"model_id": trans.GetID(),
 			"position": position,
 		}).Debug("Dependencies not satisfied")
-		observability.RecordDependencyValidation(transformation.GetID(), "not_satisfied", depDuration)
+		observability.RecordDependencyValidation(trans.GetID(), "not_satisfied", depDuration)
 
 		return
 	}
 
-	observability.RecordDependencyValidation(transformation.GetID(), "satisfied", depDuration)
+	observability.RecordDependencyValidation(trans.GetID(), "satisfied", depDuration)
 
 	// Enqueue task
 	if err := s.queueManager.EnqueueTransformation(payload); err != nil {
-		s.log.WithError(err).WithField("model_id", transformation.GetID()).Error("Failed to enqueue task")
+		s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to enqueue task")
 
 		observability.RecordError("coordinator", "enqueue_error")
 
@@ -321,117 +321,260 @@ func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, transf
 	}
 
 	// Record successful enqueue
-	observability.RecordTaskEnqueued(transformation.GetID())
+	observability.RecordTaskEnqueued(trans.GetID())
 
 	s.log.WithFields(logrus.Fields{
-		"model_id": transformation.GetID(),
+		"model_id": trans.GetID(),
 		"position": position,
 		"interval": interval,
 	}).Info("Enqueued transformation task")
 }
 
-func (s *service) checkBackfillOpportunities(ctx context.Context, transformation models.Transformation) {
-	config := transformation.GetConfig()
+// backfillScanRange holds the range for backfill gap scanning
+type backfillScanRange struct {
+	initialPos uint64
+	maxPos     uint64
+}
 
-	// Get the range to check for gaps
-	lastPos, err := s.admin.GetLastPosition(ctx, transformation.GetID())
+// getBackfillBounds retrieves the last processed positions for backfill scanning
+func (s *service) getBackfillBounds(ctx context.Context, modelID string) (lastPos, lastEndPos uint64, hasData bool) {
+	lastEndPos, err := s.admin.GetLastProcessedEndPosition(ctx, modelID)
 	if err != nil {
-		s.log.WithError(err).WithField("model_id", transformation.GetID()).Debug("Failed to get last position for gap scan")
+		s.log.WithError(err).WithField("model_id", modelID).Debug("Failed to get last processed end position for gap scan")
+		return 0, 0, false
+	}
 
-		return
+	// Also get the actual last position for clearer logging
+	lastPos, _ = s.admin.GetLastProcessedPosition(ctx, modelID)
+
+	return lastPos, lastEndPos, true
+}
+
+// calculateBackfillScanRange determines the range to scan for gaps
+func (s *service) calculateBackfillScanRange(ctx context.Context, trans models.Transformation, lastEndPos uint64) (*backfillScanRange, error) {
+	config := trans.GetConfig()
+
+	// Get initial position based on dependencies
+	initialPos, err := s.validator.GetEarliestPosition(ctx, trans.GetID())
+	if err != nil {
+		return nil, err
 	}
 
 	s.log.WithFields(logrus.Fields{
-		"model_id": transformation.GetID(),
-		"last_pos": lastPos,
-		"interval": config.GetBackfillInterval(),
-	}).Debug("Got last position for gap scanning")
+		"model_id":               trans.GetID(),
+		"calculated_initial_pos": initialPos,
+		"based_on":               "dependency analysis",
+	}).Debug("Calculated earliest position from dependencies")
 
-	if lastPos < config.GetBackfillInterval() {
-		s.log.WithField("model_id", transformation.GetID()).Debug("No data yet, skipping gap scan")
+	// Apply minimum limit if configured
+	initialPos = s.applyMinimumLimit(trans.GetID(), config, initialPos)
 
-		return // No data yet
+	// Apply maximum limit if configured
+	maxPos := s.applyMaximumLimit(trans.GetID(), config, lastEndPos)
+
+	return &backfillScanRange{
+		initialPos: initialPos,
+		maxPos:     maxPos,
+	}, nil
+}
+
+// applyMinimumLimit applies the configured minimum limit to the initial position
+func (s *service) applyMinimumLimit(modelID string, config *transformation.Config, initialPos uint64) uint64 {
+	if config.Limits != nil && config.Limits.Min > initialPos {
+		s.log.WithFields(logrus.Fields{
+			"model_id":           modelID,
+			"initial_pos_before": initialPos,
+			"initial_pos_after":  config.Limits.Min,
+			"limits_min":         config.Limits.Min,
+			"reason":             "using configured minimum",
+		}).Debug("Adjusted initial position based on configured limits")
+		return config.Limits.Min
 	}
 
-	// Get initial position to determine scan range
-	initialPos, err := s.validator.GetEarliestPosition(ctx, transformation.GetID())
-	if err != nil {
-		s.log.WithError(err).WithField("model_id", transformation.GetID()).Debug("Failed to get initial position for gap scan")
+	// Build log fields based on whether limits are configured
+	logFields := logrus.Fields{
+		"model_id":    modelID,
+		"initial_pos": initialPos,
+	}
 
+	if config.Limits != nil {
+		logFields["limits_min"] = config.Limits.Min
+		logFields["reason"] = "calculated position is higher than limit"
+	} else {
+		logFields["limits_min"] = "not configured"
+		logFields["reason"] = "no limits configured"
+	}
+
+	s.log.WithFields(logFields).Debug("Using calculated initial position for gap scanning")
+	return initialPos
+}
+
+// applyMaximumLimit applies the configured maximum limit to the scan range
+func (s *service) applyMaximumLimit(modelID string, config *transformation.Config, lastEndPos uint64) uint64 {
+	if config.Limits != nil && config.Limits.Max > 0 && config.Limits.Max < lastEndPos {
+		s.log.WithFields(logrus.Fields{
+			"model_id":               modelID,
+			"last_processed_end_pos": lastEndPos,
+			"limits_max":             config.Limits.Max,
+		}).Debug("Applying maximum position limit for gap scanning")
+		return config.Limits.Max
+	}
+	return lastEndPos
+}
+
+// processSingleGap processes a single gap for backfill
+func (s *service) processSingleGap(ctx context.Context, trans models.Transformation, gap admin.GapInfo, gapIndex int) bool {
+	config := trans.GetConfig()
+	gapSize := gap.EndPos - gap.StartPos
+	intervalToUse := config.GetBackfillInterval()
+
+	// Adjust interval for small gaps
+	if gapSize < config.GetBackfillInterval() {
+		intervalToUse = gapSize
+		s.log.WithFields(logrus.Fields{
+			"model_id":          trans.GetID(),
+			"gap_index":         gapIndex,
+			"gap_size":          gapSize,
+			"model_interval":    config.GetBackfillInterval(),
+			"adjusted_interval": intervalToUse,
+		}).Debug("Adjusted interval for small gap")
+	}
+
+	// Calculate position (work backwards from gap end)
+	pos := gap.EndPos - intervalToUse
+
+	s.log.WithFields(logrus.Fields{
+		"model_id":                 trans.GetID(),
+		"gap_index":                gapIndex,
+		"gap_start":                gap.StartPos,
+		"gap_end":                  gap.EndPos,
+		"gap_size":                 gapSize,
+		"backfill_position":        pos,
+		"backfill_interval":        intervalToUse,
+		"will_process_range_start": pos,
+		"will_process_range_end":   pos + intervalToUse,
+	}).Debug("Processing gap for backfill")
+
+	// Check if task is already pending
+	payload := tasks.TaskPayload{
+		ModelID:  trans.GetID(),
+		Position: pos,
+		Interval: intervalToUse,
+	}
+
+	isPending, err := s.queueManager.IsTaskPendingOrRunning(payload)
+	if err != nil {
+		s.log.WithError(err).WithFields(logrus.Fields{
+			"model_id": trans.GetID(),
+			"position": pos,
+			"interval": intervalToUse,
+		}).Error("Failed to check if task is pending")
+		return false
+	}
+
+	if isPending {
+		s.log.WithFields(logrus.Fields{
+			"model_id":  trans.GetID(),
+			"gap_index": gapIndex,
+			"position":  pos,
+			"interval":  intervalToUse,
+		}).Debug("Task already pending for gap, skipping")
+		return false
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"model_id":       trans.GetID(),
+		"gap_index":      gapIndex,
+		"gap_start":      gap.StartPos,
+		"gap_end":        gap.EndPos,
+		"position":       pos,
+		"interval":       intervalToUse,
+		"model_interval": config.GetBackfillInterval(),
+		"gap_size":       gapSize,
+	}).Info("Enqueueing backfill task for gap (processing from end backward)")
+
+	s.checkAndEnqueuePositionWithTrigger(ctx, trans, pos, intervalToUse)
+	return true
+}
+
+func (s *service) checkBackfillOpportunities(ctx context.Context, trans models.Transformation) {
+	config := trans.GetConfig()
+
+	// Get last processed positions
+	lastPos, lastEndPos, hasData := s.getBackfillBounds(ctx, trans.GetID())
+	if !hasData {
 		return
 	}
 
-	// Use the maximum of the configured minimum and the calculated initial position
-	if config.Limits != nil && config.Limits.Min > initialPos {
-		initialPos = config.Limits.Min
+	// Log the last processed range
+	if lastEndPos > 0 {
 		s.log.WithFields(logrus.Fields{
-			"model_id":    transformation.GetID(),
-			"initial_pos": initialPos,
-			"limits_min":  config.Limits.Min,
-		}).Debug("Using configured minimum position for gap scanning")
+			"model_id":             trans.GetID(),
+			"last_processed_start": lastPos,
+			"last_processed_end":   lastEndPos,
+			"backfill_interval":    config.GetBackfillInterval(),
+		}).Debug("Starting gap scan - found existing processed data")
 	} else {
 		s.log.WithFields(logrus.Fields{
-			"model_id":    transformation.GetID(),
-			"initial_pos": initialPos,
-		}).Debug("Got initial position for gap scanning")
+			"model_id":          trans.GetID(),
+			"backfill_interval": config.GetBackfillInterval(),
+		}).Debug("Starting gap scan - no existing data")
 	}
 
-	// Apply max limit if configured
-	maxPos := lastPos
-	if config.Limits != nil && config.Limits.Max > 0 && config.Limits.Max < lastPos {
-		maxPos = config.Limits.Max
-		s.log.WithFields(logrus.Fields{
-			"model_id":   transformation.GetID(),
-			"last_pos":   lastPos,
-			"limits_max": config.Limits.Max,
-		}).Debug("Applying maximum position limit for gap scanning")
+	// Check if we have enough data to scan
+	if lastEndPos < config.GetBackfillInterval() {
+		s.log.WithField("model_id", trans.GetID()).Debug("No data yet, skipping gap scan")
+		return
+	}
+
+	// Calculate scan range
+	scanRange, err := s.calculateBackfillScanRange(ctx, trans, lastEndPos)
+	if err != nil {
+		s.log.WithError(err).WithField("model_id", trans.GetID()).Debug("Failed to calculate scan range")
+		return
 	}
 
 	// Find all gaps in the processed data
-	gaps, err := s.admin.FindGaps(ctx, transformation.GetID(), initialPos, maxPos, config.GetBackfillInterval())
-	if err != nil {
-		s.log.WithError(err).WithField("model_id", transformation.GetID()).Error("Failed to find gaps")
+	s.log.WithFields(logrus.Fields{
+		"model_id":          trans.GetID(),
+		"scan_min_pos":      scanRange.initialPos,
+		"scan_max_pos":      scanRange.maxPos,
+		"backfill_interval": config.GetBackfillInterval(),
+	}).Debug("Scanning for gaps in processed data")
 
+	gaps, err := s.admin.FindGaps(ctx, trans.GetID(), scanRange.initialPos, scanRange.maxPos, config.GetBackfillInterval())
+	if err != nil {
+		s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to find gaps")
 		return
 	}
 
-	// Process gaps - queue only one task per gap to gradually fill it
-	for _, gap := range gaps {
-		gapSize := gap.EndPos - gap.StartPos
-		intervalToUse := config.GetBackfillInterval()
+	// Check if we found any gaps
+	if len(gaps) == 0 {
+		s.log.WithFields(logrus.Fields{
+			"model_id": trans.GetID(),
+			"min_pos":  scanRange.initialPos,
+			"max_pos":  scanRange.maxPos,
+		}).Debug("No gaps found in processed data")
+		return
+	}
 
-		// If gap is smaller than model interval, use gap size to avoid overlap
-		if gapSize < config.GetBackfillInterval() {
-			intervalToUse = gapSize
-		}
+	// Log gap summary
+	s.log.WithFields(logrus.Fields{
+		"model_id":  trans.GetID(),
+		"gap_count": len(gaps),
+		"min_pos":   scanRange.initialPos,
+		"max_pos":   scanRange.maxPos,
+		"interval":  config.GetBackfillInterval(),
+	}).Info("Found gaps in processed data")
 
-		// Start from the end of the gap and work backwards (most recent first)
-		// This ensures we fill the most recent part of each gap first
-		pos := gap.EndPos - intervalToUse
-
-		// Check if task is already pending before logging
-		payload := tasks.TaskPayload{
-			ModelID:  transformation.GetID(),
-			Position: pos,
-			Interval: intervalToUse,
-		}
-
-		isPending, err := s.queueManager.IsTaskPendingOrRunning(payload)
-		if err == nil && !isPending {
+	// Process gaps - queue only one task per scan
+	for i, gap := range gaps {
+		if s.processSingleGap(ctx, trans, gap, i) {
+			// Only queue one task per gap scan
 			s.log.WithFields(logrus.Fields{
-				"model_id":       transformation.GetID(),
-				"gap_start":      gap.StartPos,
-				"gap_end":        gap.EndPos,
-				"position":       pos,
-				"interval":       intervalToUse,
-				"model_interval": config.GetBackfillInterval(),
-				"gap_size":       gapSize,
-			}).Info("Found backfill opportunity")
-
-			s.checkAndEnqueuePositionWithTrigger(ctx, transformation, pos, intervalToUse)
-
-			// Only queue one task per gap - the next task will be queued
-			// after this one completes and the gap is re-scanned
+				"model_id":       trans.GetID(),
+				"remaining_gaps": len(gaps) - i - 1,
+			}).Debug("Enqueued one backfill task, will re-scan for more gaps after completion")
 			break
 		}
 	}
@@ -556,7 +699,7 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		config := model.GetConfig()
 
 		// Calculate next position for dependent
-		lastPos, err := s.admin.GetLastPosition(ctx, depModelID)
+		lastPos, err := s.admin.GetLastProcessedEndPosition(ctx, depModelID)
 		if err != nil {
 			continue
 		}
@@ -573,6 +716,37 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 
 		// Check if this completion unblocks the dependent
 		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, config.GetForwardInterval())
+	}
+}
+
+// RunConsolidation performs admin table consolidation for all models
+func (s *service) RunConsolidation(ctx context.Context) {
+	// Get admin service
+	adminService, ok := s.admin.(admin.Service)
+	if !ok {
+		s.log.Debug("Admin service doesn't support consolidation")
+		return
+	}
+
+	transformations := s.dag.GetTransformationNodes()
+	for _, transformation := range transformations {
+		modelID := transformation.GetID()
+
+		// Try to consolidate
+		consolidated, err := adminService.ConsolidateHistoricalData(ctx, modelID)
+		if err != nil {
+			if consolidated > 0 {
+				s.log.WithError(err).WithField("model_id", modelID).Debug("Consolidation partially succeeded")
+			}
+			continue
+		}
+
+		if consolidated > 0 {
+			s.log.WithFields(logrus.Fields{
+				"model_id":          modelID,
+				"rows_consolidated": consolidated,
+			}).Info("Consolidated admin.cbt rows")
+		}
 	}
 }
 

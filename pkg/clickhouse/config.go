@@ -15,13 +15,13 @@ var (
 type Config struct {
 	URL           string        `yaml:"url" validate:"required,url"`
 	Cluster       string        `yaml:"cluster"`
-	LocalSuffix   string        `yaml:"local_suffix"`
-	QueryTimeout  time.Duration `yaml:"query_timeout"`
-	InsertTimeout time.Duration `yaml:"insert_timeout"`
+	LocalSuffix   string        `yaml:"localSuffix"`
+	QueryTimeout  time.Duration `yaml:"queryTimeout"`
+	InsertTimeout time.Duration `yaml:"insertTimeout"`
 	Debug         bool          `yaml:"debug"`
-	KeepAlive     time.Duration `yaml:"keep_alive"`
-	AdminDatabase string        `yaml:"admin_database"`
-	AdminTable    string        `yaml:"admin_table"`
+	KeepAlive     time.Duration `yaml:"keepAlive"`
+	AdminDatabase string        `yaml:"adminDatabase"`
+	AdminTable    string        `yaml:"adminTable"`
 }
 
 // Validate checks if the configuration is valid

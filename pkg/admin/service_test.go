@@ -6,12 +6,15 @@ import (
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/redis/go-redis/v9"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // Test service creation (ethPandaOps requirement)
 func TestNewService(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
 	mockClient := &mockClickhouseClient{}
 	cluster := "test_cluster"
 	localSuffix := "_local"
@@ -21,7 +24,7 @@ func TestNewService(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	svc := NewService(mockClient, cluster, localSuffix, adminDatabase, adminTable, redisClient)
+	svc := NewService(log, mockClient, cluster, localSuffix, adminDatabase, adminTable, redisClient)
 	assert.NotNil(t, svc)
 
 	// Verify it implements the Service interface
@@ -70,7 +73,9 @@ func TestRecordCompletion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockClient := &mockClickhouseClient{}
-			svc := NewService(mockClient, "", "", "admin", "tracking", nil)
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+			svc := NewService(log, mockClient, "", "", "admin", "tracking", nil)
 
 			ctx := context.Background()
 			err := svc.RecordCompletion(ctx, tt.modelID, tt.position, tt.interval)
@@ -87,8 +92,8 @@ func TestRecordCompletion(t *testing.T) {
 	}
 }
 
-// Test GetLastPosition
-func TestGetLastPosition(t *testing.T) {
+// Test GetLastProcessedEndPosition
+func TestGetLastProcessedEndPosition(t *testing.T) {
 	tests := []struct {
 		name        string
 		modelID     string
@@ -125,16 +130,93 @@ func TestGetLastPosition(t *testing.T) {
 				queryResult: tt.queryResult,
 				queryError:  tt.queryError,
 			}
-			svc := NewService(mockClient, "", "", "admin", "tracking", nil)
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+			svc := NewService(log, mockClient, "", "", "admin", "tracking", nil)
 
 			ctx := context.Background()
-			pos, err := svc.GetLastPosition(ctx, tt.modelID)
+			pos, err := svc.GetLastProcessedEndPosition(ctx, tt.modelID)
 
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expectedPos, pos)
+			}
+		})
+	}
+}
+
+// Test new position tracking functions
+func TestPositionTrackingFunctions(t *testing.T) {
+	tests := []struct {
+		name        string
+		modelID     string
+		queryResult uint64
+		queryError  error
+		expectedPos uint64
+		wantErr     bool
+	}{
+		{
+			name:        "valid model with data",
+			modelID:     "database.table",
+			queryResult: 10000,
+			expectedPos: 10000,
+			wantErr:     false,
+		},
+		{
+			name:        "valid model no data",
+			modelID:     "database.empty",
+			queryResult: 0,
+			expectedPos: 0,
+			wantErr:     false,
+		},
+		{
+			name:        "invalid model ID",
+			modelID:     "invalid",
+			expectedPos: 0,
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &mockClickhouseClient{
+				queryResult: tt.queryResult,
+				queryError:  tt.queryError,
+			}
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+			svc := NewService(log, mockClient, "", "", "admin", "tracking", nil)
+
+			ctx := context.Background()
+
+			// Test GetLastProcessedEndPosition
+			endPos, err := svc.GetLastProcessedEndPosition(ctx, tt.modelID)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedPos, endPos)
+			}
+
+			// Test GetNextUnprocessedPosition (should be same as GetLastProcessedEndPosition)
+			nextPos, err := svc.GetNextUnprocessedPosition(ctx, tt.modelID)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedPos, nextPos)
+			}
+
+			// Test GetLastProcessedPosition (returns max(position) not max(position+interval))
+			lastPos, err := svc.GetLastProcessedPosition(ctx, tt.modelID)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				// For this mock, it will return the same value since we're using a simple mock
+				assert.Equal(t, tt.expectedPos, lastPos)
 			}
 		})
 	}
@@ -178,7 +260,9 @@ func TestGetFirstPosition(t *testing.T) {
 				queryResult: tt.queryResult,
 				queryError:  tt.queryError,
 			}
-			svc := NewService(mockClient, "", "", "admin", "tracking", nil)
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+			svc := NewService(log, mockClient, "", "", "admin", "tracking", nil)
 
 			ctx := context.Background()
 			pos, err := svc.GetFirstPosition(ctx, tt.modelID)
@@ -201,7 +285,9 @@ func TestFindGaps(t *testing.T) {
 			{StartPos: 500, EndPos: 600},
 		},
 	}
-	svc := NewService(mockClient, "", "", "admin", "tracking", nil)
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+	svc := NewService(log, mockClient, "", "", "admin", "tracking", nil)
 
 	ctx := context.Background()
 	gaps, err := svc.FindGaps(ctx, "database.table", 0, 1000, 100)
@@ -255,7 +341,9 @@ func TestGetCoverage(t *testing.T) {
 			mockClient := &mockClickhouseClient{
 				coverageResult: tt.queryResult,
 			}
-			svc := NewService(mockClient, "", "", "admin", "tracking", nil)
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+			svc := NewService(log, mockClient, "", "", "admin", "tracking", nil)
 
 			ctx := context.Background()
 			covered, err := svc.GetCoverage(ctx, tt.modelID, tt.startPos, tt.endPos)
@@ -294,6 +382,10 @@ func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, result inte
 		LastPos uint64 `json:"last_pos,string"`
 	}:
 		v.LastPos = m.queryResult
+	case *struct {
+		LastEndPos uint64 `json:"last_end_pos,string"`
+	}:
+		v.LastEndPos = m.queryResult
 	case *struct {
 		FirstPos uint64 `json:"first_pos,string"`
 	}:
