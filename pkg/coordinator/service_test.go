@@ -29,7 +29,7 @@ func TestNewService(t *testing.T) {
 	// Use nil for Redis options - we're not testing Redis connectivity
 	var redisOpt *redis.Options
 	mockDAG := &mockDAGReader{}
-	mockAdmin := &mockPositionTracker{}
+	mockAdmin := &mockAdminService{}
 	mockValidator := validation.NewMockValidator()
 
 	svc, err := NewService(log, redisOpt, mockDAG, mockAdmin, mockValidator)
@@ -45,7 +45,7 @@ func TestServiceCreation(t *testing.T) {
 	log := logrus.New()
 	var redisOpt *redis.Options
 	mockDAG := &mockDAGReader{}
-	mockAdmin := &mockPositionTracker{}
+	mockAdmin := &mockAdminService{}
 	mockValidator := validation.NewMockValidator()
 
 	svc, err := NewService(log, redisOpt, mockDAG, mockAdmin, mockValidator)
@@ -100,7 +100,7 @@ func BenchmarkServiceCreation(b *testing.B) {
 			},
 		},
 	}
-	mockAdmin := &mockPositionTracker{
+	mockAdmin := &mockAdminService{
 		lastPositions: map[string]uint64{
 			"model.bench": 10000,
 		},
@@ -155,14 +155,15 @@ func (m *mockDAGReader) GetTransformationNodes() []models.Transformation { retur
 func (m *mockDAGReader) GetExternalNodes() []models.Node                 { return []models.Node{} }
 func (m *mockDAGReader) IsPathBetween(_, _ string) bool                  { return false }
 
-type mockPositionTracker struct {
+type mockAdminService struct {
 	lastPositions  map[string]uint64
 	firstPositions map[string]uint64
 	gaps           map[string][]admin.GapInfo
+	externalBounds map[string]*admin.BoundsCache
 	mu             sync.RWMutex
 }
 
-func (m *mockPositionTracker) GetLastProcessedEndPosition(_ context.Context, modelID string) (uint64, error) {
+func (m *mockAdminService) GetLastProcessedEndPosition(_ context.Context, modelID string) (uint64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if pos, ok := m.lastPositions[modelID]; ok {
@@ -171,7 +172,7 @@ func (m *mockPositionTracker) GetLastProcessedEndPosition(_ context.Context, mod
 	return 0, nil
 }
 
-func (m *mockPositionTracker) GetNextUnprocessedPosition(_ context.Context, modelID string) (uint64, error) {
+func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, modelID string) (uint64, error) {
 	// For mock purposes, this is the same as GetLastProcessedEndPosition
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -181,7 +182,7 @@ func (m *mockPositionTracker) GetNextUnprocessedPosition(_ context.Context, mode
 	return 0, nil
 }
 
-func (m *mockPositionTracker) GetLastProcessedPosition(_ context.Context, modelID string) (uint64, error) {
+func (m *mockAdminService) GetLastProcessedPosition(_ context.Context, modelID string) (uint64, error) {
 	// For mock purposes, return the last position if it exists, otherwise 0
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -193,7 +194,7 @@ func (m *mockPositionTracker) GetLastProcessedPosition(_ context.Context, modelI
 	return 0, nil
 }
 
-func (m *mockPositionTracker) GetFirstPosition(_ context.Context, modelID string) (uint64, error) {
+func (m *mockAdminService) GetFirstPosition(_ context.Context, modelID string) (uint64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if pos, ok := m.firstPositions[modelID]; ok {
@@ -202,14 +203,14 @@ func (m *mockPositionTracker) GetFirstPosition(_ context.Context, modelID string
 	return 0, nil
 }
 
-func (m *mockPositionTracker) RecordCompletion(_ context.Context, modelID string, position, _ uint64) error {
+func (m *mockAdminService) RecordCompletion(_ context.Context, modelID string, position, _ uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lastPositions[modelID] = position
 	return nil
 }
 
-func (m *mockPositionTracker) FindGaps(_ context.Context, modelID string, _, _, _ uint64) ([]admin.GapInfo, error) {
+func (m *mockAdminService) FindGaps(_ context.Context, modelID string, _, _, _ uint64) ([]admin.GapInfo, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if gaps, ok := m.gaps[modelID]; ok {
@@ -218,9 +219,39 @@ func (m *mockPositionTracker) FindGaps(_ context.Context, modelID string, _, _, 
 	return []admin.GapInfo{}, nil
 }
 
-func (m *mockPositionTracker) GetCacheManager() *admin.CacheManager {
-	// Return nil for testing - we don't need actual cache functionality in unit tests
+func (m *mockAdminService) GetExternalBounds(_ context.Context, modelID string) (*admin.BoundsCache, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if bounds, ok := m.externalBounds[modelID]; ok {
+		return bounds, nil
+	}
+	return nil, nil
+}
+
+func (m *mockAdminService) SetExternalBounds(_ context.Context, cache *admin.BoundsCache) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.externalBounds == nil {
+		m.externalBounds = make(map[string]*admin.BoundsCache)
+	}
+	m.externalBounds[cache.ModelID] = cache
 	return nil
+}
+
+func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64) (bool, error) {
+	return false, nil
+}
+
+func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetAdminDatabase() string {
+	return "admin"
+}
+
+func (m *mockAdminService) GetAdminTable() string {
+	return "cbt"
 }
 
 // Mock transformation for testing

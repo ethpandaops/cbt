@@ -118,12 +118,7 @@ func (e *ExternalModelValidator) applyLag(model models.External, minPos, maxPos 
 
 // tryGetFromCache attempts to retrieve bounds from cache
 func (e *ExternalModelValidator) tryGetFromCache(ctx context.Context, model models.External) (minPos, maxPos uint64, found bool) {
-	cacheManager := e.admin.GetCacheManager()
-	if cacheManager == nil {
-		return 0, 0, false
-	}
-
-	cached, err := cacheManager.GetBounds(ctx, model.GetID())
+	cached, err := e.admin.GetExternalBounds(ctx, model.GetID())
 	if err != nil || cached == nil {
 		observability.RecordExternalCacheMiss(model.GetID())
 		return 0, 0, false
@@ -135,11 +130,6 @@ func (e *ExternalModelValidator) tryGetFromCache(ctx context.Context, model mode
 
 // storeInCache stores bounds in cache (persistent, no TTL)
 func (e *ExternalModelValidator) storeInCache(ctx context.Context, model models.External, minPos, maxPos uint64) error {
-	cacheManager := e.admin.GetCacheManager()
-	if cacheManager == nil {
-		return nil
-	}
-
 	cache := &admin.BoundsCache{
 		ModelID:   model.GetID(),
 		Min:       minPos,
@@ -148,7 +138,7 @@ func (e *ExternalModelValidator) storeInCache(ctx context.Context, model models.
 		// Note: LastIncrementalScan and LastFullScan will be set by the bounds update task
 	}
 
-	err := cacheManager.SetBounds(ctx, cache)
+	err := e.admin.SetExternalBounds(ctx, cache)
 	if err != nil {
 		e.log.WithError(err).WithField("model", model.GetID()).Warn("Failed to cache external model bounds")
 		return err

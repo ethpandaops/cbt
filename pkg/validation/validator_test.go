@@ -518,7 +518,10 @@ func (m *mockAdmin) ConsolidateHistoricalData(_ context.Context, _ string) (int,
 	return 0, nil
 }
 
-func (m *mockAdmin) GetCacheManager() *admin.CacheManager {
+func (m *mockAdmin) GetExternalBounds(_ context.Context, _ string) (*admin.BoundsCache, error) {
+	return nil, nil
+}
+func (m *mockAdmin) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
 	return nil
 }
 

@@ -10,8 +10,10 @@ import (
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/models/external"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/tasks"
+	"github.com/ethpandaops/cbt/pkg/validation"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +24,8 @@ var (
 	errMockExecute = errors.New("mock execute error")
 	errMockRender  = errors.New("mock render error")
 	errCheckFailed = errors.New("check failed")
+	errQueryFailed = errors.New("query failed")
+	errNotFound    = errors.New("not found")
 )
 
 // Test NewModelExecutor
@@ -34,7 +38,7 @@ func TestNewModelExecutor(t *testing.T) {
 	executor := NewModelExecutor(log, mockCH, mockModels, mockAdmin)
 
 	assert.NotNil(t, executor)
-	assert.NotNil(t, executor.logger)
+	assert.NotNil(t, executor.log)
 	assert.NotNil(t, executor.chClient)
 	assert.NotNil(t, executor.models)
 	assert.NotNil(t, executor.admin)
@@ -291,6 +295,135 @@ func TestModelExecutor_Validate(t *testing.T) {
 	}
 }
 
+// Test UpdateBounds method
+func TestModelExecutor_UpdateBounds(t *testing.T) {
+	tests := []struct {
+		name       string
+		setupMocks func(*mockExecutorClickhouseClient, *mockExecutorModelsService, *mockExecutorAdminService)
+		modelID    string
+		wantErr    bool
+	}{
+		{
+			name: "no existing cache triggers full scan",
+			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, a *mockExecutorAdminService) {
+				// No existing cache - should trigger full scan and succeed
+				a.externalBounds = nil
+				m.dagReader = &mockDAGReader{
+					externalNode: &mockExternal{
+						id:   "test.external",
+						conf: external.Config{Database: "test", Table: "external"},
+					},
+				}
+				m.renderedSQL = "SELECT min(id), max(id) FROM test.external"
+				ch.queryResult = &struct {
+					Min validation.FlexUint64 `json:"min"`
+					Max validation.FlexUint64 `json:"max"`
+				}{Min: 1, Max: 100}
+			},
+			modelID: "test.external",
+			wantErr: false,
+		},
+		{
+			name: "external model not found",
+			setupMocks: func(_ *mockExecutorClickhouseClient, m *mockExecutorModelsService, _ *mockExecutorAdminService) {
+				// Setup for model not found error
+				m.dagReader = &mockDAGReader{externalNodeErr: errNotFound}
+			},
+			modelID: "test.external",
+			wantErr: true,
+		},
+		{
+			name: "successful bounds update - initial full scan",
+			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, a *mockExecutorAdminService) {
+				// No existing cache (initial full scan)
+				a.externalBounds = nil
+				m.dagReader = &mockDAGReader{
+					externalNode: &mockExternal{
+						id:   "test.external",
+						conf: external.Config{Database: "test", Table: "external"},
+					},
+				}
+				m.renderedSQL = "SELECT min(id), max(id) FROM test.external"
+				ch.queryResult = &struct {
+					Min validation.FlexUint64 `json:"min"`
+					Max validation.FlexUint64 `json:"max"`
+				}{Min: 100, Max: 200}
+			},
+			modelID: "test.external",
+			wantErr: false,
+		},
+		{
+			name: "successful bounds update - incremental scan",
+			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, a *mockExecutorAdminService) {
+				a.externalBounds = &admin.BoundsCache{
+					ModelID:             "test.external",
+					Min:                 100,
+					Max:                 200,
+					LastFullScan:        time.Now().Add(-1 * time.Minute),
+					LastIncrementalScan: time.Now().Add(-10 * time.Second),
+				}
+				m.dagReader = &mockDAGReader{
+					externalNode: &mockExternal{
+						id: "test.external",
+						conf: external.Config{
+							Database: "test",
+							Table:    "external",
+							Cache: &external.CacheConfig{
+								IncrementalScanInterval: 30 * time.Second,
+								FullScanInterval:        5 * time.Minute,
+							},
+						},
+					},
+				}
+				m.renderedSQL = "SELECT min(id), max(id) FROM test.external WHERE ..."
+				ch.queryResult = &struct {
+					Min validation.FlexUint64 `json:"min"`
+					Max validation.FlexUint64 `json:"max"`
+				}{Min: 100, Max: 250}
+			},
+			modelID: "test.external",
+			wantErr: false,
+		},
+		{
+			name: "query bounds fails",
+			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, a *mockExecutorAdminService) {
+				a.externalBounds = nil
+				m.dagReader = &mockDAGReader{
+					externalNode: &mockExternal{
+						id:   "test.external",
+						conf: external.Config{Database: "test", Table: "external"},
+					},
+				}
+				m.renderedSQL = "SELECT min(id), max(id) FROM test.external"
+				ch.queryOneErr = errQueryFailed
+			},
+			modelID: "test.external",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+			mockCH := &mockExecutorClickhouseClient{}
+			mockModels := &mockExecutorModelsService{}
+			mockAdmin := &mockExecutorAdminService{}
+
+			tt.setupMocks(mockCH, mockModels, mockAdmin)
+
+			executor := NewModelExecutor(log, mockCH, mockModels, mockAdmin)
+			err := executor.UpdateBounds(context.Background(), tt.modelID)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 // Benchmark tests
 func BenchmarkModelExecutor_Execute(b *testing.B) {
 	log := logrus.New()
@@ -324,26 +457,46 @@ type mockExecutorClickhouseClient struct {
 	tableExists    bool
 	tableExistsErr error
 	executeErr     error
+	queryOneErr    error
+	queryResult    interface{}
 }
 
 func (m *mockExecutorClickhouseClient) QueryOne(_ context.Context, query string, result interface{}) error {
+	if m.queryOneErr != nil {
+		return m.queryOneErr
+	}
 	if m.tableExistsErr != nil {
 		return m.tableExistsErr
 	}
 	// Handle TableExists query
-	if !strings.Contains(query, "system.tables") {
+	if strings.Contains(query, "system.tables") {
+		r, ok := result.(*struct {
+			Count uint64 `json:"count,string"`
+		})
+		if !ok {
+			return nil
+		}
+		if m.tableExists {
+			r.Count = 1
+		} else {
+			r.Count = 0
+		}
 		return nil
 	}
-	r, ok := result.(*struct {
-		Count uint64 `json:"count,string"`
-	})
-	if !ok {
-		return nil
-	}
-	if m.tableExists {
-		r.Count = 1
-	} else {
-		r.Count = 0
+	// Handle bounds query
+	if m.queryResult != nil {
+		if boundsResult, ok := result.(*struct {
+			Min validation.FlexUint64 `json:"min"`
+			Max validation.FlexUint64 `json:"max"`
+		}); ok {
+			if mockResult, ok := m.queryResult.(*struct {
+				Min validation.FlexUint64 `json:"min"`
+				Max validation.FlexUint64 `json:"max"`
+			}); ok {
+				boundsResult.Min = mockResult.Min
+				boundsResult.Max = mockResult.Max
+			}
+		}
 	}
 	return nil
 }
@@ -365,11 +518,15 @@ type mockExecutorModelsService struct {
 	renderedSQL string
 	renderErr   error
 	envVars     *[]string
+	dagReader   models.DAGReader
 }
 
 func (m *mockExecutorModelsService) Start() error { return nil }
 func (m *mockExecutorModelsService) Stop() error  { return nil }
 func (m *mockExecutorModelsService) GetDAG() models.DAGReader {
+	if m.dagReader != nil {
+		return m.dagReader
+	}
 	return &mockDAGReader{}
 }
 func (m *mockExecutorModelsService) RenderTransformation(_ models.Transformation, _, _ uint64, _ time.Time) (string, error) {
@@ -392,7 +549,9 @@ func (m *mockExecutorModelsService) GetTransformationEnvironmentVariables(_ mode
 var _ models.Service = (*mockExecutorModelsService)(nil)
 
 type mockExecutorAdminService struct {
-	recordErr error
+	recordErr      error
+	externalBounds *admin.BoundsCache
+	setBoundsErr   error
 }
 
 func (m *mockExecutorAdminService) GetLastProcessedEndPosition(_ context.Context, _ string) (uint64, error) {
@@ -419,9 +578,14 @@ func (m *mockExecutorAdminService) FindGaps(_ context.Context, _ string, _, _, _
 func (m *mockExecutorAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
 	return 0, nil
 }
-func (m *mockExecutorAdminService) GetCacheManager() *admin.CacheManager { return nil }
-func (m *mockExecutorAdminService) GetAdminDatabase() string             { return "admin_db" }
-func (m *mockExecutorAdminService) GetAdminTable() string                { return "admin_table" }
+func (m *mockExecutorAdminService) GetExternalBounds(_ context.Context, _ string) (*admin.BoundsCache, error) {
+	return m.externalBounds, nil
+}
+func (m *mockExecutorAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
+	return m.setBoundsErr
+}
+func (m *mockExecutorAdminService) GetAdminDatabase() string { return "admin_db" }
+func (m *mockExecutorAdminService) GetAdminTable() string    { return "admin_table" }
 
 var _ admin.Service = (*mockExecutorAdminService)(nil)
 
@@ -442,3 +606,78 @@ func (m *mockExecutorTransformation) GetType() string                   { return
 func (m *mockExecutorTransformation) GetEnvironmentVariables() []string { return []string{} }
 
 var _ models.Transformation = (*mockExecutorTransformation)(nil)
+
+// Mock types for external models and DAG
+
+type mockExternal struct {
+	id   string
+	conf external.Config
+	val  string
+	typ  string
+}
+
+func (m *mockExternal) GetID() string              { return m.id }
+func (m *mockExternal) GetConfig() external.Config { return m.conf }
+func (m *mockExternal) GetValue() string           { return m.val }
+func (m *mockExternal) GetType() string            { return m.typ }
+
+var _ models.External = (*mockExternal)(nil)
+
+type mockDAGReader struct {
+	transformations []models.Transformation
+	externalNode    models.External
+	externalNodeErr error
+}
+
+func (m *mockDAGReader) GetNode(_ string) (models.Node, error) {
+	return models.Node{}, nil
+}
+
+func (m *mockDAGReader) GetTransformationNode(id string) (models.Transformation, error) {
+	for _, t := range m.transformations {
+		if t.GetID() == id {
+			return t, nil
+		}
+	}
+	return &mockExecutorTransformation{id: id}, nil
+}
+
+func (m *mockDAGReader) GetExternalNode(_ string) (models.External, error) {
+	if m.externalNodeErr != nil {
+		return nil, m.externalNodeErr
+	}
+	if m.externalNode != nil {
+		return m.externalNode, nil
+	}
+	return &mockExternal{}, nil
+}
+
+func (m *mockDAGReader) GetDependencies(_ string) []string {
+	return []string{}
+}
+
+func (m *mockDAGReader) GetDependents(_ string) []string {
+	return []string{}
+}
+
+func (m *mockDAGReader) GetAllDependencies(_ string) []string {
+	return []string{}
+}
+
+func (m *mockDAGReader) GetAllDependents(_ string) []string {
+	return []string{}
+}
+
+func (m *mockDAGReader) GetTransformationNodes() []models.Transformation {
+	return m.transformations
+}
+
+func (m *mockDAGReader) GetExternalNodes() []models.Node {
+	return []models.Node{}
+}
+
+func (m *mockDAGReader) IsPathBetween(_, _ string) bool {
+	return false
+}
+
+var _ models.DAGReader = (*mockDAGReader)(nil)

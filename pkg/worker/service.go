@@ -70,7 +70,7 @@ func (s *service) Start(_ context.Context) error {
 	modelExecutor := NewModelExecutor(s.log, s.chClient, s.models, s.admin)
 
 	// Create handler with filtered models (for processing)
-	handler := tasks.NewTaskHandler(s.log, s.chClient, s.admin, s.validator, modelExecutor, transformations, s.models)
+	handler := tasks.NewTaskHandler(s.log, s.chClient, s.admin, s.validator, modelExecutor, transformations)
 
 	// Configure queues with capacity hint
 	queues := make(map[string]int, len(transformations))

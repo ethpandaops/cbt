@@ -41,15 +41,6 @@ type Service interface {
 	ProcessBoundsOrchestration(ctx context.Context)
 }
 
-// PositionTracker defines the minimal interface needed from admin service
-type PositionTracker interface {
-	GetLastProcessedEndPosition(ctx context.Context, modelID string) (uint64, error)
-	GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error)
-	GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error)
-	FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]admin.GapInfo, error)
-	GetCacheManager() *admin.CacheManager
-}
-
 // Direction represents the processing direction for tasks
 type Direction string
 
@@ -83,7 +74,7 @@ type service struct {
 
 	redisOpt  *redis.Options
 	dag       models.DAGReader
-	admin     PositionTracker
+	admin     admin.Service
 	validator validation.Validator
 
 	queueManager   *tasks.QueueManager
@@ -92,7 +83,7 @@ type service struct {
 }
 
 // NewService creates a new coordinator service
-func NewService(log logrus.FieldLogger, redisOpt *redis.Options, dag models.DAGReader, adminService PositionTracker, validator validation.Validator) (Service, error) {
+func NewService(log logrus.FieldLogger, redisOpt *redis.Options, dag models.DAGReader, adminService admin.Service, validator validation.Validator) (Service, error) {
 	return &service{
 		log:       log.WithField("service", "coordinator"),
 		redisOpt:  redisOpt,
@@ -728,19 +719,12 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 
 // RunConsolidation performs admin table consolidation for all models
 func (s *service) RunConsolidation(ctx context.Context) {
-	// Get admin service
-	adminService, ok := s.admin.(admin.Service)
-	if !ok {
-		s.log.Debug("Admin service doesn't support consolidation")
-		return
-	}
-
 	transformations := s.dag.GetTransformationNodes()
 	for _, transformation := range transformations {
 		modelID := transformation.GetID()
 
 		// Try to consolidate
-		consolidated, err := adminService.ConsolidateHistoricalData(ctx, modelID)
+		consolidated, err := s.admin.ConsolidateHistoricalData(ctx, modelID)
 		if err != nil {
 			if consolidated > 0 {
 				s.log.WithError(err).WithField("model_id", modelID).Debug("Consolidation partially succeeded")
@@ -767,12 +751,6 @@ func (s *service) ProcessBoundsOrchestration(ctx context.Context) {
 		return
 	}
 
-	cacheManager := s.admin.GetCacheManager()
-	if cacheManager == nil {
-		s.log.Error("Cache manager not available for bounds orchestration")
-		return
-	}
-
 	now := time.Now()
 
 	for _, node := range externalNodes {
@@ -791,7 +769,7 @@ func (s *service) ProcessBoundsOrchestration(ctx context.Context) {
 		}
 
 		// Get current cache entry
-		cache, err := cacheManager.GetBounds(ctx, modelID)
+		cache, err := s.admin.GetExternalBounds(ctx, modelID)
 		if err != nil {
 			s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get cache bounds")
 			continue

@@ -12,7 +12,6 @@ import (
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
-	"github.com/ethpandaops/cbt/pkg/models/external"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/ethpandaops/cbt/pkg/validation"
 	"github.com/hibiken/asynq"
@@ -47,7 +46,6 @@ type TaskHandler struct {
 	validator       validation.Validator
 	modelExecutor   Executor
 	transformations map[string]models.Transformation
-	modelsService   models.Service
 }
 
 // TaskContext contains all context needed for task execution
@@ -63,6 +61,7 @@ type TaskContext struct {
 type Executor interface {
 	Execute(ctx context.Context, taskCtx interface{}) error
 	Validate(ctx context.Context, taskCtx interface{}) error
+	UpdateBounds(ctx context.Context, modelID string) error
 }
 
 // NewTaskHandler creates a new task handler
@@ -73,7 +72,6 @@ func NewTaskHandler(
 	validator validation.Validator,
 	modelExecutor Executor,
 	transformations []models.Transformation,
-	modelsService models.Service,
 ) *TaskHandler {
 	transformationsMap := make(map[string]models.Transformation, len(transformations)) // Add capacity hint
 	for _, transformation := range transformations {
@@ -87,7 +85,6 @@ func NewTaskHandler(
 		validator:       validator,
 		modelExecutor:   modelExecutor,
 		transformations: transformationsMap,
-		modelsService:   modelsService,
 	}
 }
 
@@ -205,104 +202,6 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 	return nil
 }
 
-// determineScanType determines whether to perform an incremental or full scan
-func (h *TaskHandler) determineScanType(modelID string, cache *admin.BoundsCache, config external.Config, now time.Time) (isIncrementalScan, isFullScan bool) {
-	switch {
-	case cache == nil:
-		// No cache - do full scan
-		isFullScan = true
-		h.log.WithField("model_id", modelID).Debug("No cache entry, performing initial full scan")
-	case config.Cache != nil && now.Sub(cache.LastFullScan) > config.Cache.FullScanInterval:
-		// Time for full scan
-		isFullScan = true
-		h.log.WithFields(logrus.Fields{
-			"model_id":       modelID,
-			"last_full_scan": cache.LastFullScan,
-			"interval":       config.Cache.FullScanInterval,
-		}).Debug("Performing periodic full scan")
-	default:
-		// Incremental scan
-		isIncrementalScan = true
-		h.log.WithField("model_id", modelID).Debug("Performing incremental scan")
-	}
-	return isIncrementalScan, isFullScan
-}
-
-// queryExternalBounds executes the query to get bounds for an external model
-func (h *TaskHandler) queryExternalBounds(ctx context.Context, modelID string, externalModel models.External, cacheState map[string]interface{}) (minBound, maxBound uint64, err error) {
-	// Render the external model query with cache state
-	query, err := h.modelsService.RenderExternal(externalModel, cacheState)
-	if err != nil {
-		h.log.WithError(err).WithFields(logrus.Fields{
-			"model_id":    modelID,
-			"cache_state": cacheState,
-		}).Error("Failed to render external model query")
-		observability.RecordError("bounds-handler", "render_error")
-		return 0, 0, fmt.Errorf("failed to render external model %s: %w", modelID, err)
-	}
-
-	// Execute the query to get bounds
-	var result struct {
-		Min validation.FlexUint64 `json:"min"`
-		Max validation.FlexUint64 `json:"max"`
-	}
-
-	h.log.WithFields(logrus.Fields{
-		"model_id":    modelID,
-		"cache_state": cacheState,
-		"query":       query,
-	}).Debug("Executing bounds query")
-
-	if err := h.chClient.QueryOne(ctx, query, &result); err != nil {
-		h.log.WithError(err).WithFields(logrus.Fields{
-			"model_id":    modelID,
-			"cache_state": cacheState,
-			"query":       query,
-		}).Error("Failed to query bounds")
-		observability.RecordError("bounds-handler", "query_error")
-		return 0, 0, fmt.Errorf("failed to query bounds for %s: %w", modelID, err)
-	}
-
-	h.log.WithFields(logrus.Fields{
-		"model_id": modelID,
-		"min":      result.Min,
-		"max":      result.Max,
-	}).Debug("Bounds query successful")
-
-	return uint64(result.Min), uint64(result.Max), nil
-}
-
-// updateBoundsCache updates the bounds cache with new values
-func (h *TaskHandler) updateBoundsCache(ctx context.Context, cacheManager *admin.CacheManager, modelID string, minBound, maxBound uint64, existingCache *admin.BoundsCache, isIncrementalScan bool, now time.Time) error {
-	newCache := &admin.BoundsCache{
-		ModelID:     modelID,
-		Min:         minBound,
-		Max:         maxBound,
-		PreviousMin: minBound,
-		PreviousMax: maxBound,
-		UpdatedAt:   now,
-	}
-
-	if isIncrementalScan {
-		newCache.LastIncrementalScan = now
-		// Keep the previous full scan time
-		if existingCache != nil {
-			newCache.LastFullScan = existingCache.LastFullScan
-		}
-	} else {
-		newCache.LastFullScan = now
-		newCache.LastIncrementalScan = now
-	}
-
-	if err := cacheManager.SetBounds(ctx, newCache); err != nil {
-		h.log.WithError(err).WithField("model_id", modelID).Error("Failed to update cache")
-		observability.RecordError("bounds-handler", "cache_update_error")
-		return fmt.Errorf("failed to update cache for %s: %w", modelID, err)
-	}
-
-	return nil
-}
-
 // HandleBoundsCache handles bounds cache update tasks for external models
 func (h *TaskHandler) HandleBoundsCache(ctx context.Context, t *asynq.Task) error {
 	var payload map[string]string
@@ -317,95 +216,29 @@ func (h *TaskHandler) HandleBoundsCache(ctx context.Context, t *asynq.Task) erro
 		return ErrModelIDNotFound
 	}
 
-	h.log.WithField("model_id", modelID).Info("Starting bounds cache update")
 	startTime := time.Now()
 
-	// Get the external model from DAG
-	dag := h.modelsService.GetDAG()
-	externalModel, err := dag.GetExternalNode(modelID)
-	if err != nil {
-		h.log.WithError(err).WithField("model_id", modelID).Error("Failed to get external model")
-		observability.RecordError("bounds-handler", "model_not_found")
-		return fmt.Errorf("failed to get external model %s: %w", modelID, err)
+	workerID := getWorkerID()
+
+	h.log.WithField("model_id", modelID).Debug("Calling modelExecutor.UpdateBounds")
+
+	if err := h.modelExecutor.UpdateBounds(ctx, modelID); err != nil {
+		h.log.WithError(err).WithField("model_id", modelID).Error("Model update bounds failed")
+		observability.RecordTaskComplete(modelID, workerID, "failed", time.Since(startTime).Seconds())
+		observability.RecordError("task-handler", "execution_error")
+
+		return fmt.Errorf("execution error: %w", err)
 	}
 
-	// Get cache manager
-	cacheManager := h.admin.GetCacheManager()
-	if cacheManager == nil {
-		h.log.Error("Cache manager not available")
-		observability.RecordError("bounds-handler", "cache_manager_unavailable")
-		return ErrCacheManagerUnavailable
-	}
+	h.log.WithField("model_id", modelID).Debug("Model execution completed")
 
-	// Get current cache entry to determine scan type
-	cache, err := cacheManager.GetBounds(ctx, modelID)
-	if err != nil {
-		h.log.WithError(err).WithField("model_id", modelID).Error("Failed to get cache bounds")
-	}
-
-	config := externalModel.GetConfig()
-	now := time.Now()
-
-	// Determine scan type
-	isIncrementalScan, isFullScan := h.determineScanType(modelID, cache, config, now)
-
-	// Build cache state for template rendering
-	cacheState := map[string]interface{}{
-		"is_incremental_scan": isIncrementalScan,
-		"is_full_scan":        isFullScan,
-	}
-
-	// Add previous bounds if available
-	if cache != nil {
-		cacheState["previous_min"] = cache.PreviousMin
-		cacheState["previous_max"] = cache.PreviousMax
-	}
+	// Record successful completion
+	observability.RecordTaskComplete(modelID, workerID, "success", time.Since(startTime).Seconds())
 
 	h.log.WithFields(logrus.Fields{
-		"model_id":            modelID,
-		"is_incremental_scan": isIncrementalScan,
-		"is_full_scan":        isFullScan,
-		"cache_state":         cacheState,
-	}).Debug("Determined scan type and cache state")
-
-	// Query bounds with cache state
-	minBound, maxBound, err := h.queryExternalBounds(ctx, modelID, externalModel, cacheState)
-	if err != nil {
-		return err
-	}
-
-	// Handle no new data case for incremental scans
-	if isIncrementalScan && minBound == 0 && maxBound == 0 && cache != nil {
-		// No new data found, keep existing bounds
-		h.log.WithField("model_id", modelID).Debug("No new data found in incremental scan, keeping existing bounds")
-		minBound = cache.Min
-		maxBound = cache.Max
-	}
-
-	// Apply lag if configured
-	adjustedMin, adjustedMax := minBound, maxBound
-	if config.Lag > 0 && adjustedMax > config.Lag {
-		adjustedMax -= config.Lag
-		h.log.WithFields(logrus.Fields{
-			"model_id":     modelID,
-			"lag":          config.Lag,
-			"original_max": maxBound,
-			"adjusted_max": adjustedMax,
-		}).Debug("Applied lag to bounds")
-	}
-
-	// Update cache with new bounds
-	if err := h.updateBoundsCache(ctx, cacheManager, modelID, adjustedMin, adjustedMax, cache, isIncrementalScan, now); err != nil {
-		return err
-	}
-
-	h.log.WithFields(logrus.Fields{
-		"model_id":  modelID,
-		"min":       adjustedMin,
-		"max":       adjustedMax,
-		"scan_type": map[bool]string{true: "incremental", false: "full"}[isIncrementalScan],
-		"duration":  time.Since(startTime),
-	}).Info("Bounds cache updated successfully")
+		"model_id": modelID,
+		"duration": time.Since(startTime),
+	}).Info("Task completed successfully")
 
 	return nil
 }

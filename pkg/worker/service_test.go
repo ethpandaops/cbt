@@ -292,9 +292,14 @@ func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64)
 func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
 	return 0, nil
 }
-func (m *mockAdminService) GetCacheManager() *admin.CacheManager { return nil }
-func (m *mockAdminService) GetAdminDatabase() string             { return "admin_db" }
-func (m *mockAdminService) GetAdminTable() string                { return "admin_table" }
+func (m *mockAdminService) GetExternalBounds(_ context.Context, _ string) (*admin.BoundsCache, error) {
+	return nil, nil
+}
+func (m *mockAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
+	return nil
+}
+func (m *mockAdminService) GetAdminDatabase() string { return "admin_db" }
+func (m *mockAdminService) GetAdminTable() string    { return "admin_table" }
 
 var _ admin.Service = (*mockAdminService)(nil)
 
@@ -347,58 +352,5 @@ func (m *mockTransformation) GetEnvironmentVariables() []string { return []strin
 
 var _ models.Transformation = (*mockTransformation)(nil)
 
-type mockDAGReader struct {
-	transformations []models.Transformation
-}
-
-func (m *mockDAGReader) GetNode(id string) (models.Node, error) {
-	for _, t := range m.transformations {
-		if t.GetID() == id {
-			return models.Node{NodeType: "transformation", Model: t}, nil
-		}
-	}
-	return models.Node{}, nil
-}
-
-func (m *mockDAGReader) GetTransformationNode(id string) (models.Transformation, error) {
-	for _, t := range m.transformations {
-		if t.GetID() == id {
-			return t, nil
-		}
-	}
-	return nil, nil
-}
-
-func (m *mockDAGReader) GetExternalNode(_ string) (models.External, error) {
-	return nil, nil
-}
-
-func (m *mockDAGReader) GetDependencies(_ string) []string {
-	return []string{}
-}
-
-func (m *mockDAGReader) GetDependents(_ string) []string {
-	return []string{}
-}
-
-func (m *mockDAGReader) GetAllDependencies(_ string) []string {
-	return []string{}
-}
-
-func (m *mockDAGReader) GetAllDependents(_ string) []string {
-	return []string{}
-}
-
-func (m *mockDAGReader) GetTransformationNodes() []models.Transformation {
-	return m.transformations
-}
-
-func (m *mockDAGReader) GetExternalNodes() []models.Node {
-	return []models.Node{}
-}
-
-func (m *mockDAGReader) IsPathBetween(_, _ string) bool {
-	return false
-}
-
-var _ models.DAGReader = (*mockDAGReader)(nil)
+// mockDAGReader is defined in executor_test.go and shared across tests
+// We'll use the more comprehensive version from executor_test.go
