@@ -15,6 +15,8 @@ import (
 var (
 	// ErrInvalidModelID is returned when model ID format is invalid
 	ErrInvalidModelID = errors.New("invalid model ID format: expected database.table")
+	// ErrCacheManagerUnavailable is returned when cache manager is not available
+	ErrCacheManagerUnavailable = errors.New("cache manager not available")
 )
 
 // Service defines the public interface for the admin service
@@ -33,8 +35,9 @@ type Service interface {
 	// Consolidation
 	ConsolidateHistoricalData(ctx context.Context, modelID string) (int, error)
 
-	// Cache management
-	GetCacheManager() *CacheManager
+	// External bounds cache
+	GetExternalBounds(ctx context.Context, modelID string) (*BoundsCache, error)
+	SetExternalBounds(ctx context.Context, cache *BoundsCache) error
 
 	// Admin table info
 	GetAdminDatabase() string
@@ -539,9 +542,20 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 	return rangeResult.RowCount, nil
 }
 
-// GetCacheManager returns the cache manager instance
-func (a *service) GetCacheManager() *CacheManager {
-	return a.cacheManager
+// GetExternalBounds retrieves cached external model bounds
+func (a *service) GetExternalBounds(ctx context.Context, modelID string) (*BoundsCache, error) {
+	if a.cacheManager == nil {
+		return nil, nil
+	}
+	return a.cacheManager.GetBounds(ctx, modelID)
+}
+
+// SetExternalBounds stores external model bounds in cache
+func (a *service) SetExternalBounds(ctx context.Context, cache *BoundsCache) error {
+	if a.cacheManager == nil {
+		return ErrCacheManagerUnavailable
+	}
+	return a.cacheManager.SetBounds(ctx, cache)
 }
 
 // Ensure service implements the interface

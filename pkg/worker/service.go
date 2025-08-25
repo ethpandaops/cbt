@@ -78,6 +78,15 @@ func (s *service) Start(_ context.Context) error {
 		queues[transformation.GetID()] = 10
 	}
 
+	// Add queues for external models (for bounds cache tasks)
+	dag := s.models.GetDAG()
+	externalNodes := dag.GetExternalNodes()
+	for _, node := range externalNodes {
+		if external, ok := node.Model.(models.External); ok {
+			queues[external.GetID()] = 10
+		}
+	}
+
 	s.log.WithFields(logrus.Fields{
 		"transformations": len(transformations),
 		"queues":          queues,

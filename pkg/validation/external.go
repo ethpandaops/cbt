@@ -25,10 +25,11 @@ var (
 	ErrInvalidUint64 = errors.New("failed to unmarshal value as uint64")
 )
 
-// flexUint64 is a custom type that can unmarshal from both string and number JSON values
-type flexUint64 uint64
+// FlexUint64 is a custom type that can unmarshal from both string and number JSON values
+type FlexUint64 uint64
 
-func (f *flexUint64) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON implements json.Unmarshaler for FlexUint64
+func (f *FlexUint64) UnmarshalJSON(data []byte) error {
 	// Check for null value first
 	if string(data) == "null" {
 		return fmt.Errorf("%w: received null value, which likely indicates missing data", ErrInvalidUint64)
@@ -37,7 +38,7 @@ func (f *flexUint64) UnmarshalJSON(data []byte) error {
 	// Try to unmarshal as number first
 	var num uint64
 	if err := json.Unmarshal(data, &num); err == nil {
-		*f = flexUint64(num)
+		*f = FlexUint64(num)
 		return nil
 	}
 
@@ -48,7 +49,7 @@ func (f *flexUint64) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("failed to parse string value %q as uint64: %w", str, err)
 		}
-		*f = flexUint64(parsed)
+		*f = FlexUint64(parsed)
 		return nil
 	}
 
@@ -75,6 +76,7 @@ func NewExternalModelExecutor(log logrus.FieldLogger, chClient clickhouse.Client
 }
 
 // applyLag applies lag adjustment to max position if configured
+// Note: Bounds stored in cache are always raw (without lag applied)
 func (e *ExternalModelValidator) applyLag(model models.External, minPos, maxPos uint64, fromCache bool) (adjustedMin, adjustedMax uint64) {
 	modelConfig := model.GetConfig()
 
@@ -117,59 +119,33 @@ func (e *ExternalModelValidator) applyLag(model models.External, minPos, maxPos 
 
 // tryGetFromCache attempts to retrieve bounds from cache
 func (e *ExternalModelValidator) tryGetFromCache(ctx context.Context, model models.External) (minPos, maxPos uint64, found bool) {
-	modelConfig := model.GetConfig()
-
-	if modelConfig.TTL == nil || *modelConfig.TTL == 0 {
-		return 0, 0, false
-	}
-
-	cacheManager := e.admin.GetCacheManager()
-	if cacheManager == nil {
-		return 0, 0, false
-	}
-
-	cached, err := cacheManager.GetExternal(ctx, model.GetID())
+	cached, err := e.admin.GetExternalBounds(ctx, model.GetID())
 	if err != nil || cached == nil {
 		observability.RecordExternalCacheMiss(model.GetID())
 		return 0, 0, false
 	}
 
+	// Cache hit - no need to query database
 	return cached.Min, cached.Max, true
 }
 
-// storeInCache stores bounds in cache if TTL is configured
+// storeInCache stores bounds in cache (persistent, no TTL)
 func (e *ExternalModelValidator) storeInCache(ctx context.Context, model models.External, minPos, maxPos uint64) error {
-	modelConfig := model.GetConfig()
-
-	if modelConfig.TTL == nil || *modelConfig.TTL == 0 {
-		return nil
-	}
-
-	cacheManager := e.admin.GetCacheManager()
-	if cacheManager == nil {
-		return nil
-	}
-
-	cache := admin.CacheExternal{
+	cache := &admin.BoundsCache{
 		ModelID:   model.GetID(),
 		Min:       minPos,
 		Max:       maxPos,
 		UpdatedAt: time.Now(),
-		TTL:       *modelConfig.TTL,
+		// Note: LastIncrementalScan and LastFullScan will be set by the bounds update task
 	}
 
-	err := cacheManager.SetExternal(ctx, cache)
+	err := e.admin.SetExternalBounds(ctx, cache)
 	if err != nil {
 		e.log.WithError(err).WithField("model", model.GetID()).Warn("Failed to cache external model bounds")
-
 		return err
 	}
 
-	e.log.WithFields(logrus.Fields{
-		"model": model.GetID(),
-		"ttl":   modelConfig.TTL,
-	}).Debug("Cached external model bounds")
-
+	e.log.WithField("model", model.GetID()).Debug("Cached external model bounds")
 	return nil
 }
 
@@ -187,14 +163,15 @@ func (e *ExternalModelValidator) GetMinMax(ctx context.Context, model models.Ext
 		return 0, 0, fmt.Errorf("%w: %s", ErrNotSQLModel, modelID)
 	}
 
-	query, err := e.models.RenderExternal(model)
+	// Pass nil cache state for validation queries (not checking bounds)
+	query, err := e.models.RenderExternal(model, nil)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to render external model %s: %w", modelID, err)
 	}
 
 	var result struct {
-		MinPos flexUint64 `json:"min"`
-		MaxPos flexUint64 `json:"max"`
+		MinPos FlexUint64 `json:"min"`
+		MaxPos FlexUint64 `json:"max"`
 	}
 
 	// Split by semicolon and take the first query statement

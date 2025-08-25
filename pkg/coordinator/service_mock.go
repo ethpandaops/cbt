@@ -12,14 +12,16 @@ type MockService struct {
 	mu sync.Mutex
 
 	// Control behavior
-	StartFunc   func(ctx context.Context) error
-	StopFunc    func() error
-	ProcessFunc func(transformation models.Transformation, direction Direction)
+	StartFunc                      func(ctx context.Context) error
+	StopFunc                       func() error
+	ProcessFunc                    func(transformation models.Transformation, direction Direction)
+	ProcessBoundsOrchestrationFunc func(ctx context.Context)
 
 	// Track calls for assertions
-	StartCalls   []context.Context
-	StopCalls    int
-	ProcessCalls []ProcessCall
+	StartCalls                      []context.Context
+	StopCalls                       int
+	ProcessCalls                    []ProcessCall
+	ProcessBoundsOrchestrationCalls []context.Context
 }
 
 // ProcessCall records a Process method call
@@ -74,6 +76,18 @@ func (m *MockService) Process(transformation models.Transformation, direction Di
 
 	if m.ProcessFunc != nil {
 		m.ProcessFunc(transformation, direction)
+	}
+}
+
+// ProcessBoundsOrchestration implements Service
+func (m *MockService) ProcessBoundsOrchestration(ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ProcessBoundsOrchestrationCalls = append(m.ProcessBoundsOrchestrationCalls, ctx)
+
+	if m.ProcessBoundsOrchestrationFunc != nil {
+		m.ProcessBoundsOrchestrationFunc(ctx)
 	}
 }
 

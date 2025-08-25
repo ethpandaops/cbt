@@ -160,6 +160,10 @@ Models support Go template syntax with the following variables:
 - `{{ .clickhouse.local_suffix }}` - Local table suffix for cluster setups
 - `{{ .self.database }}` - Current model's database
 - `{{ .self.table }}` - Current model's table
+- `{{ .cache.is_incremental_scan }}` - Boolean indicating if this is an incremental scan
+- `{{ .cache.is_full_scan }}` - Boolean indicating if this is a full scan
+- `{{ .cache.previous_min }}` - Previous minimum bound (for incremental scans)
+- `{{ .cache.previous_max }}` - Previous maximum bound (for incremental scans)
 
 #### Example
 
@@ -167,14 +171,29 @@ Models support Go template syntax with the following variables:
 ---
 database: ethereum
 table: beacon_blocks
-ttl: 60s # Optional: how long to cache the min/max bounds for to reduce queries to the source data
-lag: 30  # Optional: ignore last 30 seconds of data to avoid incomplete data
+cache:  # Optional (strongly recommended): configure bounds caching to reduce queries to source data
+  incremental_scan_interval: 10s  # How often to check for new data outside known bounds
+  full_scan_interval: 5m          # How often to do a full table scan to verify bounds
+lag: 30  # Optional: ignore last 30 positions of data to avoid incomplete data
 ---
 SELECT 
     toUnixTimestamp(min(slot_start_date_time)) as min,
     toUnixTimestamp(max(slot_start_date_time)) as max
 FROM `{{ .self.database }}`.`{{ .self.table }}` FINAL
+{{ if .cache.is_incremental_scan }}
+WHERE slot_start_date_time < fromUnixTimestamp({{ .cache.previous_min }})
+   OR slot_start_date_time > fromUnixTimestamp({{ .cache.previous_max }})
+{{ end }}
 ```
+
+#### Cache Configuration
+
+The `cache` configuration optimizes how CBT queries external data sources:
+
+- **`incremental_scan_interval`**: Performs a lightweight query checking only for data outside the last known bounds. This avoids full table scans on large tables.
+- **`full_scan_interval`**: Periodically performs a complete table scan to ensure accuracy and catch any data that might have been added within the previously known range.
+
+When no cache exists (first run), a full scan is always performed. The cache persists in Redis without expiration, ensuring bounds are available even after restarts.
 
 ### Transformation Models
 
@@ -474,7 +493,7 @@ CBT uses a sophisticated validation system to determine when a model can process
 
 1. **External Models**: Query their min/max SQL to get available data range
    - If `lag` is configured: `adjusted_max = max - lag` (to avoid incomplete recent data)
-   - These bounds are cached based on the `ttl` configuration
+   - These bounds are cached persistently with periodic updates based on the `cache` configuration
 
 2. **Transformation Models**: Query the admin table for processed data range
    - `min`: First processed position (earliest data available)

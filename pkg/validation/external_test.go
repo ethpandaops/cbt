@@ -50,7 +50,7 @@ func (m *testClickHouseClient) Stop() error {
 
 // Simple mock admin service
 type testAdminService struct {
-	cacheManager *admin.CacheManager
+	externalBounds *admin.BoundsCache
 }
 
 func (m *testAdminService) GetLastProcessedEndPosition(_ context.Context, _ string) (uint64, error) {
@@ -85,8 +85,12 @@ func (m *testAdminService) ConsolidateHistoricalData(_ context.Context, _ string
 	return 0, nil
 }
 
-func (m *testAdminService) GetCacheManager() *admin.CacheManager {
-	return m.cacheManager
+func (m *testAdminService) GetExternalBounds(_ context.Context, _ string) (*admin.BoundsCache, error) {
+	return nil, nil
+}
+
+func (m *testAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
+	return nil
 }
 
 func (m *testAdminService) GetAdminDatabase() string {
@@ -127,7 +131,7 @@ type modelServiceAdapter struct {
 	testModels *testModelsService
 }
 
-func (a *modelServiceAdapter) RenderExternal(model models.External) (string, error) {
+func (a *modelServiceAdapter) RenderExternal(model models.External, _ map[string]interface{}) (string, error) {
 	return a.testModels.RenderExternal(model)
 }
 
@@ -322,7 +326,7 @@ WHERE 1=0`,
 
 			// Create nil cache manager for testing (cache miss scenario)
 			mockAdmin := &testAdminService{
-				cacheManager: nil,
+				externalBounds: nil,
 			}
 
 			mockModels := &testModelsService{
@@ -330,13 +334,15 @@ WHERE 1=0`,
 			}
 
 			// Configure the external model
-			ttl := time.Second * 30
 			externalModel := &testExternalModel{
 				config: external.Config{
 					Database: "ethereum",
 					Table:    "blocks",
-					TTL:      &ttl,
-					Lag:      0,
+					Cache: &external.CacheConfig{
+						IncrementalScanInterval: 10 * time.Second,
+						FullScanInterval:        5 * time.Minute,
+					},
+					Lag: 0,
 				},
 			}
 
@@ -435,7 +441,7 @@ func TestFlexUint64(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var f flexUint64
+			var f FlexUint64
 			err := json.Unmarshal([]byte(tt.input), &f)
 
 			if tt.expectError {

@@ -23,6 +23,10 @@ var (
 	ErrModelConfigNotFound = errors.New("model configuration not found")
 	// ErrDependenciesNotSatisfied is returned when dependencies are not satisfied
 	ErrDependenciesNotSatisfied = errors.New("dependencies not satisfied")
+	// ErrModelIDNotFound is returned when model_id is not found in payload
+	ErrModelIDNotFound = errors.New("model_id not found in payload")
+	// ErrCacheManagerUnavailable is returned when cache manager is not available
+	ErrCacheManagerUnavailable = errors.New("cache manager not available")
 )
 
 // getWorkerID returns the worker ID based on hostname
@@ -57,6 +61,7 @@ type TaskContext struct {
 type Executor interface {
 	Execute(ctx context.Context, taskCtx interface{}) error
 	Validate(ctx context.Context, taskCtx interface{}) error
+	UpdateBounds(ctx context.Context, modelID string) error
 }
 
 // NewTaskHandler creates a new task handler
@@ -197,9 +202,51 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 	return nil
 }
 
+// HandleBoundsCache handles bounds cache update tasks for external models
+func (h *TaskHandler) HandleBoundsCache(ctx context.Context, t *asynq.Task) error {
+	var payload map[string]string
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		observability.RecordError("bounds-handler", "unmarshal_error")
+		return fmt.Errorf("failed to unmarshal bounds payload: %w", err)
+	}
+
+	modelID, ok := payload["model_id"]
+	if !ok {
+		observability.RecordError("bounds-handler", "missing_model_id")
+		return ErrModelIDNotFound
+	}
+
+	startTime := time.Now()
+
+	workerID := getWorkerID()
+
+	h.log.WithField("model_id", modelID).Debug("Calling modelExecutor.UpdateBounds")
+
+	if err := h.modelExecutor.UpdateBounds(ctx, modelID); err != nil {
+		h.log.WithError(err).WithField("model_id", modelID).Error("Model update bounds failed")
+		observability.RecordTaskComplete(modelID, workerID, "failed", time.Since(startTime).Seconds())
+		observability.RecordError("task-handler", "execution_error")
+
+		return fmt.Errorf("execution error: %w", err)
+	}
+
+	h.log.WithField("model_id", modelID).Debug("Model execution completed")
+
+	// Record successful completion
+	observability.RecordTaskComplete(modelID, workerID, "success", time.Since(startTime).Seconds())
+
+	h.log.WithFields(logrus.Fields{
+		"model_id": modelID,
+		"duration": time.Since(startTime),
+	}).Info("Task completed successfully")
+
+	return nil
+}
+
 // Routes returns the task handler routes for Asynq
 func (h *TaskHandler) Routes() map[string]asynq.HandlerFunc {
 	return map[string]asynq.HandlerFunc{
 		TypeModelTransformation: h.HandleTransformation,
+		"bounds:cache":          h.HandleBoundsCache,
 	}
 }

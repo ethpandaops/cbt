@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,14 +37,9 @@ type Service interface {
 
 	// Process handles transformation processing in the specified direction
 	Process(transformation models.Transformation, direction Direction)
-}
 
-// PositionTracker defines the minimal interface needed from admin service
-type PositionTracker interface {
-	GetLastProcessedEndPosition(ctx context.Context, modelID string) (uint64, error)
-	GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error)
-	GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error)
-	FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]admin.GapInfo, error)
+	// ProcessBoundsOrchestration handles bounds orchestration for external models
+	ProcessBoundsOrchestration(ctx context.Context)
 }
 
 // Direction represents the processing direction for tasks
@@ -54,6 +50,9 @@ const (
 	DirectionForward Direction = "forward"
 	// DirectionBack processes tasks in backward direction
 	DirectionBack Direction = "back"
+
+	// BoundsCacheTaskType is the task type for external bounds cache updates
+	BoundsCacheTaskType = "bounds:cache"
 )
 
 // taskOperation represents an operation on the processed tasks tracker
@@ -76,7 +75,7 @@ type service struct {
 
 	redisOpt  *redis.Options
 	dag       models.DAGReader
-	admin     PositionTracker
+	admin     admin.Service
 	validator validation.Validator
 
 	queueManager   *tasks.QueueManager
@@ -85,7 +84,7 @@ type service struct {
 }
 
 // NewService creates a new coordinator service
-func NewService(log logrus.FieldLogger, redisOpt *redis.Options, dag models.DAGReader, adminService PositionTracker, validator validation.Validator) (Service, error) {
+func NewService(log logrus.FieldLogger, redisOpt *redis.Options, dag models.DAGReader, adminService admin.Service, validator validation.Validator) (Service, error) {
 	return &service{
 		log:       log.WithField("service", "coordinator"),
 		redisOpt:  redisOpt,
@@ -721,19 +720,12 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 
 // RunConsolidation performs admin table consolidation for all models
 func (s *service) RunConsolidation(ctx context.Context) {
-	// Get admin service
-	adminService, ok := s.admin.(admin.Service)
-	if !ok {
-		s.log.Debug("Admin service doesn't support consolidation")
-		return
-	}
-
 	transformations := s.dag.GetTransformationNodes()
 	for _, transformation := range transformations {
 		modelID := transformation.GetID()
 
 		// Try to consolidate
-		consolidated, err := adminService.ConsolidateHistoricalData(ctx, modelID)
+		consolidated, err := s.admin.ConsolidateHistoricalData(ctx, modelID)
 		if err != nil {
 			if consolidated > 0 {
 				s.log.WithError(err).WithField("model_id", modelID).Debug("Consolidation partially succeeded")
@@ -748,6 +740,111 @@ func (s *service) RunConsolidation(ctx context.Context) {
 			}).Info("Consolidated admin.cbt rows")
 		}
 	}
+}
+
+// ProcessBoundsOrchestration checks all external models and enqueues bounds update tasks as needed
+func (s *service) ProcessBoundsOrchestration(ctx context.Context) {
+	// Get all external models from DAG
+	externalNodes := s.dag.GetExternalNodes()
+
+	if len(externalNodes) == 0 {
+		s.log.Debug("No external models to check for bounds updates")
+		return
+	}
+
+	now := time.Now()
+
+	for _, node := range externalNodes {
+		model, ok := node.Model.(models.External)
+		if !ok {
+			s.log.WithField("node_type", node.NodeType).Error("Invalid external node type")
+			continue
+		}
+		modelID := model.GetID()
+		config := model.GetConfig()
+
+		// Skip if cache config not defined
+		if config.Cache == nil {
+			s.log.WithField("model_id", modelID).Debug("Skipping model without cache config")
+			continue
+		}
+
+		// Get current cache entry
+		cache, err := s.admin.GetExternalBounds(ctx, modelID)
+		if err != nil {
+			s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get cache bounds")
+			continue
+		}
+
+		// Determine if update is needed
+		needsUpdate := false
+
+		if cache == nil {
+			// No cache entry - needs initial full scan
+			s.log.WithField("model_id", modelID).Debug("No cache entry, needs initial bounds")
+			needsUpdate = true
+		} else {
+			// Check if incremental or full scan is due
+			if now.Sub(cache.LastFullScan) > config.Cache.FullScanInterval {
+				s.log.WithFields(logrus.Fields{
+					"model_id":       modelID,
+					"last_full_scan": cache.LastFullScan,
+					"interval":       config.Cache.FullScanInterval,
+				}).Debug("Full scan interval exceeded")
+				needsUpdate = true
+			} else if now.Sub(cache.LastIncrementalScan) > config.Cache.IncrementalScanInterval {
+				s.log.WithFields(logrus.Fields{
+					"model_id":              modelID,
+					"last_incremental_scan": cache.LastIncrementalScan,
+					"interval":              config.Cache.IncrementalScanInterval,
+				}).Debug("Incremental scan interval exceeded")
+				needsUpdate = true
+			}
+		}
+
+		if needsUpdate {
+			// Enqueue bounds update task
+			s.enqueueBoundsUpdate(ctx, modelID)
+		}
+	}
+}
+
+// enqueueBoundsUpdate enqueues a bounds cache update task for an external model
+func (s *service) enqueueBoundsUpdate(_ context.Context, modelID string) {
+	// Create unique task ID
+	taskID := fmt.Sprintf("bounds:cache:%s", modelID)
+
+	// Create task payload
+	payload := map[string]string{
+		"model_id": modelID,
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to marshal bounds task payload")
+		return
+	}
+
+	// Create task with unique ID to prevent duplicates
+	task := asynq.NewTask(BoundsCacheTaskType, payloadBytes,
+		asynq.TaskID(taskID),
+		asynq.Queue(modelID),
+		asynq.MaxRetry(0),
+		asynq.Timeout(5*time.Minute),
+	)
+
+	// Enqueue the task
+	if _, err := s.queueManager.Enqueue(task); err != nil {
+		if strings.Contains(err.Error(), "task ID conflicts with another task") || strings.Contains(err.Error(), "task already exists") {
+			s.log.WithField("model_id", modelID).Warn("Bounds update task already exists")
+		} else {
+			s.log.WithError(err).WithField("model_id", modelID).Error("Failed to enqueue bounds update task")
+		}
+
+		return
+	}
+
+	s.log.WithField("model_id", modelID).Debug("Enqueued bounds update task")
 }
 
 // Ensure service implements the interface

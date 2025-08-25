@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/models/external"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
+	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/ethpandaops/cbt/pkg/tasks"
+	"github.com/ethpandaops/cbt/pkg/validation"
 	"github.com/sirupsen/logrus"
 )
 
@@ -21,24 +25,187 @@ var (
 	ErrInvalidTaskContext        = errors.New("invalid task context type")
 	ErrInvalidTransformationType = errors.New("invalid transformation type")
 	ErrTableDoesNotExist         = errors.New("table does not exist")
+	ErrCacheManagerUnavailable   = errors.New("cache manager not available")
 )
 
 // ModelExecutor implements the execution of model transformations
 type ModelExecutor struct {
-	logger   logrus.FieldLogger
+	log      logrus.FieldLogger
 	chClient clickhouse.ClientInterface
 	models   models.Service
 	admin    admin.Service
 }
 
 // NewModelExecutor creates a new model executor
-func NewModelExecutor(logger logrus.FieldLogger, chClient clickhouse.ClientInterface, modelsService models.Service, adminManager admin.Service) *ModelExecutor {
+func NewModelExecutor(log logrus.FieldLogger, chClient clickhouse.ClientInterface, modelsService models.Service, adminManager admin.Service) *ModelExecutor {
 	return &ModelExecutor{
-		logger:   logger,
+		log:      log,
 		chClient: chClient,
 		models:   modelsService,
 		admin:    adminManager,
 	}
+}
+
+// UpdateBounds updates the external model bounds cache
+func (e *ModelExecutor) UpdateBounds(ctx context.Context, modelID string) error {
+	// Get the external model from DAG
+	externalModel, err := e.models.GetDAG().GetExternalNode(modelID)
+	if err != nil {
+		e.log.WithError(err).WithField("model_id", modelID).Error("Failed to get external model")
+		observability.RecordError("bounds-handler", "model_not_found")
+		return fmt.Errorf("failed to get external model %s: %w", modelID, err)
+	}
+
+	// Get current cache entry to determine scan type
+	cache, err := e.admin.GetExternalBounds(ctx, modelID)
+	if err != nil {
+		e.log.WithError(err).WithField("model_id", modelID).Warn("Failed to get cache bounds")
+	}
+
+	config := externalModel.GetConfig()
+	now := time.Now()
+
+	// Determine scan type
+	isIncrementalScan, isFullScan := e.determineScanType(modelID, cache, config, now)
+
+	// Build cache state for template rendering
+	cacheState := map[string]interface{}{
+		"is_incremental_scan": isIncrementalScan,
+		"is_full_scan":        isFullScan,
+	}
+
+	// Add previous bounds if available
+	if cache != nil {
+		cacheState["previous_min"] = cache.PreviousMin
+		cacheState["previous_max"] = cache.PreviousMax
+	}
+
+	e.log.WithFields(logrus.Fields{
+		"model_id":            modelID,
+		"is_incremental_scan": isIncrementalScan,
+		"is_full_scan":        isFullScan,
+		"cache_state":         cacheState,
+	}).Debug("Determined scan type and cache state")
+
+	// Query bounds with cache state
+	minBound, maxBound, err := e.queryExternalBounds(ctx, modelID, externalModel, cacheState)
+	if err != nil {
+		return fmt.Errorf("failed to query external bounds for %s: %w", modelID, err)
+	}
+
+	// Handle no new data case for incremental scans
+	if isIncrementalScan && minBound == 0 && maxBound == 0 && cache != nil {
+		// No new data found, keep existing bounds
+		e.log.WithField("model_id", modelID).Debug("No new data found in incremental scan, keeping existing bounds")
+		minBound = cache.Min
+		maxBound = cache.Max
+	}
+
+	// Store raw bounds in cache without applying lag
+	// Lag will be applied consistently by the validator when reading bounds
+	if err := e.updateBoundsCache(ctx, modelID, minBound, maxBound, cache, isIncrementalScan, now); err != nil {
+		return fmt.Errorf("failed to update bounds cache for %s: %w", modelID, err)
+	}
+
+	return nil
+}
+
+// determineScanType determines whether to perform an incremental or full scan
+func (e *ModelExecutor) determineScanType(modelID string, cache *admin.BoundsCache, config external.Config, now time.Time) (isIncrementalScan, isFullScan bool) {
+	switch {
+	case cache == nil:
+		// No cache - do full scan
+		isFullScan = true
+		e.log.WithField("model_id", modelID).Debug("No cache entry, performing initial full scan")
+	case config.Cache != nil && now.Sub(cache.LastFullScan) > config.Cache.FullScanInterval:
+		// Time for full scan
+		isFullScan = true
+		e.log.WithFields(logrus.Fields{
+			"model_id":       modelID,
+			"last_full_scan": cache.LastFullScan,
+			"interval":       config.Cache.FullScanInterval,
+		}).Debug("Performing periodic full scan")
+	default:
+		// Incremental scan
+		isIncrementalScan = true
+		e.log.WithField("model_id", modelID).Debug("Performing incremental scan")
+	}
+	return isIncrementalScan, isFullScan
+}
+
+// queryExternalBounds executes the query to get bounds for an external model
+func (e *ModelExecutor) queryExternalBounds(ctx context.Context, modelID string, externalModel models.External, cacheState map[string]interface{}) (minBound, maxBound uint64, err error) {
+	// Render the external model query with cache state
+	query, err := e.models.RenderExternal(externalModel, cacheState)
+	if err != nil {
+		e.log.WithError(err).WithFields(logrus.Fields{
+			"model_id":    modelID,
+			"cache_state": cacheState,
+		}).Error("Failed to render external model query")
+		observability.RecordError("bounds-handler", "render_error")
+		return 0, 0, fmt.Errorf("failed to render external model %s: %w", modelID, err)
+	}
+
+	// Execute the query to get bounds
+	var result struct {
+		Min validation.FlexUint64 `json:"min"`
+		Max validation.FlexUint64 `json:"max"`
+	}
+
+	e.log.WithFields(logrus.Fields{
+		"model_id":    modelID,
+		"cache_state": cacheState,
+		"query":       query,
+	}).Debug("Executing bounds query")
+
+	if err := e.chClient.QueryOne(ctx, query, &result); err != nil {
+		e.log.WithError(err).WithFields(logrus.Fields{
+			"model_id":    modelID,
+			"cache_state": cacheState,
+			"query":       query,
+		}).Error("Failed to query bounds")
+		observability.RecordError("bounds-handler", "query_error")
+		return 0, 0, fmt.Errorf("failed to query bounds for %s: %w", modelID, err)
+	}
+
+	e.log.WithFields(logrus.Fields{
+		"model_id": modelID,
+		"min":      result.Min,
+		"max":      result.Max,
+	}).Debug("Bounds query successful")
+
+	return uint64(result.Min), uint64(result.Max), nil
+}
+
+// updateBoundsCache updates the bounds cache with new values
+func (e *ModelExecutor) updateBoundsCache(ctx context.Context, modelID string, minBound, maxBound uint64, existingCache *admin.BoundsCache, isIncrementalScan bool, now time.Time) error {
+	newCache := &admin.BoundsCache{
+		ModelID:     modelID,
+		Min:         minBound,
+		Max:         maxBound,
+		PreviousMin: minBound,
+		PreviousMax: maxBound,
+		UpdatedAt:   now,
+	}
+
+	if isIncrementalScan {
+		newCache.LastIncrementalScan = now
+		// Keep the previous full scan time
+		if existingCache != nil {
+			newCache.LastFullScan = existingCache.LastFullScan
+		}
+	} else {
+		newCache.LastFullScan = now
+		newCache.LastIncrementalScan = now
+	}
+
+	if err := e.admin.SetExternalBounds(ctx, newCache); err != nil {
+		e.log.WithError(err).WithField("model_id", modelID).Error("Failed to update cache")
+		observability.RecordError("bounds-handler", "cache_update_error")
+		return fmt.Errorf("failed to update cache for %s: %w", modelID, err)
+	}
+
+	return nil
 }
 
 // Execute runs the model transformation
@@ -55,7 +222,7 @@ func (e *ModelExecutor) Execute(ctx context.Context, taskCtxInterface interface{
 
 	config := taskCtx.Transformation.GetConfig()
 
-	e.logger.WithFields(logrus.Fields{
+	e.log.WithFields(logrus.Fields{
 		"model_id": fmt.Sprintf("%s.%s", config.Database, config.Table),
 		"position": taskCtx.Position,
 		"interval": taskCtx.Interval,
@@ -114,7 +281,7 @@ func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskConte
 	// Simple split by semicolon
 	statements := strings.Split(renderedSQL, ";")
 
-	e.logger.WithFields(logrus.Fields{
+	e.log.WithFields(logrus.Fields{
 		"count":    len(statements),
 		"model_id": fmt.Sprintf("%s.%s", config.Database, config.Table),
 	}).Info("Split SQL into statements")
@@ -132,7 +299,7 @@ func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskConte
 			logSQL = stmt[:500] + "..."
 		}
 
-		e.logger.WithFields(logrus.Fields{
+		e.log.WithFields(logrus.Fields{
 			"statement_num": i + 1,
 			"total":         len(statements),
 			"model_id":      fmt.Sprintf("%s.%s", config.Database, config.Table),
@@ -140,7 +307,7 @@ func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskConte
 		}).Info("Executing SQL statement")
 
 		if err := e.chClient.Execute(ctx, stmt); err != nil {
-			e.logger.WithFields(logrus.Fields{
+			e.log.WithFields(logrus.Fields{
 				"statement": i + 1,
 				"sql":       logSQL,
 				"error":     err.Error(),
@@ -149,7 +316,7 @@ func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskConte
 		}
 	}
 
-	e.logger.WithFields(logrus.Fields{
+	e.log.WithFields(logrus.Fields{
 		"model_id":   fmt.Sprintf("%s.%s", config.Database, config.Table),
 		"position":   taskCtx.Position,
 		"interval":   taskCtx.Interval,
@@ -175,7 +342,7 @@ func (e *ModelExecutor) executeCommand(ctx context.Context, taskCtx *tasks.TaskC
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		e.logger.WithFields(logrus.Fields{
+		e.log.WithFields(logrus.Fields{
 			"command": command,
 			"output":  string(output),
 			"error":   err,
@@ -183,7 +350,7 @@ func (e *ModelExecutor) executeCommand(ctx context.Context, taskCtx *tasks.TaskC
 		return fmt.Errorf("command execution failed: %w", err)
 	}
 
-	e.logger.WithFields(logrus.Fields{
+	e.log.WithFields(logrus.Fields{
 		"model_id": fmt.Sprintf("%s.%s", config.Database, config.Table),
 		"position": taskCtx.Position,
 		"interval": taskCtx.Interval,

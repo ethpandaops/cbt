@@ -256,7 +256,7 @@ func TestRenderExternal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := engine.RenderExternal(tt.model)
+			result, err := engine.RenderExternal(tt.model, nil)
 
 			if tt.expectedErr {
 				require.Error(t, err)
@@ -439,6 +439,6 @@ func BenchmarkRenderExternal(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = engine.RenderExternal(model)
+		_, _ = engine.RenderExternal(model, nil)
 	}
 }

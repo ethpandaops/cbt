@@ -468,6 +468,10 @@ func (m *mockDAGReader) GetTransformationNodes() []models.Transformation {
 	return m.transformations
 }
 
+func (m *mockDAGReader) GetExternalNodes() []models.Node {
+	return []models.Node{}
+}
+
 func (m *mockDAGReader) IsPathBetween(_, _ string) bool {
 	return false
 }
@@ -494,6 +498,10 @@ func (m *mockCoordinator) Process(_ models.Transformation, _ coordinator.Directi
 
 func (m *mockCoordinator) RunConsolidation(_ context.Context) {
 	m.consolidationCalls++
+}
+
+func (m *mockCoordinator) ProcessBoundsOrchestration(_ context.Context) {
+	// Mock implementation - does nothing
 }
 
 var _ coordinator.Service = (*mockCoordinator)(nil)
