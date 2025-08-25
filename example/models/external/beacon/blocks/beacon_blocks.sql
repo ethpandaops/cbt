@@ -3,7 +3,7 @@ database: ethereum
 table: beacon_blocks
 cache:
   incremental_scan_interval: 10s
-  full_scan_interval: 5m
+  full_scan_interval: 1h
 lag: 10
 ---
 SELECT 

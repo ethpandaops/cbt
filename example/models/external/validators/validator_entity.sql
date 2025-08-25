@@ -3,7 +3,7 @@ database: ethereum
 table: validator_entity
 cache:
   incremental_scan_interval: 10s
-  full_scan_interval: 1m
+  full_scan_interval: 1h
 lag: 10
 ---
 SELECT 
