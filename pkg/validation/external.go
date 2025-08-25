@@ -155,6 +155,8 @@ func (e *ExternalModelValidator) GetMinMax(ctx context.Context, model models.Ext
 
 	// Try to get from cache
 	if cachedMin, cachedMax, found := e.tryGetFromCache(ctx, model); found {
+		// Record the raw bounds in metrics
+		observability.RecordModelBounds(modelID, cachedMin, cachedMax)
 		minPos, maxPos = e.applyLag(model, cachedMin, cachedMax, true)
 		return minPos, maxPos, nil
 	}
@@ -191,6 +193,9 @@ func (e *ExternalModelValidator) GetMinMax(ctx context.Context, model models.Ext
 		// Log error but don't fail the operation - cache is not critical
 		e.log.WithError(err).WithField("model_id", model.GetID()).Debug("Failed to store in cache")
 	}
+
+	// Record the raw bounds in metrics
+	observability.RecordModelBounds(modelID, uint64(result.MinPos), uint64(result.MaxPos))
 
 	// Apply lag if configured
 	minPos, maxPos = e.applyLag(model, uint64(result.MinPos), uint64(result.MaxPos), false)

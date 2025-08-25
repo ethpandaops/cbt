@@ -683,9 +683,6 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		"position": payload.Position,
 	}).Debug("Task completed, checking dependents")
 
-	// Update model position metrics
-	observability.ModelLastPosition.WithLabelValues(payload.ModelID).Set(float64(payload.Position))
-
 	// Get models that depend on this one
 	dependents := s.dag.GetDependents(payload.ModelID)
 

@@ -35,24 +35,6 @@ var (
 		[]string{"model", "worker"},
 	)
 
-	// ModelPositionLag measures how far behind real-time the model is
-	ModelPositionLag = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cbt_model_position_lag_seconds",
-			Help: "How far behind real-time the model is (in seconds)",
-		},
-		[]string{"model"},
-	)
-
-	// ModelLastPosition tracks the last processed position timestamp
-	ModelLastPosition = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cbt_model_last_position",
-			Help: "Last processed position (unix timestamp)",
-		},
-		[]string{"model"},
-	)
-
 	// DependencyValidationTotal counts total dependency validation attempts
 	DependencyValidationTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -105,7 +87,7 @@ var (
 			Name: "cbt_scheduled_tasks_registered",
 			Help: "Number of scheduled tasks currently registered",
 		},
-		[]string{"model_id", "operation"}, // operation: forward/backfill
+		[]string{"model", "operation"}, // operation: forward/backfill
 	)
 
 	// ScheduledTaskExecutions tracks scheduled task executions
@@ -114,7 +96,7 @@ var (
 			Name: "cbt_scheduled_task_executions_total",
 			Help: "Total number of scheduled task executions",
 		},
-		[]string{"model_id", "operation", "status"}, // status: success/failure
+		[]string{"model", "operation", "status"}, // status: success/failure
 	)
 
 	// ArchivedTasksDeleted tracks tasks deleted from archive
@@ -124,6 +106,15 @@ var (
 			Help: "Total number of archived tasks deleted",
 		},
 		[]string{"queue", "model"},
+	)
+
+	// ModelBounds tracks the min and max bounds for all models (external and transformations)
+	ModelBounds = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "cbt_model_bounds",
+			Help: "Current bounds (min/max positions) for all models",
+		},
+		[]string{"model", "bound_type"}, // bound_type: min, max
 	)
 )
 
@@ -163,4 +154,20 @@ func RecordExternalCacheMiss(model string) {
 // RecordArchivedTaskDeleted records an archived task being deleted
 func RecordArchivedTaskDeleted(queue, model string) {
 	ArchivedTasksDeleted.WithLabelValues(queue, model).Inc()
+}
+
+// RecordScheduledTaskRegistered records when a scheduled task is registered
+func RecordScheduledTaskRegistered(model, operation string) {
+	ScheduledTasksRegistered.WithLabelValues(model, operation).Inc()
+}
+
+// RecordScheduledTaskExecution records when a scheduled task is executed
+func RecordScheduledTaskExecution(model, operation, status string) {
+	ScheduledTaskExecutions.WithLabelValues(model, operation, status).Inc()
+}
+
+// RecordModelBounds records the min and max bounds for a model
+func RecordModelBounds(model string, minBound, maxBound uint64) {
+	ModelBounds.WithLabelValues(model, "min").Set(float64(minBound))
+	ModelBounds.WithLabelValues(model, "max").Set(float64(maxBound))
 }

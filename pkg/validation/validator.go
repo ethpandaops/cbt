@@ -9,6 +9,7 @@ import (
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/sirupsen/logrus"
 )
 
@@ -304,6 +305,9 @@ func (v *dependencyValidator) collectTransformationBounds(ctx context.Context, d
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get last position for %s: %w", depID, err)
 	}
+
+	// Record transformation bounds in metrics
+	observability.RecordModelBounds(depID, minDep, maxDep)
 
 	return minDep, maxDep, nil
 }
