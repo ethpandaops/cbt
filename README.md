@@ -271,7 +271,7 @@ Models can execute external scripts instead of SQL. The script receives environm
 
 Environment variables provided to scripts:
 - `CLICKHOUSE_URL`: Connection URL (e.g., `clickhouse://host:9000`)
-- `RANGE_START`, `RANGE_END`: Unix timestamps for processing interval
+- `BOUNDS_START`, `BOUNDS_END`: Bounds for processing
 - `TASK_START`: Task execution timestamp
 - `SELF_DATABASE`, `SELF_TABLE`: Target table info
 - `DEP_<MODEL>_DATABASE`, `DEP_<MODEL>_TABLE`: Dependency info

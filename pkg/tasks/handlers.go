@@ -175,23 +175,6 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 	// Record successful completion
 	observability.RecordTaskComplete(payload.ModelID, workerID, "success", time.Since(startTime).Seconds())
 
-	// Update model position metrics
-	observability.ModelLastPosition.WithLabelValues(payload.ModelID).Set(float64(payload.Position))
-	// Calculate lag safely
-	currentTimeUnix := time.Now().Unix()
-	if currentTimeUnix > 0 {
-		// Safe conversion: we know currentTimeUnix is positive
-		currentTimeUint := uint64(currentTimeUnix) //nolint:gosec // checked positive above
-		if currentTimeUint > payload.Position {
-			lag := currentTimeUint - payload.Position
-			observability.ModelPositionLag.WithLabelValues(payload.ModelID).Set(float64(lag))
-		} else {
-			observability.ModelPositionLag.WithLabelValues(payload.ModelID).Set(0)
-		}
-	} else {
-		observability.ModelPositionLag.WithLabelValues(payload.ModelID).Set(0)
-	}
-
 	h.log.WithFields(logrus.Fields{
 		"model_id": payload.ModelID,
 		"position": payload.Position,

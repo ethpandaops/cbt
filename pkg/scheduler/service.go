@@ -272,7 +272,7 @@ func (s *service) registerScheduledTask(taskType, schedule string) error {
 		}).Info("Registered consolidation task")
 
 		// Update metrics for consolidation
-		observability.ScheduledTasksRegistered.WithLabelValues("consolidation", "maintenance").Set(1)
+		observability.RecordScheduledTaskRegistered("consolidation", "maintenance")
 	} else {
 		// Regular transformation task
 		modelID := extractModelID(taskType)
@@ -290,7 +290,7 @@ func (s *service) registerScheduledTask(taskType, schedule string) error {
 		}).Info("Registered scheduled task")
 
 		// Update metrics
-		observability.ScheduledTasksRegistered.WithLabelValues(modelID, string(operation)).Set(1)
+		observability.RecordScheduledTaskRegistered(modelID, string(operation))
 	}
 
 	return nil
@@ -336,9 +336,7 @@ func (s *service) HandleScheduledForward(_ context.Context, t *asynq.Task) error
 	s.coordinator.Process(transformation, coordinator.DirectionForward)
 
 	// Record metrics
-	observability.ScheduledTaskExecutions.WithLabelValues(
-		modelID, string(coordinator.DirectionForward), "success",
-	).Inc()
+	observability.RecordScheduledTaskExecution(modelID, string(coordinator.DirectionForward), "success")
 
 	return nil
 }
@@ -420,9 +418,7 @@ func (s *service) HandleScheduledBackfill(_ context.Context, t *asynq.Task) erro
 	s.coordinator.Process(transformation, coordinator.DirectionBack)
 
 	// Record metrics
-	observability.ScheduledTaskExecutions.WithLabelValues(
-		modelID, string(coordinator.DirectionBack), "success",
-	).Inc()
+	observability.RecordScheduledTaskExecution(modelID, string(coordinator.DirectionBack), "success")
 
 	return nil
 }
