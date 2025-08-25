@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -827,13 +828,18 @@ func (s *service) enqueueBoundsUpdate(_ context.Context, modelID string) {
 	// Create task with unique ID to prevent duplicates
 	task := asynq.NewTask(BoundsCacheTaskType, payloadBytes,
 		asynq.TaskID(taskID),
-		asynq.Unique(30*time.Second), // Don't re-enqueue for 30s
-		asynq.Queue(modelID),         // Use the model's queue
+		asynq.Queue(modelID),
+		asynq.MaxRetry(0),
+		asynq.Timeout(5*time.Minute),
 	)
 
 	// Enqueue the task
 	if _, err := s.queueManager.Enqueue(task); err != nil {
-		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to enqueue bounds update task")
+		if strings.Contains(err.Error(), "task ID conflicts with another task") || strings.Contains(err.Error(), "task already exists") {
+			s.log.WithField("model_id", modelID).Warn("Bounds update task already exists")
+		} else {
+			s.log.WithError(err).WithField("model_id", modelID).Error("Failed to enqueue bounds update task")
+		}
 
 		return
 	}

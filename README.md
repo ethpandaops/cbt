@@ -171,7 +171,7 @@ Models support Go template syntax with the following variables:
 ---
 database: ethereum
 table: beacon_blocks
-cache:  # Optional: configure bounds caching to reduce queries to source data
+cache:  # Optional (strongly recommended): configure bounds caching to reduce queries to source data
   incremental_scan_interval: 10s  # How often to check for new data outside known bounds
   full_scan_interval: 5m          # How often to do a full table scan to verify bounds
 lag: 30  # Optional: ignore last 30 positions of data to avoid incomplete data
