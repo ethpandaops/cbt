@@ -190,8 +190,8 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 }
 
 // RenderExternal renders an external model template with variables
-func (t *TemplateEngine) RenderExternal(model External) (string, error) {
-	variables := t.buildExternalVariables(model)
+func (t *TemplateEngine) RenderExternal(model External, cacheState map[string]interface{}) (string, error) {
+	variables := t.buildExternalVariables(model, cacheState)
 
 	tmpl, err := template.New("model").Funcs(t.funcMap).Parse(model.GetValue())
 	if err != nil {
@@ -206,7 +206,7 @@ func (t *TemplateEngine) RenderExternal(model External) (string, error) {
 	return buf.String(), nil
 }
 
-func (t *TemplateEngine) buildExternalVariables(model External) map[string]interface{} {
+func (t *TemplateEngine) buildExternalVariables(model External, cacheState map[string]interface{}) map[string]interface{} {
 	config := model.GetConfig()
 
 	variables := map[string]interface{}{
@@ -218,6 +218,11 @@ func (t *TemplateEngine) buildExternalVariables(model External) map[string]inter
 			"database": config.Database,
 			"table":    config.Table,
 		},
+	}
+
+	// Add cache state if provided
+	if cacheState != nil {
+		variables["cache"] = cacheState
 	}
 
 	return variables

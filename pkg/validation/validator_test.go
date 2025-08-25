@@ -425,6 +425,7 @@ func (m *mockDAGReader) GetDependents(_ string) []string                 { retur
 func (m *mockDAGReader) GetAllDependencies(_ string) []string            { return []string{} }
 func (m *mockDAGReader) GetAllDependents(_ string) []string              { return []string{} }
 func (m *mockDAGReader) GetTransformationNodes() []models.Transformation { return nil }
+func (m *mockDAGReader) GetExternalNodes() []models.Node                 { return []models.Node{} }
 func (m *mockDAGReader) IsPathBetween(_, _ string) bool                  { return false }
 
 type mockAdmin struct {
@@ -790,7 +791,7 @@ func (m *mockModelsService) Stop() error              { return nil }
 func (m *mockModelsService) RenderTransformation(_ models.Transformation, _, _ uint64, _ time.Time) (string, error) {
 	return "", nil
 }
-func (m *mockModelsService) RenderExternal(_ models.External) (string, error) {
+func (m *mockModelsService) RenderExternal(_ models.External, _ map[string]interface{}) (string, error) {
 	return "", nil
 }
 func (m *mockModelsService) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time) (*[]string, error) {

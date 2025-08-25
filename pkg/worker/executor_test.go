@@ -378,7 +378,7 @@ func (m *mockExecutorModelsService) RenderTransformation(_ models.Transformation
 	}
 	return m.renderedSQL, nil
 }
-func (m *mockExecutorModelsService) RenderExternal(_ models.External) (string, error) {
+func (m *mockExecutorModelsService) RenderExternal(_ models.External, _ map[string]interface{}) (string, error) {
 	return "", nil
 }
 func (m *mockExecutorModelsService) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time) (*[]string, error) {

@@ -23,6 +23,8 @@ const (
 	TransformationTaskPrefix = "transformation:"
 	// ConsolidationTaskType is the task type for consolidation
 	ConsolidationTaskType = "consolidation"
+	// BoundsOrchestratorTaskType is the task type for bounds orchestration
+	BoundsOrchestratorTaskType = "bounds:orchestrator"
 	// QueueName is the queue name for scheduler tasks
 	QueueName = "scheduler"
 )
@@ -221,6 +223,10 @@ func (s *service) reconcileSchedules() error {
 	consolidationSchedule := s.cfg.Consolidation
 	desiredTasks[ConsolidationTaskType] = consolidationSchedule
 
+	// Register bounds orchestrator task - runs every second
+	mux.HandleFunc(BoundsOrchestratorTaskType, s.HandleBoundsOrchestrator)
+	desiredTasks[BoundsOrchestratorTaskType] = "@every 1s"
+
 	// Store the mux for later use
 	s.mux = mux
 
@@ -360,9 +366,11 @@ func (s *service) runPeriodicCleanup() {
 			// Group by task type to find duplicates
 			taskGroups := make(map[string][]*asynq.SchedulerEntry, 10) // Add capacity hint
 			for _, entry := range entries {
-				// Only process our tasks (transformation or consolidation)
+				// Only process our tasks (transformation, consolidation, or bounds orchestration)
 				taskType := entry.Task.Type()
-				if strings.HasPrefix(taskType, TransformationTaskPrefix) || taskType == ConsolidationTaskType {
+				if strings.HasPrefix(taskType, TransformationTaskPrefix) ||
+					taskType == ConsolidationTaskType ||
+					taskType == BoundsOrchestratorTaskType {
 					taskGroups[taskType] = append(taskGroups[taskType], entry)
 				}
 			}
@@ -378,6 +386,21 @@ func (s *service) runPeriodicCleanup() {
 			}
 		}
 	}
+}
+
+// HandleBoundsOrchestrator processes the bounds orchestrator task
+// This task runs every second and checks if external models need bounds updates
+func (s *service) HandleBoundsOrchestrator(ctx context.Context, _ *asynq.Task) error {
+	s.log.Debug("Running bounds orchestrator check")
+
+	// Delegate to coordinator to handle bounds orchestration
+	if boundsOrchestrator, ok := s.coordinator.(interface{ ProcessBoundsOrchestration(context.Context) }); ok {
+		boundsOrchestrator.ProcessBoundsOrchestration(ctx)
+	} else {
+		s.log.Debug("Coordinator doesn't support bounds orchestration")
+	}
+
+	return nil
 }
 
 // HandleScheduledBackfill processes scheduled backfill scans

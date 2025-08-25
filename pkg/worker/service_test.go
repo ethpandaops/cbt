@@ -310,7 +310,7 @@ func (m *mockModelsService) GetDAG() models.DAGReader {
 func (m *mockModelsService) RenderTransformation(_ models.Transformation, _, _ uint64, _ time.Time) (string, error) {
 	return "", nil
 }
-func (m *mockModelsService) RenderExternal(_ models.External) (string, error) {
+func (m *mockModelsService) RenderExternal(_ models.External, _ map[string]interface{}) (string, error) {
 	return "", nil
 }
 func (m *mockModelsService) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time) (*[]string, error) {
@@ -391,6 +391,10 @@ func (m *mockDAGReader) GetAllDependents(_ string) []string {
 
 func (m *mockDAGReader) GetTransformationNodes() []models.Transformation {
 	return m.transformations
+}
+
+func (m *mockDAGReader) GetExternalNodes() []models.Node {
+	return []models.Node{}
 }
 
 func (m *mockDAGReader) IsPathBetween(_, _ string) bool {

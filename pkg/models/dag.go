@@ -51,6 +51,9 @@ type DAGReader interface {
 	// GetTransformationNodes returns all transformation nodes
 	GetTransformationNodes() []Transformation
 
+	// GetExternalNodes returns all external nodes
+	GetExternalNodes() []Node
+
 	// IsPathBetween checks if there's a path between two nodes
 	IsPathBetween(from, to string) bool
 }
@@ -326,6 +329,24 @@ func (d *DependencyGraph) GetTransformationNodes() []Transformation {
 	}
 
 	return transformationNodes
+}
+
+// GetExternalNodes returns all external nodes from the dependency graph
+func (d *DependencyGraph) GetExternalNodes() []Node {
+	vertices := d.dag.GetVertices()
+
+	externalNodes := make([]Node, 0, len(vertices))
+	for _, vertex := range vertices {
+		node, ok := vertex.(Node)
+		if !ok {
+			continue
+		}
+		if node.NodeType == NodeTypeExternal {
+			externalNodes = append(externalNodes, node)
+		}
+	}
+
+	return externalNodes
 }
 
 // Ensure DependencyGraph implements DAGReader

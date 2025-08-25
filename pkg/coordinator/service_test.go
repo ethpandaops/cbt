@@ -152,6 +152,7 @@ func (m *mockDAGReader) GetDependents(_ string) []string                 { retur
 func (m *mockDAGReader) GetAllDependencies(_ string) []string            { return []string{} }
 func (m *mockDAGReader) GetAllDependents(_ string) []string              { return []string{} }
 func (m *mockDAGReader) GetTransformationNodes() []models.Transformation { return nil }
+func (m *mockDAGReader) GetExternalNodes() []models.Node                 { return []models.Node{} }
 func (m *mockDAGReader) IsPathBetween(_, _ string) bool                  { return false }
 
 type mockPositionTracker struct {
@@ -215,6 +216,11 @@ func (m *mockPositionTracker) FindGaps(_ context.Context, modelID string, _, _, 
 		return gaps, nil
 	}
 	return []admin.GapInfo{}, nil
+}
+
+func (m *mockPositionTracker) GetCacheManager() *admin.CacheManager {
+	// Return nil for testing - we don't need actual cache functionality in unit tests
+	return nil
 }
 
 // Mock transformation for testing

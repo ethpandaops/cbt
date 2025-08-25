@@ -66,6 +66,11 @@ func (q *QueueManager) IsTaskPendingOrRunning(task TaskPayload) (bool, error) {
 		info.State == asynq.TaskStateRetry, nil
 }
 
+// Enqueue enqueues a generic task
+func (q *QueueManager) Enqueue(task *asynq.Task, opts ...asynq.Option) (*asynq.TaskInfo, error) {
+	return q.client.Enqueue(task, opts...)
+}
+
 // Close closes the queue manager
 func (q *QueueManager) Close() error {
 	return q.client.Close()

@@ -70,12 +70,21 @@ func (s *service) Start(_ context.Context) error {
 	modelExecutor := NewModelExecutor(s.log, s.chClient, s.models, s.admin)
 
 	// Create handler with filtered models (for processing)
-	handler := tasks.NewTaskHandler(s.log, s.chClient, s.admin, s.validator, modelExecutor, transformations)
+	handler := tasks.NewTaskHandler(s.log, s.chClient, s.admin, s.validator, modelExecutor, transformations, s.models)
 
 	// Configure queues with capacity hint
 	queues := make(map[string]int, len(transformations))
 	for _, transformation := range transformations {
 		queues[transformation.GetID()] = 10
+	}
+
+	// Add queues for external models (for bounds cache tasks)
+	dag := s.models.GetDAG()
+	externalNodes := dag.GetExternalNodes()
+	for _, node := range externalNodes {
+		if external, ok := node.Model.(models.External); ok {
+			queues[external.GetID()] = 10
+		}
 	}
 
 	s.log.WithFields(logrus.Fields{

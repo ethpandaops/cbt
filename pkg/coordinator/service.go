@@ -36,6 +36,9 @@ type Service interface {
 
 	// Process handles transformation processing in the specified direction
 	Process(transformation models.Transformation, direction Direction)
+
+	// ProcessBoundsOrchestration handles bounds orchestration for external models
+	ProcessBoundsOrchestration(ctx context.Context)
 }
 
 // PositionTracker defines the minimal interface needed from admin service
@@ -44,6 +47,7 @@ type PositionTracker interface {
 	GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error)
 	GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error)
 	FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]admin.GapInfo, error)
+	GetCacheManager() *admin.CacheManager
 }
 
 // Direction represents the processing direction for tasks
@@ -54,6 +58,9 @@ const (
 	DirectionForward Direction = "forward"
 	// DirectionBack processes tasks in backward direction
 	DirectionBack Direction = "back"
+
+	// BoundsCacheTaskType is the task type for external bounds cache updates
+	BoundsCacheTaskType = "bounds:cache"
 )
 
 // taskOperation represents an operation on the processed tasks tracker
@@ -748,6 +755,112 @@ func (s *service) RunConsolidation(ctx context.Context) {
 			}).Info("Consolidated admin.cbt rows")
 		}
 	}
+}
+
+// ProcessBoundsOrchestration checks all external models and enqueues bounds update tasks as needed
+func (s *service) ProcessBoundsOrchestration(ctx context.Context) {
+	// Get all external models from DAG
+	externalNodes := s.dag.GetExternalNodes()
+
+	if len(externalNodes) == 0 {
+		s.log.Debug("No external models to check for bounds updates")
+		return
+	}
+
+	cacheManager := s.admin.GetCacheManager()
+	if cacheManager == nil {
+		s.log.Error("Cache manager not available for bounds orchestration")
+		return
+	}
+
+	now := time.Now()
+
+	for _, node := range externalNodes {
+		model, ok := node.Model.(models.External)
+		if !ok {
+			s.log.WithField("node_type", node.NodeType).Error("Invalid external node type")
+			continue
+		}
+		modelID := model.GetID()
+		config := model.GetConfig()
+
+		// Skip if cache config not defined
+		if config.Cache == nil {
+			s.log.WithField("model_id", modelID).Debug("Skipping model without cache config")
+			continue
+		}
+
+		// Get current cache entry
+		cache, err := cacheManager.GetBounds(ctx, modelID)
+		if err != nil {
+			s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get cache bounds")
+			continue
+		}
+
+		// Determine if update is needed
+		needsUpdate := false
+
+		if cache == nil {
+			// No cache entry - needs initial full scan
+			s.log.WithField("model_id", modelID).Debug("No cache entry, needs initial bounds")
+			needsUpdate = true
+		} else {
+			// Check if incremental or full scan is due
+			if now.Sub(cache.LastFullScan) > config.Cache.FullScanInterval {
+				s.log.WithFields(logrus.Fields{
+					"model_id":       modelID,
+					"last_full_scan": cache.LastFullScan,
+					"interval":       config.Cache.FullScanInterval,
+				}).Debug("Full scan interval exceeded")
+				needsUpdate = true
+			} else if now.Sub(cache.LastIncrementalScan) > config.Cache.IncrementalScanInterval {
+				s.log.WithFields(logrus.Fields{
+					"model_id":              modelID,
+					"last_incremental_scan": cache.LastIncrementalScan,
+					"interval":              config.Cache.IncrementalScanInterval,
+				}).Debug("Incremental scan interval exceeded")
+				needsUpdate = true
+			}
+		}
+
+		if needsUpdate {
+			// Enqueue bounds update task
+			s.enqueueBoundsUpdate(ctx, modelID)
+		}
+	}
+}
+
+// enqueueBoundsUpdate enqueues a bounds cache update task for an external model
+func (s *service) enqueueBoundsUpdate(_ context.Context, modelID string) {
+	// Create unique task ID
+	taskID := fmt.Sprintf("bounds:cache:%s", modelID)
+
+	// Create task payload
+	payload := map[string]string{
+		"model_id": modelID,
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to marshal bounds task payload")
+		return
+	}
+
+	// Create task with unique ID to prevent duplicates
+	task := asynq.NewTask(BoundsCacheTaskType, payloadBytes,
+		asynq.TaskID(taskID),
+		asynq.Unique(30*time.Second), // Don't re-enqueue for 30s
+		asynq.Queue(modelID),         // Use the model's queue
+	)
+
+	// Enqueue the task
+	if _, err := s.queueManager.Enqueue(task); err != nil {
+		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to enqueue bounds update task")
+
+		return
+	}
+
+	s.log.WithField("model_id", modelID).Debug("Enqueued bounds update task")
 }
 
 // Ensure service implements the interface

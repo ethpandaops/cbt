@@ -20,7 +20,7 @@ type Service interface {
 
 	// Rendering operations
 	RenderTransformation(model Transformation, position, interval uint64, startTime time.Time) (string, error)
-	RenderExternal(model External) (string, error)
+	RenderExternal(model External, cacheState map[string]interface{}) (string, error)
 	GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error)
 }
 
@@ -125,8 +125,8 @@ func (s *service) GetTransformationEnvironmentVariables(model Transformation, po
 }
 
 // RenderExternal renders an external model template with variables
-func (s *service) RenderExternal(model External) (string, error) {
-	return s.templateEngine.RenderExternal(model)
+func (s *service) RenderExternal(model External, cacheState map[string]interface{}) (string, error) {
+	return s.templateEngine.RenderExternal(model, cacheState)
 }
 
 // Ensure service implements Service interface

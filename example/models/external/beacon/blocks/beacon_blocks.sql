@@ -1,10 +1,16 @@
 ---
 database: ethereum
 table: beacon_blocks
-ttl: 30s
+cache:
+  incremental_scan_interval: 10s
+  full_scan_interval: 5m
 lag: 10
 ---
 SELECT 
     toUnixTimestamp(min(slot_start_date_time)) as min,
     toUnixTimestamp(max(slot_start_date_time)) as max
-FROM `{{ .self.database }}`.`{{ .self.table }}` FINAL;
+FROM `{{ .self.database }}`.`{{ .self.table }}` FINAL
+{{ if .cache.is_incremental_scan }}
+WHERE slot_start_date_time < fromUnixTimestamp({{ .cache.previous_min }})
+   OR slot_start_date_time > fromUnixTimestamp({{ .cache.previous_max }})
+{{ end }}

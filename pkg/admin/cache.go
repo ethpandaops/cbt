@@ -10,13 +10,22 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// CacheExternal represents cached external model bounds
-type CacheExternal struct {
-	ModelID   string        `json:"model_id"`
-	Min       uint64        `json:"min"`
-	Max       uint64        `json:"max"`
-	UpdatedAt time.Time     `json:"updated_at"`
-	TTL       time.Duration `json:"ttl"`
+// BoundsCache represents cached external model bounds
+type BoundsCache struct {
+	ModelID string `json:"model_id"`
+	Min     uint64 `json:"min"`
+	Max     uint64 `json:"max"`
+
+	// Track scan times
+	LastIncrementalScan time.Time `json:"last_incremental_scan"`
+	LastFullScan        time.Time `json:"last_full_scan"`
+
+	// For optimization hints
+	PreviousMin uint64 `json:"previous_min"`
+	PreviousMax uint64 `json:"previous_max"`
+
+	// Metadata
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // CacheManager manages Redis-based caching for external models
@@ -33,8 +42,8 @@ func NewCacheManager(redisClient *redis.Client) *CacheManager {
 	}
 }
 
-// GetExternal retrieves cached external model bounds from Redis
-func (c *CacheManager) GetExternal(ctx context.Context, modelID string) (*CacheExternal, error) {
+// GetBounds retrieves cached external model bounds from Redis
+func (c *CacheManager) GetBounds(ctx context.Context, modelID string) (*BoundsCache, error) {
 	key := c.keyPrefix + modelID
 
 	data, err := c.redisClient.Get(ctx, key).Result()
@@ -45,22 +54,17 @@ func (c *CacheManager) GetExternal(ctx context.Context, modelID string) (*CacheE
 		return nil, err
 	}
 
-	var cache CacheExternal
+	var cache BoundsCache
 	if err := json.Unmarshal([]byte(data), &cache); err != nil {
 		return nil, err
 	}
 
-	// Check if expired
-	if time.Since(cache.UpdatedAt) > cache.TTL {
-		_ = c.redisClient.Del(ctx, key) // Async cleanup
-		return nil, nil
-	}
-
+	// No expiration - cache entries persist indefinitely
 	return &cache, nil
 }
 
-// SetExternal stores external model bounds in Redis cache
-func (c *CacheManager) SetExternal(ctx context.Context, cache CacheExternal) error {
+// SetBounds stores external model bounds in Redis cache (no TTL)
+func (c *CacheManager) SetBounds(ctx context.Context, cache *BoundsCache) error {
 	key := c.keyPrefix + cache.ModelID
 
 	data, err := json.Marshal(cache)
@@ -68,5 +72,6 @@ func (c *CacheManager) SetExternal(ctx context.Context, cache CacheExternal) err
 		return err
 	}
 
-	return c.redisClient.Set(ctx, key, data, cache.TTL).Err()
+	// Store without TTL - persistent cache
+	return c.redisClient.Set(ctx, key, data, 0).Err()
 }
