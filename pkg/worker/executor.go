@@ -101,20 +101,9 @@ func (e *ModelExecutor) UpdateBounds(ctx context.Context, modelID string) error 
 		maxBound = cache.Max
 	}
 
-	// Apply lag if configured
-	adjustedMin, adjustedMax := minBound, maxBound
-	if config.Lag > 0 && adjustedMax > config.Lag {
-		adjustedMax -= config.Lag
-		e.log.WithFields(logrus.Fields{
-			"model_id":     modelID,
-			"lag":          config.Lag,
-			"original_max": maxBound,
-			"adjusted_max": adjustedMax,
-		}).Debug("Applied lag to bounds")
-	}
-
-	// Update cache with new bounds
-	if err := e.updateBoundsCache(ctx, modelID, adjustedMin, adjustedMax, cache, isIncrementalScan, now); err != nil {
+	// Store raw bounds in cache without applying lag
+	// Lag will be applied consistently by the validator when reading bounds
+	if err := e.updateBoundsCache(ctx, modelID, minBound, maxBound, cache, isIncrementalScan, now); err != nil {
 		return fmt.Errorf("failed to update bounds cache for %s: %w", modelID, err)
 	}
 

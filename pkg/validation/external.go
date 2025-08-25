@@ -76,6 +76,7 @@ func NewExternalModelExecutor(log logrus.FieldLogger, chClient clickhouse.Client
 }
 
 // applyLag applies lag adjustment to max position if configured
+// Note: Bounds stored in cache are always raw (without lag applied)
 func (e *ExternalModelValidator) applyLag(model models.External, minPos, maxPos uint64, fromCache bool) (adjustedMin, adjustedMax uint64) {
 	modelConfig := model.GetConfig()
 
