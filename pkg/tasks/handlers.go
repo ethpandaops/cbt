@@ -172,6 +172,13 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 		return fmt.Errorf("failed to record completion: %w", err)
 	}
 
+	// Record transformation bounds in metrics
+	minPos, _ := h.admin.GetFirstPosition(ctx, payload.ModelID)
+	maxPos, _ := h.admin.GetLastProcessedEndPosition(ctx, payload.ModelID)
+	if minPos > 0 && maxPos > 0 {
+		observability.RecordModelBounds(payload.ModelID, minPos, maxPos)
+	}
+
 	// Record successful completion
 	observability.RecordTaskComplete(payload.ModelID, workerID, "success", time.Since(startTime).Seconds())
 

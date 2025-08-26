@@ -107,6 +107,9 @@ func (e *ModelExecutor) UpdateBounds(ctx context.Context, modelID string) error 
 		return fmt.Errorf("failed to update bounds cache for %s: %w", modelID, err)
 	}
 
+	// Record the bounds in metrics
+	observability.RecordModelBounds(modelID, minBound, maxBound)
+
 	return nil
 }
 
