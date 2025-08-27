@@ -105,7 +105,7 @@ func (s *service) Start(ctx context.Context) error {
 
 	s.inspector = asynq.NewInspector(*asynqRedis)
 
-	archiveHandler, err := NewArchiveHandler(s.log, s.redisOpt, s.dag)
+	archiveHandler, err := NewArchiveHandler(s.log, s.redisOpt)
 	if err != nil {
 		return fmt.Errorf("failed to create archive handler: %w", err)
 	}
