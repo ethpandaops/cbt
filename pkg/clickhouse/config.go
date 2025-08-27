@@ -3,6 +3,7 @@ package clickhouse
 
 import (
 	"errors"
+	"os"
 	"time"
 )
 
@@ -54,4 +55,14 @@ func (c *Config) SetDefaults() {
 	if c.AdminTable == "" {
 		c.AdminTable = "cbt"
 	}
+}
+
+// MapDatabase maps a logical database name to a physical database name
+// If CBT_DATABASE_PREFIX env var is set, prepends it to the database name
+// Otherwise returns the original name unchanged
+func (c *Config) MapDatabase(logicalName string) string {
+	if prefix := os.Getenv("CBT_DATABASE_PREFIX"); prefix != "" {
+		return prefix + logicalName
+	}
+	return logicalName
 }

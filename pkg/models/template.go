@@ -57,7 +57,7 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 			"local_suffix": t.clickhouseCfg.LocalSuffix,
 		},
 		"self": map[string]interface{}{
-			"database": config.Database,
+			"database": t.clickhouseCfg.MapDatabase(config.Database),
 			"table":    config.Table,
 			"interval": interval, // Use the interval parameter passed to the function
 		},
@@ -93,7 +93,7 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 			}
 
 			database[tConfig.Table] = map[string]interface{}{
-				"database": tConfig.Database,
+				"database": t.clickhouseCfg.MapDatabase(tConfig.Database),
 				"table":    tConfig.Table,
 			}
 
@@ -134,7 +134,7 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 
 	env := []string{
 		fmt.Sprintf("CLICKHOUSE_URL=%s", t.clickhouseCfg.URL),
-		fmt.Sprintf("SELF_DATABASE=%s", config.Database),
+		fmt.Sprintf("SELF_DATABASE=%s", t.clickhouseCfg.MapDatabase(config.Database)),
 		fmt.Sprintf("SELF_TABLE=%s", config.Table),
 		fmt.Sprintf("TASK_START=%d", startTime.Unix()),
 		fmt.Sprintf("TASK_MODEL=%s.%s", config.Database, config.Table),
@@ -166,7 +166,7 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 			tConfig := transformation.GetConfig()
 
 			env = append(env,
-				fmt.Sprintf("DEP_%s_DATABASE=%s", uppercaseName, tConfig.Database),
+				fmt.Sprintf("DEP_%s_DATABASE=%s", uppercaseName, t.clickhouseCfg.MapDatabase(tConfig.Database)),
 				fmt.Sprintf("DEP_%s_TABLE=%s", uppercaseName, tConfig.Table),
 			)
 		}
@@ -180,7 +180,7 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 			eConfig := external.GetConfig()
 
 			env = append(env,
-				fmt.Sprintf("DEP_%s_DATABASE=%s", uppercaseName, eConfig.Database),
+				fmt.Sprintf("DEP_%s_DATABASE=%s", uppercaseName, t.clickhouseCfg.MapDatabase(eConfig.Database)),
 				fmt.Sprintf("DEP_%s_TABLE=%s", uppercaseName, eConfig.Table),
 			)
 		}
@@ -215,7 +215,7 @@ func (t *TemplateEngine) buildExternalVariables(model External, cacheState map[s
 			"local_suffix": t.clickhouseCfg.LocalSuffix,
 		},
 		"self": map[string]interface{}{
-			"database": config.Database,
+			"database": t.clickhouseCfg.MapDatabase(config.Database),
 			"table":    config.Table,
 		},
 	}
