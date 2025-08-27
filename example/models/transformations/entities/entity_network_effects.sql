@@ -1,12 +1,12 @@
 ---
 database: analytics
 table: entity_network_effects
-forwardfill:
-  interval: 300
-  schedule: "@every 30s"
-backfill:
-  interval: 300
-  schedule: "@every 30s"
+interval:
+  max: 300
+  min: 0  # Allow any size partial intervals
+schedules:
+  forwardfill: "@every 30s"
+  backfill: "@every 30s"
 tags:
   - aggregation
   - entity

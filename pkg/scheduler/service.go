@@ -186,7 +186,7 @@ func (s *service) reconcileSchedules() error {
 		modelID := transformation.GetID()
 
 		// Forward fill task (only if configured)
-		if config.ForwardFill != nil && config.GetForwardSchedule() != "" {
+		if config.IsForwardFillEnabled() {
 			forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
 			desiredTasks[forwardTask] = config.GetForwardSchedule()
 			// Register handler for this specific task type
@@ -198,21 +198,19 @@ func (s *service) reconcileSchedules() error {
 		}
 
 		// Backfill task (only if configured)
-		if config.IsBackfillEnabled() && config.Backfill.Schedule != "" {
+		if config.IsBackfillEnabled() {
 			backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
-			desiredTasks[backfillTask] = config.Backfill.Schedule
+			desiredTasks[backfillTask] = config.GetBackfillSchedule()
 			// Register handler for this specific task type
 			mux.HandleFunc(backfillTask, s.HandleScheduledBackfill)
 			s.log.WithFields(logrus.Fields{
 				"model_id": modelID,
-				"schedule": config.Backfill.Schedule,
+				"schedule": config.GetBackfillSchedule(),
 			}).Debug("Registering backfill task")
 		}
 
 		// Warn if no tasks were registered for this transformation
-		hasForward := config.ForwardFill != nil && config.GetForwardSchedule() != ""
-		hasBackfill := config.IsBackfillEnabled() && config.Backfill.Schedule != ""
-		if !hasForward && !hasBackfill {
+		if !config.IsForwardFillEnabled() && !config.IsBackfillEnabled() {
 			s.log.WithField("model_id", modelID).Warn("Transformation has no scheduled tasks (neither forward fill nor backfill configured)")
 		}
 	}

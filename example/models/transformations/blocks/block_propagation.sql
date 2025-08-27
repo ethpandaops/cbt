@@ -1,13 +1,12 @@
 ---
 database: analytics
 table: block_propagation
-forwardfill:
-  interval: 60
-  schedule: "@every 10s"
-  allow_partial_intervals: true
-backfill:
-  interval: 60
-  schedule: "@every 10s"
+interval:
+  max: 60
+  min: 0  # Allow any size partial intervals
+schedules:
+  forwardfill: "@every 10s"
+  backfill: "@every 10s"
 tags:
   - propagation
   - block

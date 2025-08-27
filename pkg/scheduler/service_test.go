@@ -286,13 +286,13 @@ func TestHandleScheduledBackfill(t *testing.T) {
 						conf: transformation.Config{
 							Database: "test_db",
 							Table:    "model",
-							ForwardFill: &transformation.ForwardFillConfig{
-								Interval: 100,
-								Schedule: "@every 1m",
+							Interval: &transformation.IntervalConfig{
+								Max: 100,
+								Min: 0,
 							},
-							Backfill: &transformation.BackfillConfig{
-								Interval: 100,
-								Schedule: "*/5 * * * *",
+							Schedules: &transformation.SchedulesConfig{
+								ForwardFill: "@every 1m",
+								Backfill:    "*/5 * * * *",
 							},
 							Dependencies: []string{},
 						},

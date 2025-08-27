@@ -181,7 +181,7 @@ func (v *dependencyValidator) GetEarliestPosition(ctx context.Context, modelID s
 	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
 	}
-	interval := model.GetConfig().GetBackfillInterval()
+	interval := model.GetConfig().GetMaxInterval()
 
 	// For backfill gap detection, we want to start from where data is available
 	// Don't round up past the actual data availability point
@@ -235,7 +235,7 @@ func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
 	}
-	interval := model.GetConfig().GetForwardInterval()
+	interval := model.GetConfig().GetMaxInterval()
 
 	// Use GetValidRange to get the valid range
 	_, maxPos, err := v.GetValidRange(ctx, modelID)

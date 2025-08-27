@@ -270,9 +270,12 @@ func (m *mockTransformation) GetConfig() *transformation.Config {
 	return &transformation.Config{
 		Database: "test_db",
 		Table:    "test_table",
-		ForwardFill: &transformation.ForwardFillConfig{
-			Interval: m.interval,
-			Schedule: "@every 1m",
+		Interval: &transformation.IntervalConfig{
+			Max: m.interval,
+			Min: 0,
+		},
+		Schedules: &transformation.SchedulesConfig{
+			ForwardFill: "@every 1m",
 		},
 		Dependencies: []string{},
 	}
@@ -379,16 +382,21 @@ func TestAdjustIntervalForDependencies(t *testing.T) {
 			}
 
 			// Setup mock transformation
+			minInterval := tt.interval
+			if tt.allowPartial {
+				minInterval = tt.minPartial
+			}
 			trans := &mockTransformation{
 				id: "test.model",
 				config: &transformation.Config{
 					Database: "test",
 					Table:    "model",
-					ForwardFill: &transformation.ForwardFillConfig{
-						Interval:              tt.interval,
-						Schedule:              "@every 1m",
-						AllowPartialIntervals: tt.allowPartial,
-						MinPartialInterval:    tt.minPartial,
+					Interval: &transformation.IntervalConfig{
+						Max: tt.interval,
+						Min: minInterval,
+					},
+					Schedules: &transformation.SchedulesConfig{
+						ForwardFill: "@every 1m",
 					},
 					Dependencies: []string{"dep1"},
 				},
@@ -411,53 +419,47 @@ func TestAdjustIntervalForDependencies(t *testing.T) {
 	}
 }
 
-// Test ForwardFillConfig validation
-func TestForwardFillConfigValidation(t *testing.T) {
+// Test IntervalConfig validation
+func TestIntervalConfigValidation(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  transformation.ForwardFillConfig
+		config  transformation.IntervalConfig
 		wantErr bool
 		errMsg  string
 	}{
 		{
 			name: "valid_with_partial_intervals",
-			config: transformation.ForwardFillConfig{
-				Interval:              3600,
-				Schedule:              "0 * * * *",
-				AllowPartialIntervals: true,
-				MinPartialInterval:    900,
+			config: transformation.IntervalConfig{
+				Max: 3600,
+				Min: 900,
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid_without_partial_intervals",
-			config: transformation.ForwardFillConfig{
-				Interval: 3600,
-				Schedule: "0 * * * *",
+			config: transformation.IntervalConfig{
+				Max: 3600,
+				Min: 3600,
 			},
 			wantErr: false,
 		},
 		{
-			name: "min_partial_exceeds_interval",
-			config: transformation.ForwardFillConfig{
-				Interval:              3600,
-				Schedule:              "0 * * * *",
-				AllowPartialIntervals: true,
-				MinPartialInterval:    7200,
+			name: "min_exceeds_max",
+			config: transformation.IntervalConfig{
+				Max: 3600,
+				Min: 7200,
 			},
 			wantErr: true,
-			errMsg:  "min_partial_interval cannot exceed interval",
+			errMsg:  "interval.min cannot exceed interval.max",
 		},
 		{
-			name: "min_partial_without_allow_flag",
-			config: transformation.ForwardFillConfig{
-				Interval:              3600,
-				Schedule:              "0 * * * *",
-				AllowPartialIntervals: false,
-				MinPartialInterval:    900,
+			name: "zero_max_interval",
+			config: transformation.IntervalConfig{
+				Max: 0,
+				Min: 0,
 			},
 			wantErr: true,
-			errMsg:  "min_partial_interval requires allow_partial_intervals to be true",
+			errMsg:  "interval.max is required",
 		},
 	}
 
@@ -474,8 +476,8 @@ func TestForwardFillConfigValidation(t *testing.T) {
 	}
 }
 
-// Test IsPartialIntervalsAllowed helper function
-func TestIsPartialIntervalsAllowed(t *testing.T) {
+// Test AllowsPartialIntervals helper function
+func TestAllowsPartialIntervals(t *testing.T) {
 	tests := []struct {
 		name     string
 		config   *transformation.Config
@@ -484,8 +486,9 @@ func TestIsPartialIntervalsAllowed(t *testing.T) {
 		{
 			name: "partial_intervals_enabled",
 			config: &transformation.Config{
-				ForwardFill: &transformation.ForwardFillConfig{
-					AllowPartialIntervals: true,
+				Interval: &transformation.IntervalConfig{
+					Max: 3600,
+					Min: 900,
 				},
 			},
 			expected: true,
@@ -493,14 +496,15 @@ func TestIsPartialIntervalsAllowed(t *testing.T) {
 		{
 			name: "partial_intervals_disabled",
 			config: &transformation.Config{
-				ForwardFill: &transformation.ForwardFillConfig{
-					AllowPartialIntervals: false,
+				Interval: &transformation.IntervalConfig{
+					Max: 3600,
+					Min: 3600,
 				},
 			},
 			expected: false,
 		},
 		{
-			name:     "no_forwardfill_config",
+			name:     "no_interval_config",
 			config:   &transformation.Config{},
 			expected: false,
 		},
@@ -508,37 +512,41 @@ func TestIsPartialIntervalsAllowed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.config.IsPartialIntervalsAllowed()
+			result := tt.config.AllowsPartialIntervals()
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-// Test GetMinPartialInterval helper function
-func TestGetMinPartialInterval(t *testing.T) {
+// Test GetMinInterval helper function
+func TestGetMinInterval(t *testing.T) {
 	tests := []struct {
 		name     string
 		config   *transformation.Config
 		expected uint64
 	}{
 		{
-			name: "with_min_partial",
+			name: "with_min_interval",
 			config: &transformation.Config{
-				ForwardFill: &transformation.ForwardFillConfig{
-					MinPartialInterval: 500,
+				Interval: &transformation.IntervalConfig{
+					Max: 3600,
+					Min: 500,
 				},
 			},
 			expected: 500,
 		},
 		{
-			name: "without_min_partial",
+			name: "without_min_interval",
 			config: &transformation.Config{
-				ForwardFill: &transformation.ForwardFillConfig{},
+				Interval: &transformation.IntervalConfig{
+					Max: 3600,
+					Min: 0,
+				},
 			},
 			expected: 0,
 		},
 		{
-			name:     "no_forwardfill_config",
+			name:     "no_interval_config",
 			config:   &transformation.Config{},
 			expected: 0,
 		},
@@ -546,7 +554,7 @@ func TestGetMinPartialInterval(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.config.GetMinPartialInterval()
+			result := tt.config.GetMinInterval()
 			assert.Equal(t, tt.expected, result)
 		})
 	}

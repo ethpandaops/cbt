@@ -75,9 +75,12 @@ func TestRenderTransformation(t *testing.T) {
 		config: transformation.Config{
 			Database: "dep_db",
 			Table:    "model1",
-			ForwardFill: &transformation.ForwardFillConfig{
-				Interval: 100,
-				Schedule: "@every 1m",
+			Interval: &transformation.IntervalConfig{
+				Max: 100,
+				Min: 0,
+			},
+			Schedules: &transformation.SchedulesConfig{
+				ForwardFill: "@every 1m",
 			},
 			Dependencies: []string{},
 		},
@@ -104,9 +107,12 @@ func TestRenderTransformation(t *testing.T) {
 				config: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table",
-					ForwardFill: &transformation.ForwardFillConfig{
-						Interval: 100,
-						Schedule: "@every 1m",
+					Interval: &transformation.IntervalConfig{
+						Max: 100,
+						Min: 0,
+					},
+					Schedules: &transformation.SchedulesConfig{
+						ForwardFill: "@every 1m",
 					},
 					Dependencies: []string{},
 				},
@@ -124,9 +130,12 @@ func TestRenderTransformation(t *testing.T) {
 				config: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table2",
-					ForwardFill: &transformation.ForwardFillConfig{
-						Interval: 100,
-						Schedule: "@every 1m",
+					Interval: &transformation.IntervalConfig{
+						Max: 100,
+						Min: 0,
+					},
+					Schedules: &transformation.SchedulesConfig{
+						ForwardFill: "@every 1m",
 					},
 					Dependencies: []string{"dep.model1"},
 				},
@@ -144,9 +153,12 @@ func TestRenderTransformation(t *testing.T) {
 				config: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table3",
-					ForwardFill: &transformation.ForwardFillConfig{
-						Interval: 100,
-						Schedule: "@every 1m",
+					Interval: &transformation.IntervalConfig{
+						Max: 100,
+						Min: 0,
+					},
+					Schedules: &transformation.SchedulesConfig{
+						ForwardFill: "@every 1m",
 					},
 					Dependencies: []string{},
 				},
@@ -164,9 +176,12 @@ func TestRenderTransformation(t *testing.T) {
 				config: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table4",
-					ForwardFill: &transformation.ForwardFillConfig{
-						Interval: 100,
-						Schedule: "@every 1m",
+					Interval: &transformation.IntervalConfig{
+						Max: 100,
+						Min: 0,
+					},
+					Schedules: &transformation.SchedulesConfig{
+						ForwardFill: "@every 1m",
 					},
 					Dependencies: []string{},
 				},
@@ -285,9 +300,12 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 		config: transformation.Config{
 			Database: "dep_db",
 			Table:    "model1",
-			ForwardFill: &transformation.ForwardFillConfig{
-				Interval: 100,
-				Schedule: "@every 1m",
+			Interval: &transformation.IntervalConfig{
+				Max: 100,
+				Min: 0,
+			},
+			Schedules: &transformation.SchedulesConfig{
+				ForwardFill: "@every 1m",
 			},
 			Dependencies: []string{},
 		},
@@ -313,9 +331,12 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 		config: transformation.Config{
 			Database: "test_db",
 			Table:    "test_table",
-			ForwardFill: &transformation.ForwardFillConfig{
-				Interval: 100,
-				Schedule: "@every 1m",
+			Interval: &transformation.IntervalConfig{
+				Max: 100,
+				Min: 0,
+			},
+			Schedules: &transformation.SchedulesConfig{
+				ForwardFill: "@every 1m",
 			},
 			Dependencies: []string{"dep.model1", "ext.source1"},
 		},
@@ -371,9 +392,12 @@ func TestBuildTransformationVariables_MissingDependency(t *testing.T) {
 		config: transformation.Config{
 			Database: "test_db",
 			Table:    "test_table",
-			ForwardFill: &transformation.ForwardFillConfig{
-				Interval: 100,
-				Schedule: "@every 1m",
+			Interval: &transformation.IntervalConfig{
+				Max: 100,
+				Min: 0,
+			},
+			Schedules: &transformation.SchedulesConfig{
+				ForwardFill: "@every 1m",
 			},
 			Dependencies: []string{"missing.dep"},
 		},
@@ -401,9 +425,12 @@ func BenchmarkRenderTransformation(b *testing.B) {
 		config: transformation.Config{
 			Database: "test_db",
 			Table:    "test_table",
-			ForwardFill: &transformation.ForwardFillConfig{
-				Interval: 100,
-				Schedule: "@every 1m",
+			Interval: &transformation.IntervalConfig{
+				Max: 100,
+				Min: 0,
+			},
+			Schedules: &transformation.SchedulesConfig{
+				ForwardFill: "@every 1m",
 			},
 			Dependencies: []string{},
 		},
