@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	r "github.com/ethpandaops/cbt/pkg/redis"
 	"github.com/ethpandaops/cbt/pkg/tasks"
@@ -27,7 +26,6 @@ type ArchiveHandler interface {
 type archiveHandler struct {
 	log       logrus.FieldLogger
 	inspector *asynq.Inspector
-	dag       models.DAGReader
 
 	// Synchronization - per ethPandaOps standards
 	done chan struct{}  // Signal shutdown
@@ -39,15 +37,14 @@ type archiveHandler struct {
 }
 
 // NewArchiveHandler creates a new archive handler
-func NewArchiveHandler(log logrus.FieldLogger, redisOpt *redis.Options, dag models.DAGReader) (ArchiveHandler, error) {
+func NewArchiveHandler(log logrus.FieldLogger, redisOpt *redis.Options) (ArchiveHandler, error) {
 	inspector := asynq.NewInspector(r.NewAsynqRedisOptions(redisOpt))
 
 	return &archiveHandler{
 		log:           log.WithField("service", "archive-handler"),
 		inspector:     inspector,
-		dag:           dag,
 		done:          make(chan struct{}),
-		checkInterval: time.Second * 30,
+		checkInterval: time.Minute * 10,
 		batchSize:     100,
 	}, nil
 }
@@ -95,12 +92,15 @@ func (h *archiveHandler) monitorArchive() {
 
 // processArchivedTasks processes all archived tasks across all queues
 func (h *archiveHandler) processArchivedTasks() {
-	// Get all transformation nodes to know which queues to check
-	transformations := h.dag.GetTransformationNodes()
+	// Get all queues dynamically from asynq
+	queues, err := h.inspector.Queues()
+	if err != nil {
+		h.log.WithError(err).Error("Failed to list queues")
+		return
+	}
 
-	for _, transformation := range transformations {
-		queueName := transformation.GetID()
-
+	totalDeleted := 0
+	for _, queueName := range queues {
 		// List archived tasks for this queue
 		archivedTasks, err := h.inspector.ListArchivedTasks(
 			queueName,
@@ -123,51 +123,53 @@ func (h *archiveHandler) processArchivedTasks() {
 		// Process each archived task
 		for _, taskInfo := range archivedTasks {
 			h.processArchivedTask(queueName, taskInfo)
+			totalDeleted++
 		}
+	}
+
+	if totalDeleted > 0 {
+		h.log.WithField("total_deleted", totalDeleted).Info("Completed archive cleanup cycle")
 	}
 }
 
 // processArchivedTask processes a single archived task
 func (h *archiveHandler) processArchivedTask(queueName string, taskInfo *asynq.TaskInfo) {
-	// Parse the task payload to get details
-	var payload tasks.TaskPayload
-	modelID := "unknown"
-
-	if err := json.Unmarshal(taskInfo.Payload, &payload); err != nil {
-		h.log.WithError(err).WithFields(logrus.Fields{
-			"queue":   queueName,
-			"task_id": taskInfo.ID,
-		}).Error("Failed to unmarshal archived task payload")
-	} else {
-		modelID = payload.ModelID
-		// Log detailed error information about the archived task
-		h.log.WithFields(logrus.Fields{
-			"queue":          queueName,
-			"task_id":        taskInfo.ID,
-			"model_id":       payload.ModelID,
-			"position":       payload.Position,
-			"interval":       payload.Interval,
-			"retry_count":    taskInfo.Retried,
-			"max_retry":      taskInfo.MaxRetry,
-			"last_error":     taskInfo.LastErr,
-			"last_failed_at": taskInfo.LastFailedAt,
-			"next_process":   taskInfo.NextProcessAt,
-		}).Error("Task archived after exhausting retries")
+	// Log the archived task details
+	logFields := logrus.Fields{
+		"queue":          queueName,
+		"task_id":        taskInfo.ID,
+		"task_type":      taskInfo.Type,
+		"retry_count":    taskInfo.Retried,
+		"max_retry":      taskInfo.MaxRetry,
+		"last_error":     taskInfo.LastErr,
+		"last_failed_at": taskInfo.LastFailedAt,
+		"next_process":   taskInfo.NextProcessAt,
 	}
+
+	// Try to parse payload if it's a known format (optional enrichment)
+	var payload tasks.TaskPayload
+	if err := json.Unmarshal(taskInfo.Payload, &payload); err == nil && payload.ModelID != "" {
+		logFields["model_id"] = payload.ModelID
+		logFields["position"] = payload.Position
+		logFields["interval"] = payload.Interval
+	}
+
+	h.log.WithFields(logFields).Warn("Deleting archived task")
 
 	// Delete the archived task
 	if err := h.inspector.DeleteTask(queueName, taskInfo.ID); err != nil {
 		h.log.WithError(err).WithFields(logrus.Fields{
-			"queue":   queueName,
-			"task_id": taskInfo.ID,
+			"queue":     queueName,
+			"task_id":   taskInfo.ID,
+			"task_type": taskInfo.Type,
 		}).Error("Failed to delete archived task")
 		observability.RecordError("archive-handler", "delete_error")
 	} else {
-		h.log.WithFields(logrus.Fields{
-			"queue":    queueName,
-			"task_id":  taskInfo.ID,
-			"model_id": modelID,
-		}).Info("Deleted archived task")
+		// Record metrics with available information
+		modelID := "unknown"
+		if payload.ModelID != "" {
+			modelID = payload.ModelID
+		}
 		observability.RecordArchivedTaskDeleted(queueName, modelID)
 	}
 }
