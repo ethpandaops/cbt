@@ -245,7 +245,62 @@ func (s *service) processForward(trans models.Transformation) {
 		}).Debug("Adjusted interval to respect max limit")
 	}
 
+	// Check for partial interval processing based on dependency availability
+	if config.IsPartialIntervalsAllowed() {
+		adjustedInterval, shouldReturn := s.adjustIntervalForDependencies(ctx, trans, nextPos, interval)
+		if shouldReturn {
+			return
+		}
+		interval = adjustedInterval
+	}
+
 	s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval)
+}
+
+// adjustIntervalForDependencies adjusts the interval based on dependency availability
+// Returns the adjusted interval and whether processing should stop
+func (s *service) adjustIntervalForDependencies(ctx context.Context, trans models.Transformation, nextPos, interval uint64) (uint64, bool) {
+	// Get the valid range based on dependencies
+	_, maxValid, err := s.validator.GetValidRange(ctx, trans.GetID())
+	if err != nil || maxValid == 0 || nextPos >= maxValid {
+		// Can't determine valid range or position already beyond range
+		return interval, false
+	}
+
+	// Check if dependencies limit our interval
+	availableInterval := maxValid - nextPos
+	if availableInterval >= interval {
+		// Full interval is available
+		return interval, false
+	}
+
+	// Dependencies don't have enough data for full interval
+	minPartial := trans.GetConfig().GetMinPartialInterval()
+
+	// Check if the available interval meets minimum requirements
+	if minPartial > 0 && availableInterval < minPartial {
+		// Available interval is too small
+		s.log.WithFields(logrus.Fields{
+			"model_id":           trans.GetID(),
+			"position":           nextPos,
+			"available_interval": availableInterval,
+			"min_partial":        minPartial,
+		}).Debug("Available interval below minimum partial interval, waiting for more data")
+		return interval, true // Signal to return/stop processing
+	}
+
+	// Use partial interval
+	originalInterval := interval
+	s.log.WithFields(logrus.Fields{
+		"model_id":          trans.GetID(),
+		"position":          nextPos,
+		"original_interval": originalInterval,
+		"adjusted_interval": availableInterval,
+		"dependency_limit":  maxValid,
+		"reason":            "dependency_availability",
+	}).Info("Using partial interval due to dependency limits")
+
+	return availableInterval, false
 }
 
 func (s *service) processBack(trans models.Transformation) {

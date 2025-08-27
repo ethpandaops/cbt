@@ -258,10 +258,15 @@ func (m *mockAdminService) GetAdminTable() string {
 type mockTransformation struct {
 	id       string
 	interval uint64
+	config   *transformation.Config // Allow custom config for testing
 }
 
 func (m *mockTransformation) GetID() string { return m.id }
 func (m *mockTransformation) GetConfig() *transformation.Config {
+	if m.config != nil {
+		return m.config
+	}
+	// Default config for backward compatibility
 	return &transformation.Config{
 		Database: "test_db",
 		Table:    "test_table",
@@ -277,3 +282,272 @@ func (m *mockTransformation) GetDependencies() []string         { return []strin
 func (m *mockTransformation) GetSQL() string                    { return "" }
 func (m *mockTransformation) GetType() string                   { return "transformation" }
 func (m *mockTransformation) GetEnvironmentVariables() []string { return []string{} }
+
+// Ensure mockTransformation implements the Transformation interface
+var _ models.Transformation = (*mockTransformation)(nil)
+
+// Test adjustIntervalForDependencies - the core logic for partial interval support
+func TestAdjustIntervalForDependencies(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	tests := []struct {
+		name               string
+		nextPos            uint64
+		interval           uint64
+		maxValid           uint64
+		minPartial         uint64
+		allowPartial       bool
+		expectedInterval   uint64
+		expectedShouldStop bool
+		description        string
+	}{
+		{
+			name:               "full_interval_available",
+			nextPos:            100,
+			interval:           10,
+			maxValid:           120,
+			minPartial:         0,
+			allowPartial:       true,
+			expectedInterval:   10,
+			expectedShouldStop: false,
+			description:        "When full interval fits within dependencies, use full interval",
+		},
+		{
+			name:               "partial_interval_needed",
+			nextPos:            100,
+			interval:           10,
+			maxValid:           105,
+			minPartial:         0,
+			allowPartial:       true,
+			expectedInterval:   5,
+			expectedShouldStop: false,
+			description:        "When dependencies limit interval, use available partial",
+		},
+		{
+			name:               "partial_interval_below_minimum",
+			nextPos:            100,
+			interval:           10,
+			maxValid:           102,
+			minPartial:         5,
+			allowPartial:       true,
+			expectedInterval:   10,
+			expectedShouldStop: true,
+			description:        "When available interval is below minimum, stop processing",
+		},
+		{
+			name:               "partial_interval_meets_minimum",
+			nextPos:            100,
+			interval:           10,
+			maxValid:           107,
+			minPartial:         5,
+			allowPartial:       true,
+			expectedInterval:   7,
+			expectedShouldStop: false,
+			description:        "When available interval meets minimum, use it",
+		},
+		{
+			name:               "position_at_max_valid",
+			nextPos:            100,
+			interval:           10,
+			maxValid:           100,
+			minPartial:         0,
+			allowPartial:       true,
+			expectedInterval:   10,
+			expectedShouldStop: false,
+			description:        "When position is at maxValid, return original interval",
+		},
+		{
+			name:               "position_beyond_max_valid",
+			nextPos:            100,
+			interval:           10,
+			maxValid:           90,
+			minPartial:         0,
+			allowPartial:       true,
+			expectedInterval:   10,
+			expectedShouldStop: false,
+			description:        "When position is beyond maxValid, return original interval",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup mock validator
+			mockValidator := validation.NewMockValidator()
+			mockValidator.GetValidRangeFunc = func(_ context.Context, _ string) (uint64, uint64, error) {
+				return 0, tt.maxValid, nil
+			}
+
+			// Setup mock transformation
+			trans := &mockTransformation{
+				id: "test.model",
+				config: &transformation.Config{
+					Database: "test",
+					Table:    "model",
+					ForwardFill: &transformation.ForwardFillConfig{
+						Interval:              tt.interval,
+						Schedule:              "@every 1m",
+						AllowPartialIntervals: tt.allowPartial,
+						MinPartialInterval:    tt.minPartial,
+					},
+					Dependencies: []string{"dep1"},
+				},
+			}
+
+			// Create service
+			svc := &service{
+				log:       logger.WithField("test", tt.name),
+				validator: mockValidator,
+			}
+
+			// Test the method
+			ctx := context.Background()
+			adjustedInterval, shouldStop := svc.adjustIntervalForDependencies(ctx, trans, tt.nextPos, tt.interval)
+
+			// Assert results
+			assert.Equal(t, tt.expectedInterval, adjustedInterval, tt.description)
+			assert.Equal(t, tt.expectedShouldStop, shouldStop, tt.description)
+		})
+	}
+}
+
+// Test ForwardFillConfig validation
+func TestForwardFillConfigValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  transformation.ForwardFillConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid_with_partial_intervals",
+			config: transformation.ForwardFillConfig{
+				Interval:              3600,
+				Schedule:              "0 * * * *",
+				AllowPartialIntervals: true,
+				MinPartialInterval:    900,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid_without_partial_intervals",
+			config: transformation.ForwardFillConfig{
+				Interval: 3600,
+				Schedule: "0 * * * *",
+			},
+			wantErr: false,
+		},
+		{
+			name: "min_partial_exceeds_interval",
+			config: transformation.ForwardFillConfig{
+				Interval:              3600,
+				Schedule:              "0 * * * *",
+				AllowPartialIntervals: true,
+				MinPartialInterval:    7200,
+			},
+			wantErr: true,
+			errMsg:  "min_partial_interval cannot exceed interval",
+		},
+		{
+			name: "min_partial_without_allow_flag",
+			config: transformation.ForwardFillConfig{
+				Interval:              3600,
+				Schedule:              "0 * * * *",
+				AllowPartialIntervals: false,
+				MinPartialInterval:    900,
+			},
+			wantErr: true,
+			errMsg:  "min_partial_interval requires allow_partial_intervals to be true",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// Test IsPartialIntervalsAllowed helper function
+func TestIsPartialIntervalsAllowed(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *transformation.Config
+		expected bool
+	}{
+		{
+			name: "partial_intervals_enabled",
+			config: &transformation.Config{
+				ForwardFill: &transformation.ForwardFillConfig{
+					AllowPartialIntervals: true,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "partial_intervals_disabled",
+			config: &transformation.Config{
+				ForwardFill: &transformation.ForwardFillConfig{
+					AllowPartialIntervals: false,
+				},
+			},
+			expected: false,
+		},
+		{
+			name:     "no_forwardfill_config",
+			config:   &transformation.Config{},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.IsPartialIntervalsAllowed()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// Test GetMinPartialInterval helper function
+func TestGetMinPartialInterval(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *transformation.Config
+		expected uint64
+	}{
+		{
+			name: "with_min_partial",
+			config: &transformation.Config{
+				ForwardFill: &transformation.ForwardFillConfig{
+					MinPartialInterval: 500,
+				},
+			},
+			expected: 500,
+		},
+		{
+			name: "without_min_partial",
+			config: &transformation.Config{
+				ForwardFill: &transformation.ForwardFillConfig{},
+			},
+			expected: 0,
+		},
+		{
+			name:     "no_forwardfill_config",
+			config:   &transformation.Config{},
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.GetMinPartialInterval()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
