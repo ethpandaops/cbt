@@ -4,12 +4,12 @@ table: hourly_block_stats
 limits:
   min: 1000  # Optional: minimum position to process
   max: 0     # Optional: maximum position to process (0 = no limit)
-forwardfill:
-  interval: 3600
-  schedule: "@every 5m"
-backfill:
-  interval: 3600
-  schedule: "@every 5m"
+interval:
+  max: 3600
+  min: 0     # Allow any size partial intervals
+schedules:
+  forwardfill: "@every 5m"
+  backfill: "@every 5m"
 tags:
   - aggregation
   - hourly

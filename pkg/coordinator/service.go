@@ -183,8 +183,8 @@ func (s *service) Process(trans models.Transformation, direction Direction) {
 func (s *service) processForward(trans models.Transformation) {
 	config := trans.GetConfig()
 
-	// Skip if no forward fill configured
-	if config.ForwardFill == nil {
+	// Skip if no forward fill schedule configured
+	if !config.IsForwardFillEnabled() {
 		return
 	}
 
@@ -232,21 +232,21 @@ func (s *service) processForward(trans models.Transformation) {
 	}
 
 	// Adjust interval if it would exceed max limit
-	interval := config.GetForwardInterval()
+	interval := config.GetMaxInterval()
 	if config.Limits != nil && config.Limits.Max > 0 && nextPos+interval > config.Limits.Max {
 		// Reduce interval to stay within max limit
 		interval = config.Limits.Max - nextPos
 		s.log.WithFields(logrus.Fields{
 			"model_id":          trans.GetID(),
 			"position":          nextPos,
-			"original_interval": config.GetForwardInterval(),
+			"original_interval": config.GetMaxInterval(),
 			"adjusted_interval": interval,
 			"limits_max":        config.Limits.Max,
 		}).Debug("Adjusted interval to respect max limit")
 	}
 
 	// Check for partial interval processing based on dependency availability
-	if config.IsPartialIntervalsAllowed() {
+	if config.AllowsPartialIntervals() {
 		adjustedInterval, shouldReturn := s.adjustIntervalForDependencies(ctx, trans, nextPos, interval)
 		if shouldReturn {
 			return
@@ -275,17 +275,17 @@ func (s *service) adjustIntervalForDependencies(ctx context.Context, trans model
 	}
 
 	// Dependencies don't have enough data for full interval
-	minPartial := trans.GetConfig().GetMinPartialInterval()
+	minInterval := trans.GetConfig().GetMinInterval()
 
 	// Check if the available interval meets minimum requirements
-	if minPartial > 0 && availableInterval < minPartial {
+	if availableInterval < minInterval {
 		// Available interval is too small
 		s.log.WithFields(logrus.Fields{
 			"model_id":           trans.GetID(),
 			"position":           nextPos,
 			"available_interval": availableInterval,
-			"min_partial":        minPartial,
-		}).Debug("Available interval below minimum partial interval, waiting for more data")
+			"min_interval":       minInterval,
+		}).Debug("Available interval below minimum interval, waiting for more data")
 		return interval, true // Signal to return/stop processing
 	}
 
@@ -480,16 +480,16 @@ func (s *service) applyMaximumLimit(modelID string, config *transformation.Confi
 func (s *service) processSingleGap(ctx context.Context, trans models.Transformation, gap admin.GapInfo, gapIndex int) bool {
 	config := trans.GetConfig()
 	gapSize := gap.EndPos - gap.StartPos
-	intervalToUse := config.GetBackfillInterval()
+	intervalToUse := config.GetMaxInterval()
 
 	// Adjust interval for small gaps
-	if gapSize < config.GetBackfillInterval() {
+	if gapSize < config.GetMaxInterval() {
 		intervalToUse = gapSize
 		s.log.WithFields(logrus.Fields{
 			"model_id":          trans.GetID(),
 			"gap_index":         gapIndex,
 			"gap_size":          gapSize,
-			"model_interval":    config.GetBackfillInterval(),
+			"model_interval":    config.GetMaxInterval(),
 			"adjusted_interval": intervalToUse,
 		}).Debug("Adjusted interval for small gap")
 	}
@@ -543,7 +543,7 @@ func (s *service) processSingleGap(ctx context.Context, trans models.Transformat
 		"gap_end":        gap.EndPos,
 		"position":       pos,
 		"interval":       intervalToUse,
-		"model_interval": config.GetBackfillInterval(),
+		"model_interval": config.GetMaxInterval(),
 		"gap_size":       gapSize,
 	}).Info("Enqueueing backfill task for gap (processing from end backward)")
 
@@ -566,17 +566,17 @@ func (s *service) checkBackfillOpportunities(ctx context.Context, trans models.T
 			"model_id":             trans.GetID(),
 			"last_processed_start": lastPos,
 			"last_processed_end":   lastEndPos,
-			"backfill_interval":    config.GetBackfillInterval(),
+			"backfill_interval":    config.GetMaxInterval(),
 		}).Debug("Starting gap scan - found existing processed data")
 	} else {
 		s.log.WithFields(logrus.Fields{
 			"model_id":          trans.GetID(),
-			"backfill_interval": config.GetBackfillInterval(),
+			"backfill_interval": config.GetMaxInterval(),
 		}).Debug("Starting gap scan - no existing data")
 	}
 
 	// Check if we have enough data to scan
-	if lastEndPos < config.GetBackfillInterval() {
+	if lastEndPos < config.GetMaxInterval() {
 		s.log.WithField("model_id", trans.GetID()).Debug("No data yet, skipping gap scan")
 		return
 	}
@@ -593,10 +593,10 @@ func (s *service) checkBackfillOpportunities(ctx context.Context, trans models.T
 		"model_id":          trans.GetID(),
 		"scan_min_pos":      scanRange.initialPos,
 		"scan_max_pos":      scanRange.maxPos,
-		"backfill_interval": config.GetBackfillInterval(),
+		"backfill_interval": config.GetMaxInterval(),
 	}).Debug("Scanning for gaps in processed data")
 
-	gaps, err := s.admin.FindGaps(ctx, trans.GetID(), scanRange.initialPos, scanRange.maxPos, config.GetBackfillInterval())
+	gaps, err := s.admin.FindGaps(ctx, trans.GetID(), scanRange.initialPos, scanRange.maxPos, config.GetMaxInterval())
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to find gaps")
 		return
@@ -618,7 +618,7 @@ func (s *service) checkBackfillOpportunities(ctx context.Context, trans models.T
 		"gap_count": len(gaps),
 		"min_pos":   scanRange.initialPos,
 		"max_pos":   scanRange.maxPos,
-		"interval":  config.GetBackfillInterval(),
+		"interval":  config.GetMaxInterval(),
 	}).Info("Found gaps in processed data")
 
 	// Process gaps - queue only one task per scan
@@ -766,7 +766,7 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		}
 
 		// Check if this completion unblocks the dependent
-		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, config.GetForwardInterval())
+		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, config.GetMaxInterval())
 	}
 }
 

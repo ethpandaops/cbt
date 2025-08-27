@@ -1,14 +1,12 @@
 ---
 database: analytics
 table: block_entity
-forwardfill:
-  interval: 60
-  schedule: "@every 10s"
-  allow_partial_intervals: true
-  min_partial_interval: 40
-backfill:
-  interval: 60
-  schedule: "@every 10s"
+interval:
+  max: 60
+  min: 40  # Allow partial intervals down to 40 seconds
+schedules:
+  forwardfill: "@every 10s"
+  backfill: "@every 10s"
 tags:
   - entity
   - block

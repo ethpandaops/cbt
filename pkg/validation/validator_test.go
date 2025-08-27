@@ -546,9 +546,12 @@ func (m *mockTransformation) GetConfig() *transformation.Config {
 	return &transformation.Config{
 		Database: "test_db",
 		Table:    "test_table",
-		ForwardFill: &transformation.ForwardFillConfig{
-			Interval: m.interval,
-			Schedule: "@every 1m",
+		Interval: &transformation.IntervalConfig{
+			Max: m.interval,
+			Min: 0,
+		},
+		Schedules: &transformation.SchedulesConfig{
+			ForwardFill: "@every 1m",
 		},
 		Dependencies: []string{},
 	}

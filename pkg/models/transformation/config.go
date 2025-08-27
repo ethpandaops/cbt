@@ -12,47 +12,41 @@ var (
 	ErrDatabaseRequired = errors.New("database is required")
 	// ErrTableRequired is returned when table is not specified
 	ErrTableRequired = errors.New("table is required")
-	// ErrNoProcessingConfig is returned when neither forwardfill nor backfill is specified
-	ErrNoProcessingConfig = errors.New("at least one of forwardfill or backfill must be configured")
+	// ErrNoSchedulesConfig is returned when no schedules are configured
+	ErrNoSchedulesConfig = errors.New("at least one schedule must be configured")
 	// ErrIntervalRequired is returned when interval is not specified
-	ErrIntervalRequired = errors.New("interval is required")
-	// ErrScheduleRequired is returned when schedule is not specified
-	ErrScheduleRequired = errors.New("schedule is required")
-	// ErrIncompleteConfig is returned when config has interval but no schedule or vice versa
-	ErrIncompleteConfig = errors.New("both interval and schedule must be specified")
+	ErrIntervalRequired = errors.New("interval configuration is required")
+	// ErrIntervalMaxRequired is returned when interval.max is not specified
+	ErrIntervalMaxRequired = errors.New("interval.max is required")
+	// ErrInvalidInterval is returned when interval.min exceeds interval.max
+	ErrInvalidInterval = errors.New("interval.min cannot exceed interval.max")
 	// ErrDependenciesRequired is returned when dependencies are not specified
 	ErrDependenciesRequired = errors.New("dependencies is required")
 	// ErrInvalidLimits is returned when min limit is greater than max limit
 	ErrInvalidLimits = errors.New("min limit cannot be greater than max limit")
-	// ErrInvalidPartialInterval is returned when min_partial_interval exceeds interval
-	ErrInvalidPartialInterval = errors.New("min_partial_interval cannot exceed interval")
-	// ErrPartialIntervalRequiresFlag is returned when min_partial_interval is set without allow_partial_intervals
-	ErrPartialIntervalRequiresFlag = errors.New("min_partial_interval requires allow_partial_intervals to be true")
 )
 
 // Config defines the configuration for transformation models
 type Config struct {
-	Database     string             `yaml:"database"`
-	Table        string             `yaml:"table"`
-	Limits       *LimitsConfig      `yaml:"limits,omitempty"`
-	ForwardFill  *ForwardFillConfig `yaml:"forwardfill"`
-	Backfill     *BackfillConfig    `yaml:"backfill,omitempty"`
-	Dependencies []string           `yaml:"dependencies"`
-	Tags         []string           `yaml:"tags"`
+	Database     string           `yaml:"database"`
+	Table        string           `yaml:"table"`
+	Limits       *LimitsConfig    `yaml:"limits,omitempty"`
+	Interval     *IntervalConfig  `yaml:"interval"`
+	Schedules    *SchedulesConfig `yaml:"schedules"`
+	Dependencies []string         `yaml:"dependencies"`
+	Tags         []string         `yaml:"tags"`
 }
 
-// ForwardFillConfig defines forward fill configuration for transformations
-type ForwardFillConfig struct {
-	Interval              uint64 `yaml:"interval"`
-	Schedule              string `yaml:"schedule"`
-	AllowPartialIntervals bool   `yaml:"allow_partial_intervals,omitempty"` // Allow sub-interval processing when dependencies partially available
-	MinPartialInterval    uint64 `yaml:"min_partial_interval,omitempty"`    // Minimum interval size for partial processing (0 = no minimum)
+// IntervalConfig defines interval configuration for transformations
+type IntervalConfig struct {
+	Max uint64 `yaml:"max"` // Maximum interval size for processing
+	Min uint64 `yaml:"min"` // Minimum interval size (0 = allow any partial size)
 }
 
-// BackfillConfig defines backfill configuration for transformations
-type BackfillConfig struct {
-	Interval uint64 `yaml:"interval"`
-	Schedule string `yaml:"schedule"`
+// SchedulesConfig defines scheduling configuration for transformations
+type SchedulesConfig struct {
+	ForwardFill string `yaml:"forwardfill,omitempty"` // Forward fill schedule (optional)
+	Backfill    string `yaml:"backfill,omitempty"`    // Backfill schedule (optional)
 }
 
 // LimitsConfig defines position limits for transformations
@@ -71,23 +65,22 @@ func (c *Config) Validate() error {
 		return ErrTableRequired
 	}
 
-	// At least one of forwardfill or backfill must be configured
-	if c.ForwardFill == nil && c.Backfill == nil {
-		return ErrNoProcessingConfig
+	// Interval must be configured
+	if c.Interval == nil {
+		return ErrIntervalRequired
 	}
 
-	// ForwardFill is optional, but if specified must be valid
-	if c.ForwardFill != nil {
-		if err := c.ForwardFill.Validate(); err != nil {
-			return fmt.Errorf("forwardfill validation failed: %w", err)
-		}
+	if err := c.Interval.Validate(); err != nil {
+		return fmt.Errorf("interval validation failed: %w", err)
 	}
 
-	// Backfill is optional, but if specified must be valid
-	if c.Backfill != nil {
-		if err := c.Backfill.Validate(); err != nil {
-			return fmt.Errorf("backfill validation failed: %w", err)
-		}
+	// At least one schedule must be configured
+	if c.Schedules == nil || (c.Schedules.ForwardFill == "" && c.Schedules.Backfill == "") {
+		return ErrNoSchedulesConfig
+	}
+
+	if err := c.Schedules.Validate(); err != nil {
+		return fmt.Errorf("schedules validation failed: %w", err)
 	}
 
 	// Limits are optional, but if specified must be valid
@@ -109,33 +102,51 @@ func (c *Config) GetID() string {
 	return fmt.Sprintf("%s.%s", c.Database, c.Table)
 }
 
-// GetForwardInterval returns the interval for forward fill operations
-func (c *Config) GetForwardInterval() uint64 {
-	if c.ForwardFill != nil {
-		return c.ForwardFill.Interval
+// GetMaxInterval returns the maximum interval size
+func (c *Config) GetMaxInterval() uint64 {
+	if c.Interval != nil {
+		return c.Interval.Max
 	}
 	return 0
+}
+
+// GetMinInterval returns the minimum interval size
+func (c *Config) GetMinInterval() uint64 {
+	if c.Interval != nil {
+		return c.Interval.Min
+	}
+	return 0
+}
+
+// AllowsPartialIntervals returns true if partial intervals are allowed
+func (c *Config) AllowsPartialIntervals() bool {
+	return c.Interval != nil && c.Interval.Min < c.Interval.Max
 }
 
 // GetForwardSchedule returns the schedule for forward fill operations
 func (c *Config) GetForwardSchedule() string {
-	if c.ForwardFill != nil {
-		return c.ForwardFill.Schedule
+	if c.Schedules != nil {
+		return c.Schedules.ForwardFill
 	}
 	return ""
 }
 
-// GetBackfillInterval returns the interval for backfill operations
-func (c *Config) GetBackfillInterval() uint64 {
-	if c.Backfill != nil {
-		return c.Backfill.Interval
+// GetBackfillSchedule returns the schedule for backfill operations
+func (c *Config) GetBackfillSchedule() string {
+	if c.Schedules != nil {
+		return c.Schedules.Backfill
 	}
-	return 0
+	return ""
+}
+
+// IsForwardFillEnabled returns true if forward fill is configured
+func (c *Config) IsForwardFillEnabled() bool {
+	return c.Schedules != nil && c.Schedules.ForwardFill != ""
 }
 
 // IsBackfillEnabled returns true if backfill is configured
 func (c *Config) IsBackfillEnabled() bool {
-	return c.Backfill != nil
+	return c.Schedules != nil && c.Schedules.Backfill != ""
 }
 
 // GetMinLimit returns the minimum position limit
@@ -159,52 +170,34 @@ func (c *Config) HasLimits() bool {
 	return c.Limits != nil && (c.Limits.Min > 0 || c.Limits.Max > 0)
 }
 
-// IsPartialIntervalsAllowed returns true if partial intervals are allowed for forward fill
-func (c *Config) IsPartialIntervalsAllowed() bool {
-	return c.ForwardFill != nil && c.ForwardFill.AllowPartialIntervals
+// Validate checks if the interval configuration is valid
+func (c *IntervalConfig) Validate() error {
+	if c.Max == 0 {
+		return ErrIntervalMaxRequired
+	}
+
+	if c.Min > c.Max {
+		return ErrInvalidInterval
+	}
+
+	return nil
 }
 
-// GetMinPartialInterval returns the minimum partial interval for forward fill
-func (c *Config) GetMinPartialInterval() uint64 {
-	if c.ForwardFill != nil {
-		return c.ForwardFill.MinPartialInterval
-	}
-	return 0
-}
-
-// Validate checks if the forward fill configuration is valid
-func (c *ForwardFillConfig) Validate() error {
-	if c.Interval == 0 {
-		return ErrIntervalRequired
+// Validate checks if the schedules configuration is valid
+func (c *SchedulesConfig) Validate() error {
+	if c.ForwardFill != "" {
+		if err := ValidateScheduleFormat(c.ForwardFill); err != nil {
+			return fmt.Errorf("invalid forwardfill schedule: %w", err)
+		}
 	}
 
-	if c.Schedule == "" {
-		return ErrScheduleRequired
+	if c.Backfill != "" {
+		if err := ValidateScheduleFormat(c.Backfill); err != nil {
+			return fmt.Errorf("invalid backfill schedule: %w", err)
+		}
 	}
 
-	// Validate partial interval configuration
-	if c.AllowPartialIntervals && c.MinPartialInterval > 0 && c.MinPartialInterval > c.Interval {
-		return ErrInvalidPartialInterval
-	}
-
-	if !c.AllowPartialIntervals && c.MinPartialInterval > 0 {
-		return ErrPartialIntervalRequiresFlag
-	}
-
-	return ValidateScheduleFormat(c.Schedule)
-}
-
-// Validate checks if the backfill configuration is valid
-func (c *BackfillConfig) Validate() error {
-	if c.Interval == 0 {
-		return ErrIntervalRequired
-	}
-
-	if c.Schedule == "" {
-		return ErrScheduleRequired
-	}
-
-	return ValidateScheduleFormat(c.Schedule)
+	return nil
 }
 
 // Validate checks if the limits configuration is valid
