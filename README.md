@@ -226,6 +226,8 @@ limits:               # Optional: position boundaries for processing
 forwardfill:          # Optional: but at least one of forwardfill/backfill required
   interval: 3600
   schedule: "@every 1m"  # How often to trigger forward processing
+  allow_partial_intervals: false  # Optional: Allow processing partial intervals when dependencies are limited (default: false)
+  min_partial_interval: 0         # Optional: Minimum interval size for partial processing (0 = no minimum)
 backfill:             # Optional: but at least one of forwardfill/backfill required
   interval: 3600      # Can be different from forwardfill interval
   schedule: "@every 5m"  # How often to scan for gaps to backfill
@@ -560,30 +562,61 @@ Final range:
 
 #### Validation Flow
 
-```
-┌──────────────────────────────────────────────────────┐
-│           VALIDATION DECISION TREE                   │
-├──────────────────────────────────────────────────────┤
-│                                                      │
-│  1. Calculate Valid Range:                           │
-│     a. Collect all dependency bounds                 │
-│        - External: Query min/max, apply lag          │
-│        - Transformation: Get first/last from admin   │
-│     b. Apply formula:                                │
-│        min = MAX(MIN(externals), MAX(transforms))    │
-│        max = MIN(all dependency maxes)               │
-│     c. Apply configured limits if present            │
-│                                                      │
-│  2. Check Requested Interval:                        │
-│     position >= min_valid AND                        │
-│     position + interval <= max_valid                 │
-│        ├─ YES → CAN PROCESS ✅                       │
-│        └─ NO → CANNOT PROCESS ❌                     │
-│                                                      │
-└──────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Start([Scheduled Task]) --> CalcBounds[Calculate Valid Bounds¹<br/> max_valid, min_valid]
+    
+    CalcBounds --> CheckMode{Forward Fill<br/>or Backfill?}
+    
+    CheckMode -->|Forward Fill| GetNextPos[Get Next Position]
+    CheckMode -->|Backfill| ScanGaps[Scan for gap]
+    
+    GetNextPos --> CheckFull{"position + interval<br/><= max_valid?"}
+    ScanGaps --> GapFound{Gap Found?}
+    
+    CheckFull -->|Yes| Process[✅ Process Full Interval]
+    CheckFull -->|No| CheckPartial{allow_partial_intervals?}
+    
+    CheckPartial -->|No| Wait1[⏳ Wait for Dependencies]
+    CheckPartial -->|Yes| CalcAvail["available = <br/>max_valid - position"]
+    
+    CalcAvail --> CheckMin{"available >=<br/>min_partial_interval?"}
+    CheckMin -->|No| Wait2[⏳ Wait for Dependencies]
+    CheckMin -->|Yes| ProcessPartial["✅ Process Partial Interval<br/>interval = available"]
+    
+    GapFound -->|No| Done[✅ No Gaps]
+    GapFound -->|Yes| AdjustGap[Adjust interval to gap size²]
+    AdjustGap --> ProcessGap[✅ Process Gap]
+    
+    style Start fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1
+    style CalcBounds fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px,color:#4a148c
+    style CheckMode fill:#fff8e1,stroke:#f57f17,stroke-width:3px,color:#f57f17
+    style GetNextPos fill:#e8eaf6,stroke:#3949ab,stroke-width:2px,color:#1a237e
+    style CheckFull fill:#fff8e1,stroke:#f9a825,stroke-width:2px,color:#f57f17
+    style CheckPartial fill:#fff8e1,stroke:#f9a825,stroke-width:2px,color:#f57f17
+    style CheckMin fill:#fff8e1,stroke:#f9a825,stroke-width:2px,color:#f57f17
+    style GapFound fill:#fff8e1,stroke:#f9a825,stroke-width:2px,color:#f57f17
+    style Process fill:#2e7d32,stroke:#1b5e20,stroke-width:2px,color:#fff
+    style ProcessPartial fill:#43a047,stroke:#2e7d32,stroke-width:2px,color:#fff
+    style ProcessGap fill:#2e7d32,stroke:#1b5e20,stroke-width:2px,color:#fff
+    style Done fill:#2e7d32,stroke:#1b5e20,stroke-width:2px,color:#fff
+    style Wait1 fill:#ef6c00,stroke:#e65100,stroke-width:2px,color:#fff
+    style Wait2 fill:#ef6c00,stroke:#e65100,stroke-width:2px,color:#fff
+    style ScanGaps fill:#e8eaf6,stroke:#3949ab,stroke-width:2px,color:#1a237e
+    style CalcAvail fill:#e8eaf6,stroke:#3949ab,stroke-width:2px,color:#1a237e
+    style AdjustGap fill:#e8eaf6,stroke:#3949ab,stroke-width:2px,color:#1a237e
 ```
 
-#### Example Scenario
+**¹Valid Bounds Calculation:**
+- `min = MAX(MIN(external dependency mins), MAX(transformation dependency mins))`
+- `max = MIN(all dependency maxes)`
+- Apply configured limits if present
+
+**²Gap Adjustment:**
+- `gap_size = position - min_valid`
+- `adjusted_interval = MIN(gap_size, interval)`
+
+#### Example Scenario: Standard Validation
 
 Consider a model with these dependencies:
 - External: `ethereum.blocks` (min: 1000, max: 5000, lag: 100)
@@ -610,6 +643,23 @@ Consider a model with these dependencies:
    - Can't start before 2000 (waiting for `analytics.daily`)
    - Must stop at 4000 (where `analytics.daily` ends)
 
+#### Example Scenario: Partial Interval Processing
+
+Consider a transformation with:
+- **Configuration**: `interval: 100`, `allow_partial_intervals: true`, `min_partial_interval: 20`
+- **Current position**: 1000
+- **Dependency max_valid**: 1050 (only 50 units of data available)
+
+**Processing decision:**
+
+1. **Full interval check**: position (1000) + interval (100) = 1100 > max_valid (1050) ❌
+2. **Partial interval enabled**: Check if partial processing is possible
+3. **Available data**: max_valid (1050) - position (1000) = 50 units
+4. **Minimum check**: available (50) >= min_partial_interval (20) ✅
+5. **Result**: Process partial interval of 50 units (positions 1000-1050)
+
+Next cycle when dependencies have more data (e.g., max_valid reaches 1150), the transformation continues from position 1050.
+
 ### Key Validation Features
 
 - **Pull-through validation**: Workers always verify dependencies at execution time, not just at scheduling
@@ -617,6 +667,7 @@ Consider a model with these dependencies:
 - **Coverage tracking**: The admin table tracks all completed intervals, enabling precise dependency validation
 - **Automatic retry**: Failed validations are automatically retried on the next schedule cycle
 - **Cascade triggering**: When a model completes, all dependent models are immediately (within 5 seconds) checked for processing
+- **Partial interval processing**: When enabled via `allow_partial_intervals: true`, forward fill can process whatever data is available from dependencies instead of waiting for full intervals. This reduces processing lag when dependencies are incrementally updating. Configure with `min_partial_interval` to prevent excessively small processing chunks
 
 This validation system ensures that:
 1. No model processes data before its dependencies are ready

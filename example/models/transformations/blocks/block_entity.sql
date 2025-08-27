@@ -4,6 +4,8 @@ table: block_entity
 forwardfill:
   interval: 60
   schedule: "@every 10s"
+  allow_partial_intervals: true
+  min_partial_interval: 40
 backfill:
   interval: 60
   schedule: "@every 10s"

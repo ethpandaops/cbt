@@ -4,6 +4,7 @@ table: block_propagation
 forwardfill:
   interval: 60
   schedule: "@every 10s"
+  allow_partial_intervals: true
 backfill:
   interval: 60
   schedule: "@every 10s"

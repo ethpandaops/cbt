@@ -24,6 +24,10 @@ var (
 	ErrDependenciesRequired = errors.New("dependencies is required")
 	// ErrInvalidLimits is returned when min limit is greater than max limit
 	ErrInvalidLimits = errors.New("min limit cannot be greater than max limit")
+	// ErrInvalidPartialInterval is returned when min_partial_interval exceeds interval
+	ErrInvalidPartialInterval = errors.New("min_partial_interval cannot exceed interval")
+	// ErrPartialIntervalRequiresFlag is returned when min_partial_interval is set without allow_partial_intervals
+	ErrPartialIntervalRequiresFlag = errors.New("min_partial_interval requires allow_partial_intervals to be true")
 )
 
 // Config defines the configuration for transformation models
@@ -39,8 +43,10 @@ type Config struct {
 
 // ForwardFillConfig defines forward fill configuration for transformations
 type ForwardFillConfig struct {
-	Interval uint64 `yaml:"interval"`
-	Schedule string `yaml:"schedule"`
+	Interval              uint64 `yaml:"interval"`
+	Schedule              string `yaml:"schedule"`
+	AllowPartialIntervals bool   `yaml:"allow_partial_intervals,omitempty"` // Allow sub-interval processing when dependencies partially available
+	MinPartialInterval    uint64 `yaml:"min_partial_interval,omitempty"`    // Minimum interval size for partial processing (0 = no minimum)
 }
 
 // BackfillConfig defines backfill configuration for transformations
@@ -153,6 +159,19 @@ func (c *Config) HasLimits() bool {
 	return c.Limits != nil && (c.Limits.Min > 0 || c.Limits.Max > 0)
 }
 
+// IsPartialIntervalsAllowed returns true if partial intervals are allowed for forward fill
+func (c *Config) IsPartialIntervalsAllowed() bool {
+	return c.ForwardFill != nil && c.ForwardFill.AllowPartialIntervals
+}
+
+// GetMinPartialInterval returns the minimum partial interval for forward fill
+func (c *Config) GetMinPartialInterval() uint64 {
+	if c.ForwardFill != nil {
+		return c.ForwardFill.MinPartialInterval
+	}
+	return 0
+}
+
 // Validate checks if the forward fill configuration is valid
 func (c *ForwardFillConfig) Validate() error {
 	if c.Interval == 0 {
@@ -161,6 +180,15 @@ func (c *ForwardFillConfig) Validate() error {
 
 	if c.Schedule == "" {
 		return ErrScheduleRequired
+	}
+
+	// Validate partial interval configuration
+	if c.AllowPartialIntervals && c.MinPartialInterval > 0 && c.MinPartialInterval > c.Interval {
+		return ErrInvalidPartialInterval
+	}
+
+	if !c.AllowPartialIntervals && c.MinPartialInterval > 0 {
+		return ErrPartialIntervalRequiresFlag
 	}
 
 	return ValidateScheduleFormat(c.Schedule)
