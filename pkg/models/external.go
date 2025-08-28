@@ -27,6 +27,7 @@ type External interface {
 	GetID() string
 	GetConfig() external.Config
 	GetValue() string
+	SetDefaultDatabase(defaultDB string)
 }
 
 // NewExternal creates a new external model from file content

@@ -31,8 +31,10 @@ func NewTransformationExec(content []byte) (*Exec, error) {
 		return nil, fmt.Errorf("failed to parse yaml: %w", err)
 	}
 
-	if err := config.Validate(); err != nil {
-		return nil, err
+	// Validation is performed after applying defaults in service.go
+	// Only do basic structural validation here
+	if config.Exec == "" {
+		return nil, ErrExecRequired
 	}
 
 	return config, nil
@@ -61,4 +63,9 @@ func (c *Exec) GetConfig() *Config {
 // GetValue returns the exec command
 func (c *Exec) GetValue() string {
 	return c.Exec
+}
+
+// SetDefaultDatabase applies the default database if not already set
+func (c *Exec) SetDefaultDatabase(defaultDB string) {
+	c.SetDefaults(defaultDB)
 }

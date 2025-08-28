@@ -1,5 +1,6 @@
 ---
-database: analytics
+# database is set in the config models.transformations.defaultDatabase
+# database: analytics
 table: block_propagation
 interval:
   max: 60
@@ -11,7 +12,7 @@ tags:
   - propagation
   - block
 dependencies:
-  - ethereum.beacon_blocks
+  - "{{external}}.beacon_blocks"
 ---
 INSERT INTO
   `{{ .self.database }}`.`{{ .self.table }}`

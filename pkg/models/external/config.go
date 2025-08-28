@@ -30,7 +30,7 @@ type CacheConfig struct {
 
 // Config defines configuration for external models
 type Config struct {
-	Database string       `yaml:"database" validate:"required"`
+	Database string       `yaml:"database"` // Optional, can fall back to default
 	Table    string       `yaml:"table" validate:"required"`
 	Cache    *CacheConfig `yaml:"cache"`
 	Lag      uint64       `yaml:"lag"`
@@ -64,6 +64,13 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// SetDefaults applies default values to the configuration
+func (c *Config) SetDefaults(defaultDatabase string) {
+	if c.Database == "" && defaultDatabase != "" {
+		c.Database = defaultDatabase
+	}
 }
 
 // GetID returns the unique identifier for the external model

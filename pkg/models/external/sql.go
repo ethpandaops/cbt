@@ -72,3 +72,8 @@ func (c *SQL) GetConfig() Config {
 func (c *SQL) GetValue() string {
 	return c.Content
 }
+
+// SetDefaultDatabase applies the default database if not already set
+func (c *SQL) SetDefaultDatabase(defaultDB string) {
+	c.SetDefaults(defaultDB)
+}

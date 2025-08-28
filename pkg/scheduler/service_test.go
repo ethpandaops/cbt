@@ -521,5 +521,10 @@ func (m *mockTransformation) GetDependencies() []string         { return m.deps 
 func (m *mockTransformation) GetSQL() string                    { return m.sql }
 func (m *mockTransformation) GetType() string                   { return m.typ }
 func (m *mockTransformation) GetEnvironmentVariables() []string { return []string{} }
+func (m *mockTransformation) SetDefaultDatabase(defaultDB string) {
+	if m.conf.Database == "" {
+		m.conf.Database = defaultDB
+	}
+}
 
 var _ models.Transformation = (*mockTransformation)(nil)

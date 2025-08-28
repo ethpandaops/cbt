@@ -604,6 +604,11 @@ func (m *mockExecutorTransformation) GetDependencies() []string         { return
 func (m *mockExecutorTransformation) GetSQL() string                    { return m.sql }
 func (m *mockExecutorTransformation) GetType() string                   { return m.typ }
 func (m *mockExecutorTransformation) GetEnvironmentVariables() []string { return []string{} }
+func (m *mockExecutorTransformation) SetDefaultDatabase(defaultDB string) {
+	if m.conf.Database == "" {
+		m.conf.Database = defaultDB
+	}
+}
 
 var _ models.Transformation = (*mockExecutorTransformation)(nil)
 
@@ -620,6 +625,11 @@ func (m *mockExternal) GetID() string              { return m.id }
 func (m *mockExternal) GetConfig() external.Config { return m.conf }
 func (m *mockExternal) GetValue() string           { return m.val }
 func (m *mockExternal) GetType() string            { return m.typ }
+func (m *mockExternal) SetDefaultDatabase(defaultDB string) {
+	if m.conf.Database == "" {
+		m.conf.Database = defaultDB
+	}
+}
 
 var _ models.External = (*mockExternal)(nil)
 

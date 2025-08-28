@@ -3,6 +3,7 @@ package transformation
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/robfig/cron/v3"
 )
@@ -28,7 +29,7 @@ var (
 
 // Config defines the configuration for transformation models
 type Config struct {
-	Database     string           `yaml:"database"`
+	Database     string           `yaml:"database"` // Optional, can fall back to default
 	Table        string           `yaml:"table"`
 	Limits       *LimitsConfig    `yaml:"limits,omitempty"`
 	Interval     *IntervalConfig  `yaml:"interval"`
@@ -95,6 +96,26 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// SetDefaults applies default values to the configuration
+func (c *Config) SetDefaults(defaultDatabase string) {
+	if c.Database == "" && defaultDatabase != "" {
+		c.Database = defaultDatabase
+	}
+}
+
+// SubstituteDependencyPlaceholders replaces {{external}} and {{transformation}} placeholders
+// with the actual default database names
+func (c *Config) SubstituteDependencyPlaceholders(externalDefaultDB, transformationDefaultDB string) {
+	for i, dep := range c.Dependencies {
+		if externalDefaultDB != "" {
+			c.Dependencies[i] = strings.ReplaceAll(dep, "{{external}}", externalDefaultDB)
+		}
+		if transformationDefaultDB != "" {
+			c.Dependencies[i] = strings.ReplaceAll(c.Dependencies[i], "{{transformation}}", transformationDefaultDB)
+		}
+	}
 }
 
 // GetID returns the unique identifier for the transformation model

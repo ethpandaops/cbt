@@ -36,6 +36,7 @@ type Transformation interface {
 	GetID() string
 	GetConfig() *transformation.Config
 	GetValue() string
+	SetDefaultDatabase(defaultDB string)
 }
 
 // NewTransformation creates a new transformation model from file content

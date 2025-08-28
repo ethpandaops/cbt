@@ -1,5 +1,6 @@
 ---
-database: analytics
+# database is set in the config models.transformations.defaultDatabase
+# database: analytics
 table: hourly_block_stats
 limits:
   min: 1000  # Optional: minimum position to process
@@ -14,7 +15,7 @@ tags:
   - aggregation
   - hourly
 dependencies:
-  - analytics.block_entity
+  - "{{transformation}}.block_entity"
 ---
 -- Hourly aggregation of block statistics
 -- Demonstrates nested directory model structure

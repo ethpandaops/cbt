@@ -1,5 +1,6 @@
 ---
-database: analytics
+# database is set in the config models.transformations.defaultDatabase
+# database: analytics
 table: block_entity
 interval:
   max: 60
@@ -11,8 +12,8 @@ tags:
   - entity
   - block
 dependencies:
-  - ethereum.beacon_blocks
-  - ethereum.validator_entity
+  - "{{external}}.beacon_blocks"
+  - "{{external}}.validator_entity"
 ---
 INSERT INTO
   `{{ .self.database }}`.`{{ .self.table }}`

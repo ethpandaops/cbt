@@ -1,4 +1,5 @@
-database: analytics
+# database is set in the config models.transformations.defaultDatabase
+# database: analytics
 table: entity_changes
 interval:
   max: 120  # 2 minute intervals
@@ -11,5 +12,5 @@ tags:
   - entity
   - metrics
 dependencies:
-  - ethereum.validator_entity
+  - "{{external}}.validator_entity"
 exec: "python3 /app/scripts/entity_changes.py"

@@ -43,8 +43,10 @@ func NewTransformationSQL(content []byte) (*SQL, error) {
 
 	config.Content = string(parts[1])
 
-	if err := config.Validate(); err != nil {
-		return nil, err
+	// Validation is performed after applying defaults in service.go
+	// Only do basic structural validation here
+	if config.Content == "" {
+		return nil, ErrSQLContentRequired
 	}
 
 	return config, nil
@@ -73,4 +75,9 @@ func (c *SQL) GetConfig() *Config {
 // GetValue returns the SQL content
 func (c *SQL) GetValue() string {
 	return c.Content
+}
+
+// SetDefaultDatabase applies the default database if not already set
+func (c *SQL) SetDefaultDatabase(defaultDB string) {
+	c.SetDefaults(defaultDB)
 }

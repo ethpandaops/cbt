@@ -27,6 +27,9 @@ func (m *mockTransformationWithTemplate) GetSQL() string                    { re
 func (m *mockTransformationWithTemplate) GetType() string                   { return "transformation" }
 func (m *mockTransformationWithTemplate) GetValue() string                  { return m.value }
 func (m *mockTransformationWithTemplate) GetEnvironmentVariables() []string { return []string{} }
+func (m *mockTransformationWithTemplate) SetDefaultDatabase(defaultDB string) {
+	m.config.SetDefaults(defaultDB)
+}
 
 // Mock external with template value
 type mockExternalWithTemplate struct {
@@ -42,6 +45,9 @@ func (m *mockExternalWithTemplate) GetType() string                   { return m
 func (m *mockExternalWithTemplate) GetSQL() string                    { return "" }
 func (m *mockExternalWithTemplate) GetValue() string                  { return m.value }
 func (m *mockExternalWithTemplate) GetEnvironmentVariables() []string { return []string{} }
+func (m *mockExternalWithTemplate) SetDefaultDatabase(defaultDB string) {
+	m.config.SetDefaults(defaultDB)
+}
 
 // Test NewTemplateEngine
 func TestNewTemplateEngine(t *testing.T) {

@@ -82,6 +82,15 @@ func (s *service) parseModels() error {
 				return parseErr
 			}
 
+			// Apply default database if not specified
+			externalModel.SetDefaultDatabase(s.config.External.DefaultDatabase)
+
+			// Validate that database is set after applying defaults
+			config := externalModel.GetConfig()
+			if validationErr := config.Validate(); validationErr != nil {
+				return fmt.Errorf("model %s validation failed after applying defaults: %w", file.FilePath, validationErr)
+			}
+
 			s.externalModels = append(s.externalModels, externalModel)
 		}
 	}
@@ -96,6 +105,20 @@ func (s *service) parseModels() error {
 			transformationModel, parseErr := NewTransformation(file.Content, file.FilePath)
 			if parseErr != nil {
 				return parseErr
+			}
+
+			// Apply default database if not specified
+			transformationModel.SetDefaultDatabase(s.config.Transformation.DefaultDatabase)
+
+			// Substitute dependency placeholders with actual default databases
+			transformationModel.GetConfig().SubstituteDependencyPlaceholders(
+				s.config.External.DefaultDatabase,
+				s.config.Transformation.DefaultDatabase,
+			)
+
+			// Validate that database is set after applying defaults
+			if validationErr := transformationModel.GetConfig().Validate(); validationErr != nil {
+				return fmt.Errorf("model %s validation failed after applying defaults: %w", file.FilePath, validationErr)
 			}
 
 			s.transformationModels = append(s.transformationModels, transformationModel)
