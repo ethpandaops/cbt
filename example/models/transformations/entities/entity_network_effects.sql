@@ -1,5 +1,6 @@
 ---
-database: analytics
+# database is set in the config models.transformations.defaultDatabase
+# database: analytics
 table: entity_network_effects
 interval:
   max: 300
@@ -12,8 +13,10 @@ tags:
   - entity
   - network
 dependencies:
-  - analytics.block_entity
-  - analytics.block_propagation
+  # you can use the models.transformations.defaultDatabase template variable here
+  - "{{transformation}}.block_entity"
+  # or directly reference the analytics database
+  - "analytics.block_propagation"
 ---
 INSERT INTO
   `{{ .self.database }}`.`{{ .self.table }}`

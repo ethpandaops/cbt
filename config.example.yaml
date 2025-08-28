@@ -69,15 +69,17 @@ worker:
   # Seconds to wait for graceful shutdown
   shutdownTimeout: 30
 
-# Model paths configuration (optional)
-# Configure where to find external and transformation models
+# Model configuration (optional)
+# Configure where to find external and transformation models and default database
 # Defaults to models/external and models/transformations if not specified
 # models:
 #   external:
+#     defaultDatabase: ethereum # optional
 #     paths:
-#       - "models/external"
+#       - "models/external" # default
 #       - "/additional/external/models"
 #   transformations:
+#     defaultDatabase: analytics # optional
 #     paths:
-#       - "models/transformations"
+#       - "models/transformations" # default
 #       - "/additional/transformation/models"

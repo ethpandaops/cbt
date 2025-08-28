@@ -561,6 +561,9 @@ func (m *mockTransformation) GetDependencies() []string         { return []strin
 func (m *mockTransformation) GetSQL() string                    { return "" }
 func (m *mockTransformation) GetType() string                   { return "transformation" }
 func (m *mockTransformation) GetEnvironmentVariables() []string { return []string{} }
+func (m *mockTransformation) SetDefaultDatabase(_ string) {
+	// No-op for mock
+}
 
 // Test NewDependencyValidator creation
 func TestNewDependencyValidator(t *testing.T) {
@@ -769,6 +772,9 @@ func (m *mockExternal) GetConfig() external.Config {
 }
 func (m *mockExternal) GetValue() string { return "" }
 func (m *mockExternal) GetType() string  { return "sql" }
+func (m *mockExternal) SetDefaultDatabase(_ string) {
+	// No-op for mock
+}
 
 // mockExternalModelValidator is a mock implementation for testing
 type mockExternalModelValidator struct {

@@ -17,13 +17,14 @@ type mockTransformation struct {
 	config       transformation.Config
 }
 
-func (m *mockTransformation) GetID() string                     { return m.id }
-func (m *mockTransformation) GetDependencies() []string         { return m.dependencies }
-func (m *mockTransformation) GetConfig() *transformation.Config { return &m.config }
-func (m *mockTransformation) GetSQL() string                    { return "" }
-func (m *mockTransformation) GetType() string                   { return "transformation" }
-func (m *mockTransformation) GetValue() string                  { return "" }
-func (m *mockTransformation) GetEnvironmentVariables() []string { return []string{} }
+func (m *mockTransformation) GetID() string                       { return m.id }
+func (m *mockTransformation) GetDependencies() []string           { return m.dependencies }
+func (m *mockTransformation) GetConfig() *transformation.Config   { return &m.config }
+func (m *mockTransformation) GetSQL() string                      { return "" }
+func (m *mockTransformation) GetType() string                     { return "transformation" }
+func (m *mockTransformation) GetValue() string                    { return "" }
+func (m *mockTransformation) GetEnvironmentVariables() []string   { return []string{} }
+func (m *mockTransformation) SetDefaultDatabase(defaultDB string) { m.config.SetDefaults(defaultDB) }
 
 // Mock external for testing
 type mockExternal struct {
@@ -32,12 +33,13 @@ type mockExternal struct {
 	typ    string
 }
 
-func (m *mockExternal) GetID() string                     { return m.id }
-func (m *mockExternal) GetConfig() external.Config        { return m.config }
-func (m *mockExternal) GetType() string                   { return m.typ }
-func (m *mockExternal) GetSQL() string                    { return "" }
-func (m *mockExternal) GetValue() string                  { return "" }
-func (m *mockExternal) GetEnvironmentVariables() []string { return []string{} }
+func (m *mockExternal) GetID() string                       { return m.id }
+func (m *mockExternal) GetConfig() external.Config          { return m.config }
+func (m *mockExternal) GetType() string                     { return m.typ }
+func (m *mockExternal) GetSQL() string                      { return "" }
+func (m *mockExternal) GetValue() string                    { return "" }
+func (m *mockExternal) GetEnvironmentVariables() []string   { return []string{} }
+func (m *mockExternal) SetDefaultDatabase(defaultDB string) { m.config.SetDefaults(defaultDB) }
 
 // Test NewDependencyGraph
 func TestNewDependencyGraph(t *testing.T) {

@@ -204,6 +204,15 @@ func (a *externalModelAdapter) GetValue() string {
 	return a.testModel.GetValue()
 }
 
+func (a *externalModelAdapter) SetDefaultDatabase(defaultDB string) {
+	// Update the underlying config if needed
+	config := a.testModel.GetConfig()
+	if config.Database == "" {
+		config.Database = defaultDB
+		a.testModel.config = config
+	}
+}
+
 func TestQueryParsing(t *testing.T) {
 	tests := []struct {
 		name          string

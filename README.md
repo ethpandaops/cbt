@@ -113,23 +113,43 @@ worker:
   # Seconds to wait for graceful shutdown
   shutdownTimeout: 30
 
-# Model paths configuration (optional)
+# Models configuration (optional)
 # Configure where to find external and transformation models
+# Set default databases to use when models don't specify one
 # Defaults to models/external and models/transformations if not specified
 # models:
 #   external:
+#     defaultDatabase: ethereum # optional - models without 'database' field will use this
 #     paths:
-#       - "models/external"
+#       - "models/external" # default
 #       - "/additional/external/models"
 #   transformations:
+#     defaultDatabase: analytics # optional - models without 'database' field will use this
 #     paths:
-#       - "models/transformations"
+#       - "models/transformations" # default
 #       - "/additional/transformation/models"
 ```
 
 ## Models
 
 Models define your data pipelines and should be stored in your own repository or directory.
+
+### Database Configuration
+
+The `database` field in model configurations can be:
+- **Explicitly set**: When specified in the model, it takes precedence
+- **Omitted**: Falls back to the `defaultDatabase` configured for that model type:
+  - External models: Uses `models.external.defaultDatabase`
+  - Transformation models: Uses `models.transformations.defaultDatabase`
+- **Required**: If no default is configured, the database field must be specified in each model
+
+This allows you to centralize database configuration while still having the flexibility to override it for specific models.
+
+When referencing models in dependencies, you can use placeholders to reference the default databases:
+- `{{external}}.table_name` - Resolves to the default external database
+- `{{transformation}}.table_name` - Resolves to the default transformation database
+
+This makes your models more portable and easier to maintain when database names change.
 
 ### Model Paths
 
@@ -150,7 +170,7 @@ models:
 
 ### External Models
 
-External models define source data boundaries.
+External models define source data boundaries. The `database` field can be omitted if a `defaultDatabase` is configured in the models configuration.
 
 #### Template Variables
 
@@ -169,7 +189,7 @@ Models support Go template syntax with the following variables:
 
 ```sql
 ---
-database: ethereum
+database: ethereum  # Optional: Falls back to models.external.defaultDatabase if not specified
 table: beacon_blocks
 cache:  # Optional (strongly recommended): configure bounds caching to reduce queries to source data
   incremental_scan_interval: 10s  # How often to check for new data outside known bounds
@@ -197,9 +217,28 @@ When no cache exists (first run), a full scan is always performed. The cache per
 
 ### Transformation Models
 
-Transformation models process data in intervals. Intervals are agnostic to the source data and could be a time interval, a block number etc.
+Transformation models process data in intervals. Intervals are agnostic to the source data and could be a time interval, a block number etc. The `database` field can be omitted if a `defaultDatabase` is configured in the models configuration.
 
 > Note: CBT does not create transformation tables and **requires** you to create them manually by design.
+
+#### Dependencies
+
+Dependencies can reference other models using:
+- **Explicit database references**: `database.table` (e.g., `ethereum.beacon_blocks`)
+- **Default database placeholders**: 
+  - `{{external}}.table` - References a table in the default external database
+  - `{{transformation}}.table` - References a table in the default transformation database
+
+This allows models to reference dependencies without hardcoding database names:
+
+```yaml
+dependencies:
+  - {{external}}.beacon_blocks        # Resolves to external defaultDatabase
+  - {{transformation}}.hourly_stats    # Resolves to transformation defaultDatabase
+  - custom_db.specific_table           # Explicit database reference
+```
+
+The placeholders are replaced with actual database names from your configuration during model loading.
 
 #### Template Variables
 
@@ -218,7 +257,7 @@ Models support Go template syntax with the following variables:
 
 ```sql
 ---
-database: analytics
+database: analytics  # Optional: Falls back to models.transformations.defaultDatabase if not specified
 table: block_propagation
 limits:               # Optional: position boundaries for processing
   min: 1704067200    # Minimum position to process
@@ -235,7 +274,7 @@ tags:
   - batch
   - aggregation
 dependencies:
-  - ethereum.beacon_blocks
+  - {{external}}.beacon_blocks  # Uses default external database
 ---
 INSERT INTO
   `{{ .self.database }}`.`{{ .self.table }}`
@@ -281,7 +320,7 @@ Environment variables provided to scripts:
 #### Example
 
 ```yaml
-database: analytics
+database: analytics  # Optional: Falls back to models.transformations.defaultDatabase if not specified
 table: python_metrics
 interval:
   max: 3600          # Maximum interval size for processing
@@ -293,7 +332,7 @@ tags:
   - python
   - metrics
 dependencies:
-  - ethereum.beacon_blocks
+  - {{external}}.beacon_blocks  # Uses default external database
 exec: "python3 /app/scripts/process_metrics.py"
 ```
 

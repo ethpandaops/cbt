@@ -45,11 +45,13 @@ worker:
   #   require: []
   shutdownTimeout: 30
 
-# Model paths configuration
+# Model configuration with optional default databases
 models:
   external:
     paths:
       - "/app/models/external"
+    defaultDatabase: "ethereum"  # Default database for external models
   transformations:
     paths:
       - "/app/models/transformations"
+    defaultDatabase: "analytics"  # Default database for transformation models

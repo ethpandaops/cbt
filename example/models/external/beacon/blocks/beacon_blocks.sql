@@ -1,5 +1,6 @@
 ---
-database: ethereum
+# database is set in the config models.external.defaultDatabase
+# database: ethereum
 table: beacon_blocks
 cache:
   incremental_scan_interval: 10s

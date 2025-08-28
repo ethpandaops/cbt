@@ -352,6 +352,9 @@ func (m *mockTransformation) GetDependencies() []string         { return []strin
 func (m *mockTransformation) GetSQL() string                    { return "" }
 func (m *mockTransformation) GetType() string                   { return "transformation" }
 func (m *mockTransformation) GetEnvironmentVariables() []string { return []string{} }
+func (m *mockTransformation) SetDefaultDatabase(_ string) {
+	// No-op for mock
+}
 
 var _ models.Transformation = (*mockTransformation)(nil)
 
