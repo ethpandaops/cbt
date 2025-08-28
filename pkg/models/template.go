@@ -72,54 +72,70 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 
 	deps := map[string]interface{}{}
 
-	for _, depID := range config.Dependencies {
+	// Helper function to add a dep entry
+	addDepEntry := func(database, table string, data map[string]interface{}) {
+		db := map[string]interface{}{}
+		if existing, ok := deps[database].(map[string]interface{}); ok {
+			db = existing
+		}
+		db[table] = data
+		deps[database] = db
+	}
+
+	for i, depID := range config.Dependencies {
 		dep, err := t.dag.GetNode(depID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get dependency: %w", err)
 		}
 
-		if dep.NodeType == NodeTypeTransformation {
+		// Get the original dependency if available
+		originalDep := depID
+		if i < len(config.OriginalDependencies) {
+			originalDep = config.OriginalDependencies[i]
+		}
+
+		switch dep.NodeType {
+		case NodeTypeTransformation:
 			transformation, ok := dep.Model.(Transformation)
 			if !ok {
 				return nil, fmt.Errorf("%w: %s", ErrNotTransformationModel, depID)
 			}
 
 			tConfig := transformation.GetConfig()
-
-			database := map[string]interface{}{}
-
-			if db, ok := deps[tConfig.Database].(map[string]interface{}); ok {
-				database = db
-			}
-
-			database[tConfig.Table] = map[string]interface{}{
+			depData := map[string]interface{}{
 				"database": tConfig.Database,
 				"table":    tConfig.Table,
 			}
 
-			deps[tConfig.Database] = database
-		}
+			// Add entry with resolved database
+			addDepEntry(tConfig.Database, tConfig.Table, depData)
 
-		if dep.NodeType == NodeTypeExternal {
+			// If original had a placeholder, also add entry with placeholder key
+			if originalDep != depID && strings.Contains(originalDep, ".") {
+				placeholderDB := strings.SplitN(originalDep, ".", 2)[0]
+				addDepEntry(placeholderDB, tConfig.Table, depData)
+			}
+
+		case NodeTypeExternal:
 			external, ok := dep.Model.(External)
 			if !ok {
 				return nil, fmt.Errorf("%w: %s", ErrNotExternalModel, depID)
 			}
 
 			eConfig := external.GetConfig()
-
-			database := map[string]interface{}{}
-
-			if db, ok := deps[eConfig.Database].(map[string]interface{}); ok {
-				database = db
-			}
-
-			database[eConfig.Table] = map[string]interface{}{
+			depData := map[string]interface{}{
 				"database": eConfig.Database,
 				"table":    eConfig.Table,
 			}
 
-			deps[eConfig.Database] = database
+			// Add entry with resolved database
+			addDepEntry(eConfig.Database, eConfig.Table, depData)
+
+			// If original had a placeholder, also add entry with placeholder key
+			if originalDep != depID && strings.Contains(originalDep, ".") {
+				placeholderDB := strings.SplitN(originalDep, ".", 2)[0]
+				addDepEntry(placeholderDB, eConfig.Table, depData)
+			}
 		}
 	}
 

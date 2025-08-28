@@ -36,6 +36,10 @@ type Config struct {
 	Schedules    *SchedulesConfig `yaml:"schedules"`
 	Dependencies []string         `yaml:"dependencies"`
 	Tags         []string         `yaml:"tags"`
+
+	// OriginalDependencies stores the dependencies before placeholder substitution
+	// This is used by the template engine to create dual entries
+	OriginalDependencies []string `yaml:"-"`
 }
 
 // IntervalConfig defines interval configuration for transformations
@@ -108,6 +112,10 @@ func (c *Config) SetDefaults(defaultDatabase string) {
 // SubstituteDependencyPlaceholders replaces {{external}} and {{transformation}} placeholders
 // with the actual default database names
 func (c *Config) SubstituteDependencyPlaceholders(externalDefaultDB, transformationDefaultDB string) {
+	// Save original dependencies before substitution
+	c.OriginalDependencies = make([]string, len(c.Dependencies))
+	copy(c.OriginalDependencies, c.Dependencies)
+
 	for i, dep := range c.Dependencies {
 		if externalDefaultDB != "" {
 			c.Dependencies[i] = strings.ReplaceAll(dep, "{{external}}", externalDefaultDB)

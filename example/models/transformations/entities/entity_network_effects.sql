@@ -39,7 +39,7 @@ SELECT
     -- Interval tracking
     {{ .self.interval }} as interval
     
-FROM `{{ index .dep "analytics" "block_entity" "database" }}`.`{{ index .dep "analytics" "block_entity" "table" }}` be
+FROM `{{ index .dep "{{transformation}}" "block_entity" "database" }}`.`{{ index .dep "{{transformation}}" "block_entity" "table" }}` be
 INNER JOIN `{{ index .dep "analytics" "block_propagation" "database" }}`.`{{ index .dep "analytics" "block_propagation" "table" }}` bp
     ON be.slot = bp.slot 
     AND be.block_root = bp.block_root

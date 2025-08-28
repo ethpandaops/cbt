@@ -32,7 +32,7 @@ FROM (
         slot,
         block_root,
         validator_index
-    FROM `{{ index .dep "ethereum" "beacon_blocks" "database" }}`.`{{ index .dep "ethereum" "beacon_blocks" "table" }}`
+    FROM `{{ index .dep "{{external}}" "beacon_blocks" "database" }}`.`{{ index .dep "{{external}}" "beacon_blocks" "table" }}`
     WHERE slot_start_date_time BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
 ) b
 -- Always look back 24 hours to get the most recent entity mapping for each validator
@@ -40,7 +40,7 @@ LEFT JOIN (
     SELECT 
         validator_index,
         argMax(entity_name, slot_start_date_time) as entity_name
-    FROM `{{ index .dep "ethereum" "validator_entity" "database" }}`.`{{ index .dep "ethereum" "validator_entity" "table" }}`
+    FROM `{{ index .dep "{{external}}" "validator_entity" "database" }}`.`{{ index .dep "{{external}}" "validator_entity" "table" }}`
     WHERE slot_start_date_time >= fromUnixTimestamp({{ .bounds.start }}) - INTERVAL 24 HOUR
       AND slot_start_date_time <= fromUnixTimestamp({{ .bounds.end }})
     GROUP BY validator_index
