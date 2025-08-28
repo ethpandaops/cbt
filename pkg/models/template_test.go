@@ -49,6 +49,136 @@ func (m *mockExternalWithTemplate) SetDefaultDatabase(defaultDB string) {
 	m.config.SetDefaults(defaultDB)
 }
 
+func TestTemplateEngineDualKeyWithRealSQL(t *testing.T) {
+	// Create a dependency graph
+	dag := NewDependencyGraph()
+
+	// Create external model
+	externalModel := &mockExternalWithTemplate{
+		id:    "raw_data.blocks",
+		typ:   "external",
+		value: "SELECT * FROM blocks",
+		config: external.Config{
+			Database: "raw_data",
+			Table:    "blocks",
+		},
+	}
+
+	// Create transformation with SQL using placeholder syntax
+	transformModel := &mockTransformationWithTemplate{
+		id:           "processed.block_summary",
+		dependencies: []string{"{{external}}.blocks"},
+		config: transformation.Config{
+			Database:             "processed",
+			Table:                "block_summary",
+			Dependencies:         []string{"{{external}}.blocks"},
+			OriginalDependencies: []string{"{{external}}.blocks"},
+		},
+		value: `INSERT INTO {{ .self.database }}.{{ .self.table }}
+SELECT 
+    block_number,
+    block_hash,
+    count(*) as tx_count
+FROM {{ index .dep "{{external}}" "blocks" "database" }}.{{ index .dep "{{external}}" "blocks" "table" }}
+WHERE block_timestamp BETWEEN {{ .bounds.start }} AND {{ .bounds.end }}
+GROUP BY block_number, block_hash`,
+	}
+
+	// Substitute placeholders
+	transformModel.config.SubstituteDependencyPlaceholders("raw_data", "processed")
+
+	// Build the graph
+	transformations := []Transformation{transformModel}
+	externals := []External{externalModel}
+	err := dag.BuildGraph(transformations, externals)
+	require.NoError(t, err)
+
+	// Create template engine
+	clickhouseCfg := &clickhouse.Config{
+		Cluster:     "",
+		LocalSuffix: "",
+	}
+	engine := NewTemplateEngine(clickhouseCfg, dag)
+
+	// Render the template
+	rendered, err := engine.RenderTransformation(transformModel, 1000, 100, time.Now())
+	require.NoError(t, err)
+
+	// Verify the SQL was rendered correctly with the resolved database
+	assert.Contains(t, rendered, "INSERT INTO processed.block_summary")
+	assert.Contains(t, rendered, "FROM raw_data.blocks")
+	assert.Contains(t, rendered, "WHERE block_timestamp BETWEEN 1000 AND 1100")
+}
+
+func TestTemplateEngineDualKeyDependencyAccess(t *testing.T) {
+	// Create a dependency graph
+	dag := NewDependencyGraph()
+
+	// Create external model that will be referenced
+	externalModel := &mockExternalWithTemplate{
+		id:    "ethereum.beacon_blocks",
+		typ:   "external",
+		value: "SELECT * FROM blocks",
+		config: external.Config{
+			Database: "ethereum",
+			Table:    "beacon_blocks",
+		},
+	}
+
+	// Create transformation model that will be referenced
+	refTransformModel := &mockTransformationWithTemplate{
+		id:           "analytics.hourly_stats",
+		dependencies: []string{},
+		config: transformation.Config{
+			Database: "analytics",
+			Table:    "hourly_stats",
+		},
+		value: "SELECT * FROM stats",
+	}
+
+	// Main transformation with placeholder dependencies
+	mainTransformModel := &mockTransformationWithTemplate{
+		id:           "analytics.test_transform",
+		dependencies: []string{"{{external}}.beacon_blocks", "{{transformation}}.hourly_stats"},
+		config: transformation.Config{
+			Database:             "analytics",
+			Table:                "test_transform",
+			Dependencies:         []string{"{{external}}.beacon_blocks", "{{transformation}}.hourly_stats"},
+			OriginalDependencies: []string{"{{external}}.beacon_blocks", "{{transformation}}.hourly_stats"},
+		},
+		value: `Placeholder access: {{ index .dep "{{external}}" "beacon_blocks" "database" }}.{{ index .dep "{{external}}" "beacon_blocks" "table" }}
+Resolved access: {{ index .dep "ethereum" "beacon_blocks" "database" }}.{{ index .dep "ethereum" "beacon_blocks" "table" }}
+Transformation placeholder: {{ index .dep "{{transformation}}" "hourly_stats" "database" }}.{{ index .dep "{{transformation}}" "hourly_stats" "table" }}
+Transformation resolved: {{ index .dep "analytics" "hourly_stats" "database" }}.{{ index .dep "analytics" "hourly_stats" "table" }}`,
+	}
+
+	// Substitute placeholders
+	mainTransformModel.config.SubstituteDependencyPlaceholders("ethereum", "analytics")
+
+	// Build the graph
+	transformations := []Transformation{mainTransformModel, refTransformModel}
+	externals := []External{externalModel}
+	err := dag.BuildGraph(transformations, externals)
+	require.NoError(t, err)
+
+	// Create template engine
+	clickhouseCfg := &clickhouse.Config{
+		Cluster:     "test_cluster",
+		LocalSuffix: "_local",
+	}
+	engine := NewTemplateEngine(clickhouseCfg, dag)
+
+	// Render the template
+	rendered, err := engine.RenderTransformation(mainTransformModel, 1000, 100, time.Now())
+	require.NoError(t, err)
+
+	// Verify both placeholder and resolved forms work
+	assert.Contains(t, rendered, "Placeholder access: ethereum.beacon_blocks")
+	assert.Contains(t, rendered, "Resolved access: ethereum.beacon_blocks")
+	assert.Contains(t, rendered, "Transformation placeholder: analytics.hourly_stats")
+	assert.Contains(t, rendered, "Transformation resolved: analytics.hourly_stats")
+}
+
 // Test NewTemplateEngine
 func TestNewTemplateEngine(t *testing.T) {
 	chConfig := &clickhouse.Config{

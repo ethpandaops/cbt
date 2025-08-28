@@ -253,6 +253,12 @@ Models support Go template syntax with the following variables:
 - `{{ .task.start }}` - Task start timestamp
 - `{{ index .dep "db" "table" "field" }}` - Access dependency configuration
 
+When using placeholder dependencies (e.g., `{{external}}.beacon_blocks`), you can access them in templates using either form:
+- **Placeholder form**: `{{ index .dep "{{external}}" "beacon_blocks" "database" }}`
+- **Resolved form**: `{{ index .dep "ethereum" "beacon_blocks" "database" }}`
+
+Both forms work identically, allowing your templates to be portable across different database configurations.
+
 #### Example
 
 ```sql
@@ -287,7 +293,7 @@ SELECT
     count(DISTINCT meta_client_name) as client_count,
     avg(propagation_slot_start_diff) as avg_propagation,
     {{ .bounds.start }} as position
-FROM `{{ index .dep "ethereum" "beacon_blocks" "database" }}`.`{{ index .dep "ethereum" "beacon_blocks" "table" }}`
+FROM `{{ index .dep "{{external}}" "beacon_blocks" "database" }}`.`{{ index .dep "{{external}}" "beacon_blocks" "table" }}`
 WHERE slot_start_date_time BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
 GROUP BY slot_start_date_time, slot, block_root;
 
