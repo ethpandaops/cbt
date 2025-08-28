@@ -31,12 +31,6 @@ func NewTransformationExec(content []byte) (*Exec, error) {
 		return nil, fmt.Errorf("failed to parse yaml: %w", err)
 	}
 
-	// Validation is performed after applying defaults in service.go
-	// Only do basic structural validation here
-	if config.Exec == "" {
-		return nil, ErrExecRequired
-	}
-
 	return config, nil
 }
 
@@ -46,7 +40,6 @@ func (c *Exec) Validate() error {
 		return ErrExecRequired
 	}
 
-	// Validate the embedded Config
 	return c.Config.Validate()
 }
 

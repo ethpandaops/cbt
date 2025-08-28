@@ -42,10 +42,6 @@ func NewExternalSQL(content []byte) (*SQL, error) {
 
 	config.Content = string(parts[1])
 
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-
 	return config, nil
 }
 
@@ -55,7 +51,7 @@ func (c *SQL) Validate() error {
 		return ErrSQLContentRequired
 	}
 
-	return nil
+	return c.Config.Validate()
 }
 
 // GetType returns the external model type

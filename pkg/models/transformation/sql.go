@@ -43,12 +43,6 @@ func NewTransformationSQL(content []byte) (*SQL, error) {
 
 	config.Content = string(parts[1])
 
-	// Validation is performed after applying defaults in service.go
-	// Only do basic structural validation here
-	if config.Content == "" {
-		return nil, ErrSQLContentRequired
-	}
-
 	return config, nil
 }
 
@@ -58,7 +52,6 @@ func (c *SQL) Validate() error {
 		return ErrSQLContentRequired
 	}
 
-	// Validate the embedded Config
 	return c.Config.Validate()
 }
 
