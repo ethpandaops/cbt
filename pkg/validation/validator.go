@@ -59,6 +59,7 @@ var (
 	ErrInvalidDependencyType  = errors.New("invalid dependency type")
 	ErrInvalidModelType       = errors.New("invalid dependency model type")
 	ErrFailedModelCast        = errors.New("failed to cast model to transformation")
+	ErrInsufficientRange      = errors.New("insufficient dependency range for interval")
 )
 
 // NewDependencyValidator creates a new dependency validator
@@ -238,7 +239,7 @@ func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 	interval := model.GetConfig().GetMaxInterval()
 
 	// Use GetValidRange to get the valid range
-	_, maxPos, err := v.GetValidRange(ctx, modelID)
+	minPos, maxPos, err := v.GetValidRange(ctx, modelID)
 	if err != nil {
 		return 0, err
 	}
@@ -248,25 +249,29 @@ func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 		return 0, nil
 	}
 
-	// Start one interval before the maximum to ensure we have a full interval of data
-	if maxPos < interval {
-		return 0, nil // Not enough data for even one interval
+	// Simple calculation: start one interval back from max, but not below min
+	var initialPos uint64
+	if maxPos > interval {
+		targetPos := maxPos - interval
+		if targetPos > minPos {
+			initialPos = targetPos
+		} else {
+			initialPos = minPos
+		}
+	} else {
+		// Not enough data for even one interval from 0
+		initialPos = minPos
 	}
-
-	startPos := maxPos - interval
-
-	// Align to interval boundary (round down)
-	alignedPos := (startPos / interval) * interval
 
 	v.log.WithFields(logrus.Fields{
 		"model_id":   modelID,
+		"minPos":     minPos,
 		"maxPos":     maxPos,
-		"startPos":   startPos,
-		"alignedPos": alignedPos,
 		"interval":   interval,
+		"initialPos": initialPos,
 	}).Debug("Calculated initial position (head-first)")
 
-	return alignedPos, nil
+	return initialPos, nil
 }
 
 // dependencyBounds holds min/max bounds for dependencies

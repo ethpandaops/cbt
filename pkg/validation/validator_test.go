@@ -305,6 +305,57 @@ func TestGetInitialPosition(t *testing.T) {
 			expectedPos: 2900, // min of all deps minus one interval
 			wantErr:     false,
 		},
+		{
+			name:    "external dependency with limited range - starts at minPos",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				// Simulates the real scenario where external data starts at a high position
+				// and the range is too small for the interval
+				dag.dependencies = []string{"ext.model1", "ext.model2"}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 500000}},
+					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
+					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
+				}
+				// External models with limited historical data (similar to real scenario)
+				// Range: 1752623999 - 1752537611 = 86388 (less than interval of 500000)
+				admin.firstPositions = map[string]uint64{
+					"ext.model1": 1752537611,
+					"ext.model2": 1752537611,
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.model1": 1752623999,
+					"ext.model2": 1752623999,
+				}
+			},
+			expectedPos: 1752537611, // Should start at minPos when range < interval
+			wantErr:     false,
+		},
+		{
+			name:    "external dependency with sufficient range",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				// Simulates scenario where external data starts at a high position
+				// but has enough range for at least one interval
+				dag.dependencies = []string{"ext.model1", "ext.model2"}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 500000}},
+					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
+					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
+				}
+				// External models with limited historical data but enough for interval
+				admin.firstPositions = map[string]uint64{
+					"ext.model1": 1752300000,
+					"ext.model2": 1752300000,
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.model1": 1752900000, // 600000 range (> interval)
+					"ext.model2": 1752900000,
+				}
+			},
+			expectedPos: 1752400000, // Should start one interval back from max (1752900000 minus 500000)
+			wantErr:     false,
+		},
 	}
 
 	for _, tt := range tests {
