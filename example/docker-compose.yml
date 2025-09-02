@@ -1,7 +1,7 @@
 services:
   # ClickHouse database
   clickhouse:
-    image: clickhouse/clickhouse-server:latest
+    image: "clickhouse/clickhouse-server:${CHVER:-latest}"
     container_name: cbt-clickhouse
     ports:
       - "8123:8123"  # HTTP interface
@@ -134,6 +134,7 @@ services:
   # Asynq monitoring UI for task queue visibility
   asynqmon:
     image: hibiken/asynqmon:latest
+    platform: linux/amd64
     container_name: cbt-asynqmon
     ports:
       - "8080:8080"
@@ -148,6 +149,7 @@ services:
   # Redis Commander for Redis management
   redis-commander:
     image: rediscommander/redis-commander:latest
+    platform: linux/amd64
     container_name: cbt-redis-commander
     ports:
       - "8081:8081"
