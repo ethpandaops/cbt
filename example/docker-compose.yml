@@ -1,7 +1,7 @@
 services:
   # ClickHouse database
   clickhouse:
-    image: "clickhouse/clickhouse-server:${CHVER:-latest}"
+    image: "clickhouse/clickhouse-server:${CHVER:-25.5.10}"
     container_name: cbt-clickhouse
     ports:
       - "8123:8123"  # HTTP interface

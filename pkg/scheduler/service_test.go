@@ -294,7 +294,7 @@ func TestHandleScheduledBackfill(t *testing.T) {
 								ForwardFill: "@every 1m",
 								Backfill:    "*/5 * * * *",
 							},
-							Dependencies: []string{},
+							Dependencies: []transformation.Dependency{},
 						},
 					},
 				}

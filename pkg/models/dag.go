@@ -147,7 +147,10 @@ func (d *DependencyGraph) AddExternalModels(models []External) error {
 func (d *DependencyGraph) AddTransformationEdges(models []Transformation) error {
 	for _, model := range models {
 		if model != nil {
-			for _, depID := range model.GetConfig().Dependencies {
+			config := model.GetConfig()
+			// Process all dependencies (both single and OR groups)
+			allDeps := config.GetFlattenedDependencies()
+			for _, depID := range allDeps {
 				// Validate dependency exists
 				if _, err := d.dag.GetVertex(depID); err != nil {
 					return fmt.Errorf("%w: %s depends on %s", ErrNonExistentDependency, model.GetID(), depID)
@@ -242,6 +245,7 @@ func (d *DependencyGraph) GetDependents(modelID string) []string {
 }
 
 // GetDependencies returns the direct dependencies of a model
+// Note: This returns all dependencies flattened (including those in OR groups)
 func (d *DependencyGraph) GetDependencies(modelID string) []string {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()

@@ -58,7 +58,7 @@ func TestValidateDependencies(t *testing.T) {
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"dep.model1", "dep.model2"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"dep.model1", "dep.model2"}}},
 					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
 					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
 				}
@@ -275,7 +275,7 @@ func TestGetInitialPosition(t *testing.T) {
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"dep.model1"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"dep.model1"}}},
 					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
 				}
 				admin.lastPositions = map[string]uint64{
@@ -291,7 +291,7 @@ func TestGetInitialPosition(t *testing.T) {
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"dep.model1", "dep.model2", "dep.model3"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"dep.model1", "dep.model2", "dep.model3"}}},
 					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
 					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
 					"dep.model3": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model3", interval: 100}},
@@ -313,7 +313,7 @@ func TestGetInitialPosition(t *testing.T) {
 				// and the range is too small for the interval
 				dag.dependencies = []string{"ext.model1", "ext.model2"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 500000}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 500000, dependencies: []string{"ext.model1", "ext.model2"}}},
 					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
 					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
 				}
@@ -339,7 +339,7 @@ func TestGetInitialPosition(t *testing.T) {
 				// but has enough range for at least one interval
 				dag.dependencies = []string{"ext.model1", "ext.model2"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 500000}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 500000, dependencies: []string{"ext.model1", "ext.model2"}}},
 					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
 					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
 				}
@@ -585,14 +585,23 @@ func (m *mockAdmin) GetAdminTable() string {
 }
 
 type mockTransformation struct {
-	id       string
-	interval uint64
+	id           string
+	interval     uint64
+	dependencies []string
 }
 
 func (m *mockTransformation) GetID() string { return m.id }
 func (m *mockTransformation) GetConfig() *transformation.Config {
 	if m.interval == 0 {
 		m.interval = 100 // Default interval
+	}
+	// Convert string dependencies to Dependency structs
+	deps := make([]transformation.Dependency, len(m.dependencies))
+	for i, dep := range m.dependencies {
+		deps[i] = transformation.Dependency{
+			IsGroup:   false,
+			SingleDep: dep,
+		}
 	}
 	return &transformation.Config{
 		Database: "test_db",
@@ -604,7 +613,7 @@ func (m *mockTransformation) GetConfig() *transformation.Config {
 		Schedules: &transformation.SchedulesConfig{
 			ForwardFill: "@every 1m",
 		},
-		Dependencies: []string{},
+		Dependencies: deps,
 	}
 }
 func (m *mockTransformation) GetValue() string                  { return "" }
@@ -661,7 +670,7 @@ func TestGetEarliestPosition(t *testing.T) {
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"dep.model1"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"dep.model1"}}},
 					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
 				}
 				admin.firstPositions = map[string]uint64{
@@ -677,7 +686,7 @@ func TestGetEarliestPosition(t *testing.T) {
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"ext.model1", "ext.model2", "ext.model3"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"ext.model1", "ext.model2", "ext.model3"}}},
 					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
 					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
 					"ext.model3": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model3"}},
@@ -698,7 +707,7 @@ func TestGetEarliestPosition(t *testing.T) {
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"dep.model1", "dep.model2", "dep.model3"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"dep.model1", "dep.model2", "dep.model3"}}},
 					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
 					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
 					"dep.model3": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model3", interval: 100}},
@@ -718,7 +727,7 @@ func TestGetEarliestPosition(t *testing.T) {
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"ext.model1", "ext.model2", "dep.model1", "dep.model2"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"ext.model1", "ext.model2", "dep.model1", "dep.model2"}}},
 					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
 					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
 					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
@@ -740,7 +749,7 @@ func TestGetEarliestPosition(t *testing.T) {
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"ext.model1", "ext.model2", "dep.model1", "dep.model2"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"ext.model1", "ext.model2", "dep.model1", "dep.model2"}}},
 					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
 					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
 					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
@@ -803,9 +812,38 @@ func TestGetEarliestPosition(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
+				if pos != tt.expectedPos {
+					logPositionDebugInfo(ctx, t, validator, mockDAG, tt.modelID, pos, tt.expectedPos)
+				}
 				assert.Equal(t, tt.expectedPos, pos)
 			}
 		})
+	}
+}
+
+// logPositionDebugInfo logs debug information when position doesn't match expected
+func logPositionDebugInfo(ctx context.Context, t *testing.T, validator *dependencyValidator, mockDAG *mockDAGReader, modelID string, pos, expectedPos uint64) {
+	t.Logf("GetEarliestPosition returned %d, expected %d", pos, expectedPos)
+	// Try GetValidRange directly to see what it returns
+	minPos, maxPos, err2 := validator.GetValidRange(ctx, modelID)
+	t.Logf("GetValidRange returned min=%d, max=%d, err=%v", minPos, maxPos, err2)
+	// Check what the model's dependencies are
+	node, err3 := mockDAG.GetNode(modelID)
+	if err3 != nil {
+		return
+	}
+	trans, ok := node.Model.(models.Transformation)
+	if !ok {
+		return
+	}
+	config := trans.GetConfig()
+	t.Logf("Model dependencies count: %d", len(config.Dependencies))
+	for i, dep := range config.Dependencies {
+		if dep.IsGroup {
+			t.Logf("  Dep[%d] (group): %v", i, dep.GroupDeps)
+		} else {
+			t.Logf("  Dep[%d]: %s", i, dep.SingleDep)
+		}
 	}
 }
 
@@ -908,7 +946,7 @@ func TestGetValidRange(t *testing.T) {
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"ext.model1", "ext.model2", "ext.model3"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"ext.model1", "ext.model2", "ext.model3"}}},
 					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
 					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
 					"ext.model3": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model3"}},
@@ -935,7 +973,7 @@ func TestGetValidRange(t *testing.T) {
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"dep.model1", "dep.model2", "dep.model3"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"dep.model1", "dep.model2", "dep.model3"}}},
 					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
 					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
 					"dep.model3": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model3", interval: 100}},
@@ -961,7 +999,7 @@ func TestGetValidRange(t *testing.T) {
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"ext.model1", "ext.model2", "dep.model1", "dep.model2"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"ext.model1", "ext.model2", "dep.model1", "dep.model2"}}},
 					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
 					"ext.model2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
 					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
@@ -990,7 +1028,7 @@ func TestGetValidRange(t *testing.T) {
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"ext.model1", "dep.model1", "dep.model2"}
 				dag.nodes = map[string]models.Node{
-					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100}},
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"ext.model1", "dep.model1", "dep.model2"}}},
 					"ext.model1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
 					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
 					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},

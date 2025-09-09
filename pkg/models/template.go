@@ -10,6 +10,7 @@ import (
 
 	"github.com/Masterminds/sprig/v3"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
+	"github.com/ethpandaops/cbt/pkg/models/transformation"
 )
 
 // TemplateEngine provides template rendering with Sprig functions
@@ -51,7 +52,20 @@ func (t *TemplateEngine) RenderTransformation(model Transformation, position, in
 func (t *TemplateEngine) buildTransformationVariables(model Transformation, position, interval uint64, startTime time.Time) (map[string]interface{}, error) {
 	config := model.GetConfig()
 
-	variables := map[string]interface{}{
+	variables := t.buildBaseVariables(config, position, interval, startTime)
+
+	deps, err := t.buildDependencyVariables(config)
+	if err != nil {
+		return nil, err
+	}
+
+	variables["dep"] = deps
+	return variables, nil
+}
+
+// buildBaseVariables creates the base template variables
+func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, position, interval uint64, startTime time.Time) map[string]interface{} {
+	return map[string]interface{}{
 		"clickhouse": map[string]interface{}{
 			"cluster":      t.clickhouseCfg.Cluster,
 			"local_suffix": t.clickhouseCfg.LocalSuffix,
@@ -59,7 +73,7 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 		"self": map[string]interface{}{
 			"database": config.Database,
 			"table":    config.Table,
-			"interval": interval, // Use the interval parameter passed to the function
+			"interval": interval,
 		},
 		"task": map[string]interface{}{
 			"start": startTime.Unix(),
@@ -69,7 +83,10 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 			"end":   position + interval,
 		},
 	}
+}
 
+// buildDependencyVariables processes all dependencies and builds the dep variables
+func (t *TemplateEngine) buildDependencyVariables(config *transformation.Config) (map[string]interface{}, error) {
 	deps := map[string]interface{}{}
 
 	// Helper function to add a dep entry
@@ -82,66 +99,114 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 		deps[database] = db
 	}
 
-	for i, depID := range config.Dependencies {
-		dep, err := t.dag.GetNode(depID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get dependency: %w", err)
+	for i, dependency := range config.Dependencies {
+		if err := t.processDependency(dependency, i, config, addDepEntry); err != nil {
+			return nil, err
 		}
+	}
 
-		// Get the original dependency if available
-		originalDep := depID
-		if i < len(config.OriginalDependencies) {
-			originalDep = config.OriginalDependencies[i]
+	return deps, nil
+}
+
+// processDependency processes a single dependency (which may be a group)
+func (t *TemplateEngine) processDependency(dependency transformation.Dependency, index int, config *transformation.Config, addDepEntry func(string, string, map[string]interface{})) error {
+	depIDs := dependency.GetAllDependencies()
+
+	for _, depID := range depIDs {
+		originalDep := t.findOriginalDependency(depID, index, config)
+
+		if err := t.processSingleDependencyID(depID, originalDep, addDepEntry); err != nil {
+			return err
 		}
+	}
 
-		switch dep.NodeType {
-		case NodeTypeTransformation:
-			transformation, ok := dep.Model.(Transformation)
-			if !ok {
-				return nil, fmt.Errorf("%w: %s", ErrNotTransformationModel, depID)
-			}
+	return nil
+}
 
-			tConfig := transformation.GetConfig()
-			depData := map[string]interface{}{
-				"database": tConfig.Database,
-				"table":    tConfig.Table,
-			}
+// findOriginalDependency finds the original dependency string before placeholder substitution
+func (t *TemplateEngine) findOriginalDependency(depID string, index int, config *transformation.Config) string {
+	if index >= len(config.OriginalDependencies) {
+		return depID
+	}
 
-			// Add entry with resolved database
-			addDepEntry(tConfig.Database, tConfig.Table, depData)
-
-			// If original had a placeholder, also add entry with placeholder key
-			if originalDep != depID && strings.Contains(originalDep, ".") {
-				placeholderDB := strings.SplitN(originalDep, ".", 2)[0]
-				addDepEntry(placeholderDB, tConfig.Table, depData)
-			}
-
-		case NodeTypeExternal:
-			external, ok := dep.Model.(External)
-			if !ok {
-				return nil, fmt.Errorf("%w: %s", ErrNotExternalModel, depID)
-			}
-
-			eConfig := external.GetConfig()
-			depData := map[string]interface{}{
-				"database": eConfig.Database,
-				"table":    eConfig.Table,
-			}
-
-			// Add entry with resolved database
-			addDepEntry(eConfig.Database, eConfig.Table, depData)
-
-			// If original had a placeholder, also add entry with placeholder key
-			if originalDep != depID && strings.Contains(originalDep, ".") {
-				placeholderDB := strings.SplitN(originalDep, ".", 2)[0]
-				addDepEntry(placeholderDB, eConfig.Table, depData)
+	originalDeps := config.OriginalDependencies[index].GetAllDependencies()
+	for _, origDep := range originalDeps {
+		if strings.Contains(origDep, ".") {
+			parts := strings.SplitN(origDep, ".", 2)
+			if len(parts) == 2 && strings.HasSuffix(depID, "."+parts[1]) {
+				return origDep
 			}
 		}
 	}
 
-	variables["dep"] = deps
+	return depID
+}
 
-	return variables, nil
+// processSingleDependencyID processes a single dependency ID
+func (t *TemplateEngine) processSingleDependencyID(depID, originalDep string, addDepEntry func(string, string, map[string]interface{})) error {
+	dep, err := t.dag.GetNode(depID)
+	if err != nil {
+		return fmt.Errorf("failed to get dependency: %w", err)
+	}
+
+	switch dep.NodeType {
+	case NodeTypeTransformation:
+		return t.processTransformationDependency(dep, depID, originalDep, addDepEntry)
+	case NodeTypeExternal:
+		return t.processExternalDependency(dep, depID, originalDep, addDepEntry)
+	default:
+		return nil
+	}
+}
+
+// processTransformationDependency processes a transformation dependency
+func (t *TemplateEngine) processTransformationDependency(dep Node, depID, originalDep string, addDepEntry func(string, string, map[string]interface{})) error {
+	transformModel, ok := dep.Model.(Transformation)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNotTransformationModel, depID)
+	}
+
+	tConfig := transformModel.GetConfig()
+	depData := map[string]interface{}{
+		"database": tConfig.Database,
+		"table":    tConfig.Table,
+	}
+
+	// Add entry with resolved database
+	addDepEntry(tConfig.Database, tConfig.Table, depData)
+
+	// If original had a placeholder, also add entry with placeholder key
+	if originalDep != depID && strings.Contains(originalDep, ".") {
+		placeholderDB := strings.SplitN(originalDep, ".", 2)[0]
+		addDepEntry(placeholderDB, tConfig.Table, depData)
+	}
+
+	return nil
+}
+
+// processExternalDependency processes an external dependency
+func (t *TemplateEngine) processExternalDependency(dep Node, depID, originalDep string, addDepEntry func(string, string, map[string]interface{})) error {
+	external, ok := dep.Model.(External)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNotExternalModel, depID)
+	}
+
+	eConfig := external.GetConfig()
+	depData := map[string]interface{}{
+		"database": eConfig.Database,
+		"table":    eConfig.Table,
+	}
+
+	// Add entry with resolved database
+	addDepEntry(eConfig.Database, eConfig.Table, depData)
+
+	// If original had a placeholder, also add entry with placeholder key
+	if originalDep != depID && strings.Contains(originalDep, ".") {
+		placeholderDB := strings.SplitN(originalDep, ".", 2)[0]
+		addDepEntry(placeholderDB, eConfig.Table, depData)
+	}
+
+	return nil
 }
 
 // GetTransformationEnvironmentVariables builds environment variables for transformation execution
@@ -165,7 +230,9 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 			fmt.Sprintf("CLICKHOUSE_LOCAL_SUFFIX=%s", t.clickhouseCfg.LocalSuffix))
 	}
 
-	for _, depID := range config.Dependencies {
+	// Process all dependencies (single and OR groups)
+	allDeps := config.GetFlattenedDependencies()
+	for _, depID := range allDeps {
 		dep, err := t.dag.GetNode(depID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get dependency: %w", err)
@@ -174,12 +241,12 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 		uppercaseName := strings.ToUpper(strings.ReplaceAll(depID, ".", "_"))
 
 		if dep.NodeType == NodeTypeTransformation {
-			transformation, ok := dep.Model.(Transformation)
+			transformModel, ok := dep.Model.(Transformation)
 			if !ok {
 				return nil, fmt.Errorf("%w: %s", ErrNotTransformationModel, depID)
 			}
 
-			tConfig := transformation.GetConfig()
+			tConfig := transformModel.GetConfig()
 
 			env = append(env,
 				fmt.Sprintf("DEP_%s_DATABASE=%s", uppercaseName, tConfig.Database),

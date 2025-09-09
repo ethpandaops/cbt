@@ -71,8 +71,8 @@ func TestTemplateEngineDualKeyWithRealSQL(t *testing.T) {
 		config: transformation.Config{
 			Database:             "processed",
 			Table:                "block_summary",
-			Dependencies:         []string{"{{external}}.blocks"},
-			OriginalDependencies: []string{"{{external}}.blocks"},
+			Dependencies:         []transformation.Dependency{{IsGroup: false, SingleDep: "{{external}}.blocks"}},
+			OriginalDependencies: []transformation.Dependency{{IsGroup: false, SingleDep: "{{external}}.blocks"}},
 		},
 		value: `INSERT INTO {{ .self.database }}.{{ .self.table }}
 SELECT 
@@ -141,10 +141,16 @@ func TestTemplateEngineDualKeyDependencyAccess(t *testing.T) {
 		id:           "analytics.test_transform",
 		dependencies: []string{"{{external}}.beacon_blocks", "{{transformation}}.hourly_stats"},
 		config: transformation.Config{
-			Database:             "analytics",
-			Table:                "test_transform",
-			Dependencies:         []string{"{{external}}.beacon_blocks", "{{transformation}}.hourly_stats"},
-			OriginalDependencies: []string{"{{external}}.beacon_blocks", "{{transformation}}.hourly_stats"},
+			Database: "analytics",
+			Table:    "test_transform",
+			Dependencies: []transformation.Dependency{
+				{IsGroup: false, SingleDep: "{{external}}.beacon_blocks"},
+				{IsGroup: false, SingleDep: "{{transformation}}.hourly_stats"},
+			},
+			OriginalDependencies: []transformation.Dependency{
+				{IsGroup: false, SingleDep: "{{external}}.beacon_blocks"},
+				{IsGroup: false, SingleDep: "{{transformation}}.hourly_stats"},
+			},
 		},
 		value: `Placeholder access: {{ index .dep "{{external}}" "beacon_blocks" "database" }}.{{ index .dep "{{external}}" "beacon_blocks" "table" }}
 Resolved access: {{ index .dep "ethereum" "beacon_blocks" "database" }}.{{ index .dep "ethereum" "beacon_blocks" "table" }}
@@ -218,7 +224,7 @@ func TestRenderTransformation(t *testing.T) {
 			Schedules: &transformation.SchedulesConfig{
 				ForwardFill: "@every 1m",
 			},
-			Dependencies: []string{},
+			Dependencies: []transformation.Dependency{},
 		},
 	}
 
@@ -250,7 +256,7 @@ func TestRenderTransformation(t *testing.T) {
 					Schedules: &transformation.SchedulesConfig{
 						ForwardFill: "@every 1m",
 					},
-					Dependencies: []string{},
+					Dependencies: []transformation.Dependency{},
 				},
 				value: "SELECT * FROM {{ .self.database }}.{{ .self.table }} WHERE position >= {{ .bounds.start }} AND position < {{ .bounds.end }}",
 			},
@@ -273,7 +279,9 @@ func TestRenderTransformation(t *testing.T) {
 					Schedules: &transformation.SchedulesConfig{
 						ForwardFill: "@every 1m",
 					},
-					Dependencies: []string{"dep.model1"},
+					Dependencies: []transformation.Dependency{
+						{IsGroup: false, SingleDep: "dep.model1"},
+					},
 				},
 				value: "SELECT * FROM {{ .dep.dep_db.model1.database }}.{{ .dep.dep_db.model1.table }}",
 			},
@@ -296,7 +304,7 @@ func TestRenderTransformation(t *testing.T) {
 					Schedules: &transformation.SchedulesConfig{
 						ForwardFill: "@every 1m",
 					},
-					Dependencies: []string{},
+					Dependencies: []transformation.Dependency{},
 				},
 				value: "SELECT '{{ .self.table | upper }}' as table_name",
 			},
@@ -319,7 +327,7 @@ func TestRenderTransformation(t *testing.T) {
 					Schedules: &transformation.SchedulesConfig{
 						ForwardFill: "@every 1m",
 					},
-					Dependencies: []string{},
+					Dependencies: []transformation.Dependency{},
 				},
 				value: "SELECT * FROM {{ .invalid.syntax",
 			},
@@ -443,7 +451,7 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 			Schedules: &transformation.SchedulesConfig{
 				ForwardFill: "@every 1m",
 			},
-			Dependencies: []string{},
+			Dependencies: []transformation.Dependency{},
 		},
 	}
 
@@ -474,7 +482,10 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 			Schedules: &transformation.SchedulesConfig{
 				ForwardFill: "@every 1m",
 			},
-			Dependencies: []string{"dep.model1", "ext.source1"},
+			Dependencies: []transformation.Dependency{
+				{IsGroup: false, SingleDep: "dep.model1"},
+				{IsGroup: false, SingleDep: "ext.source1"},
+			},
 		},
 		value: "SELECT * FROM test",
 	}
@@ -535,7 +546,9 @@ func TestBuildTransformationVariables_MissingDependency(t *testing.T) {
 			Schedules: &transformation.SchedulesConfig{
 				ForwardFill: "@every 1m",
 			},
-			Dependencies: []string{"missing.dep"},
+			Dependencies: []transformation.Dependency{
+				{IsGroup: false, SingleDep: "missing.dep"},
+			},
 		},
 		value: "SELECT * FROM test",
 	}
@@ -568,7 +581,7 @@ func BenchmarkRenderTransformation(b *testing.B) {
 			Schedules: &transformation.SchedulesConfig{
 				ForwardFill: "@every 1m",
 			},
-			Dependencies: []string{},
+			Dependencies: []transformation.Dependency{},
 		},
 		value: "SELECT * FROM {{ .self.database }}.{{ .self.table }} WHERE position >= {{ .bounds.start }} AND position < {{ .bounds.end }}",
 	}

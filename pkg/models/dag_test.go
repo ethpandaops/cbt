@@ -17,6 +17,18 @@ type mockTransformation struct {
 	config       transformation.Config
 }
 
+// Helper function to create dependencies from strings
+func createDependencies(deps []string) []transformation.Dependency {
+	result := make([]transformation.Dependency, len(deps))
+	for i, dep := range deps {
+		result[i] = transformation.Dependency{
+			IsGroup:   false,
+			SingleDep: dep,
+		}
+	}
+	return result
+}
+
 func (m *mockTransformation) GetID() string                       { return m.id }
 func (m *mockTransformation) GetDependencies() []string           { return m.dependencies }
 func (m *mockTransformation) GetConfig() *transformation.Config   { return &m.config }
@@ -64,12 +76,12 @@ func TestBuildGraph(t *testing.T) {
 				&mockTransformation{
 					id:           "trans1",
 					dependencies: []string{},
-					config:       transformation.Config{Dependencies: []string{}},
+					config:       transformation.Config{Dependencies: createDependencies([]string{})},
 				},
 				&mockTransformation{
 					id:           "trans2",
 					dependencies: []string{"trans1"},
-					config:       transformation.Config{Dependencies: []string{"trans1"}},
+					config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
 				},
 			},
 			externals: []External{
@@ -84,12 +96,12 @@ func TestBuildGraph(t *testing.T) {
 				&mockTransformation{
 					id:           "trans1",
 					dependencies: []string{"trans2"},
-					config:       transformation.Config{Dependencies: []string{"trans2"}},
+					config:       transformation.Config{Dependencies: createDependencies([]string{"trans2"})},
 				},
 				&mockTransformation{
 					id:           "trans2",
 					dependencies: []string{"trans1"},
-					config:       transformation.Config{Dependencies: []string{"trans1"}},
+					config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
 				},
 			},
 			externals: []External{},
@@ -276,17 +288,17 @@ func TestGetDependenciesAndDependents(t *testing.T) {
 	trans1 := &mockTransformation{
 		id:           "trans1",
 		dependencies: []string{},
-		config:       transformation.Config{Dependencies: []string{}},
+		config:       transformation.Config{Dependencies: createDependencies([]string{})},
 	}
 	trans2 := &mockTransformation{
 		id:           "trans2",
 		dependencies: []string{"trans1"},
-		config:       transformation.Config{Dependencies: []string{"trans1"}},
+		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
 	}
 	trans3 := &mockTransformation{
 		id:           "trans3",
 		dependencies: []string{"trans1", "trans2"},
-		config:       transformation.Config{Dependencies: []string{"trans1", "trans2"}},
+		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1", "trans2"})},
 	}
 
 	err := dg.BuildGraph([]Transformation{trans1, trans2, trans3}, []External{})
@@ -332,22 +344,22 @@ func TestGetAllDependenciesAndDependents(t *testing.T) {
 	trans1 := &mockTransformation{
 		id:           "trans1",
 		dependencies: []string{},
-		config:       transformation.Config{Dependencies: []string{}},
+		config:       transformation.Config{Dependencies: createDependencies([]string{})},
 	}
 	trans2 := &mockTransformation{
 		id:           "trans2",
 		dependencies: []string{"trans1"},
-		config:       transformation.Config{Dependencies: []string{"trans1"}},
+		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
 	}
 	trans3 := &mockTransformation{
 		id:           "trans3",
 		dependencies: []string{"trans1"},
-		config:       transformation.Config{Dependencies: []string{"trans1"}},
+		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
 	}
 	trans4 := &mockTransformation{
 		id:           "trans4",
 		dependencies: []string{"trans2", "trans3"},
-		config:       transformation.Config{Dependencies: []string{"trans2", "trans3"}},
+		config:       transformation.Config{Dependencies: createDependencies([]string{"trans2", "trans3"})},
 	}
 
 	err := dg.BuildGraph([]Transformation{trans1, trans2, trans3, trans4}, []External{})
@@ -375,12 +387,12 @@ func TestGetTransformationNodes(t *testing.T) {
 
 	trans1 := &mockTransformation{
 		id:     "trans1",
-		config: transformation.Config{Dependencies: []string{}},
+		config: transformation.Config{Dependencies: createDependencies([]string{})},
 	}
 	trans2 := &mockTransformation{
 		id:           "trans2",
 		dependencies: []string{"trans1"},
-		config:       transformation.Config{Dependencies: []string{"trans1"}},
+		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
 	}
 	ext := &mockExternal{id: "ext1", typ: external.ExternalTypeSQL}
 
@@ -403,21 +415,21 @@ func TestIsPathBetween(t *testing.T) {
 
 	trans1 := &mockTransformation{
 		id:     "trans1",
-		config: transformation.Config{Dependencies: []string{}},
+		config: transformation.Config{Dependencies: createDependencies([]string{})},
 	}
 	trans2 := &mockTransformation{
 		id:           "trans2",
 		dependencies: []string{"trans1"},
-		config:       transformation.Config{Dependencies: []string{"trans1"}},
+		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
 	}
 	trans3 := &mockTransformation{
 		id:           "trans3",
 		dependencies: []string{"trans2"},
-		config:       transformation.Config{Dependencies: []string{"trans2"}},
+		config:       transformation.Config{Dependencies: createDependencies([]string{"trans2"})},
 	}
 	trans4 := &mockTransformation{
 		id:     "trans4",
-		config: transformation.Config{Dependencies: []string{}},
+		config: transformation.Config{Dependencies: createDependencies([]string{})},
 	}
 
 	err := dg.BuildGraph([]Transformation{trans1, trans2, trans3, trans4}, []External{})
@@ -475,12 +487,12 @@ func TestConcurrentAccess(t *testing.T) {
 
 	trans1 := &mockTransformation{
 		id:     "trans1",
-		config: transformation.Config{Dependencies: []string{}},
+		config: transformation.Config{Dependencies: createDependencies([]string{})},
 	}
 	trans2 := &mockTransformation{
 		id:           "trans2",
 		dependencies: []string{"trans1"},
-		config:       transformation.Config{Dependencies: []string{"trans1"}},
+		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
 	}
 
 	err := dg.BuildGraph([]Transformation{trans1, trans2}, []External{})
@@ -517,7 +529,7 @@ func BenchmarkBuildGraph(b *testing.B) {
 		transformations[i] = &mockTransformation{
 			id:           string(rune(i)),
 			dependencies: deps,
-			config:       transformation.Config{Dependencies: deps},
+			config:       transformation.Config{Dependencies: createDependencies(deps)},
 		}
 	}
 
@@ -541,7 +553,7 @@ func BenchmarkGetAllDependencies(b *testing.B) {
 		transformations[i] = &mockTransformation{
 			id:           string(rune(i)),
 			dependencies: deps,
-			config:       transformation.Config{Dependencies: deps},
+			config:       transformation.Config{Dependencies: createDependencies(deps)},
 		}
 	}
 

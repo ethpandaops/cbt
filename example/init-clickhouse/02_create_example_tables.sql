@@ -133,4 +133,44 @@ PARTITION BY toYYYYMM(hour_start)
 ORDER BY (hour_start, position)
 ;
 
+-- Create entity_network_effects_or_test table (OR dependency test)
+CREATE TABLE IF NOT EXISTS analytics.entity_network_effects_or_test
+(
+    updated_date_time DateTime DEFAULT now() CODEC(DoubleDelta, ZSTD(1)),
+    event_date_time DateTime64(3) DEFAULT now64(3) CODEC(DoubleDelta, ZSTD(1)),
+    slot_start_date_time DateTime,
+    
+    -- Entity identifier
+    entity_name String,
+    
+    -- Aggregated metrics for this entity in this interval
+    blocks_in_window UInt32,
+    entity_avg_propagation Float32,
+    entity_median_propagation Float32,
+    entity_min_propagation Float32,
+    entity_max_propagation Float32,
+    entity_propagation_stddev Float32,
+    
+    -- Interval tracking
+    interval UInt64 DEFAULT 0
+)
+ENGINE = ReplacingMergeTree(updated_date_time)
+PARTITION BY toYYYYMM(slot_start_date_time)
+ORDER BY (slot_start_date_time, entity_name, interval)
+;
+
+-- Create block_never_loads table (test transformation that never loads)
+CREATE TABLE IF NOT EXISTS analytics.block_never_loads
+(
+    updated_date_time DateTime DEFAULT now() CODEC(DoubleDelta, ZSTD(1)),
+    event_date_time DateTime64(3) DEFAULT now64(3) CODEC(DoubleDelta, ZSTD(1)),
+    slot_start_date_time DateTime,
+    slot UInt64,
+    position UInt64 DEFAULT 0
+)
+ENGINE = ReplacingMergeTree(updated_date_time)
+PARTITION BY toYYYYMM(slot_start_date_time)
+ORDER BY (slot_start_date_time, slot, position)
+;
+
 -- No initial data - the data generator will create all sample data
