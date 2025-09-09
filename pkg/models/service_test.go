@@ -237,18 +237,27 @@ exec: "echo test"`
 		cfg := model.GetConfig()
 		for _, dep := range cfg.Dependencies {
 			// Should not contain any placeholders
-			assert.NotContains(t, dep, "{{external}}")
-			assert.NotContains(t, dep, "{{transformation}}")
+			if dep.IsGroup {
+				for _, groupDep := range dep.GroupDeps {
+					assert.NotContains(t, groupDep, "{{external}}")
+					assert.NotContains(t, groupDep, "{{transformation}}")
+				}
+			} else {
+				assert.NotContains(t, dep.SingleDep, "{{external}}")
+				assert.NotContains(t, dep.SingleDep, "{{transformation}}")
+			}
+		}
 
-			// Check specific substitutions
-			if cfg.Table == "test_transform" {
-				assert.Contains(t, cfg.Dependencies, "ethereum.beacon_blocks")
-				assert.Contains(t, cfg.Dependencies, "analytics.other_transform")
-				assert.Contains(t, cfg.Dependencies, "custom_db.custom_table")
-			}
-			if cfg.Table == "other_transform" {
-				assert.Contains(t, cfg.Dependencies, "ethereum.beacon_blocks")
-			}
+		// Check specific substitutions by getting flattened dependencies
+		if cfg.Table == "test_transform" {
+			flatDeps := cfg.GetFlattenedDependencies()
+			assert.Contains(t, flatDeps, "ethereum.beacon_blocks")
+			assert.Contains(t, flatDeps, "analytics.other_transform")
+			assert.Contains(t, flatDeps, "custom_db.custom_table")
+		}
+		if cfg.Table == "other_transform" {
+			flatDeps := cfg.GetFlattenedDependencies()
+			assert.Contains(t, flatDeps, "ethereum.beacon_blocks")
 		}
 	}
 }

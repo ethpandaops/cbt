@@ -344,7 +344,7 @@ func (m *mockTransformation) GetConfig() *transformation.Config {
 			ForwardFill: "@every 1m",
 		},
 		Tags:         m.tags,
-		Dependencies: []string{},
+		Dependencies: []transformation.Dependency{},
 	}
 }
 func (m *mockTransformation) GetValue() string                  { return "" }

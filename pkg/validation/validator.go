@@ -9,6 +9,7 @@ import (
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/sirupsen/logrus"
 )
@@ -51,15 +52,16 @@ type Result struct {
 
 // Validation-specific errors
 var (
-	ErrModelNotFound          = errors.New("model not found")
-	ErrDependencyNotFound     = errors.New("dependency model not found")
-	ErrRangeNotAvailable      = errors.New("required range not available")
-	ErrRangeNotCovered        = errors.New("range not fully covered")
-	ErrNotTransformationModel = errors.New("model is not a transformation")
-	ErrInvalidDependencyType  = errors.New("invalid dependency type")
-	ErrInvalidModelType       = errors.New("invalid dependency model type")
-	ErrFailedModelCast        = errors.New("failed to cast model to transformation")
-	ErrInsufficientRange      = errors.New("insufficient dependency range for interval")
+	ErrModelNotFound           = errors.New("model not found")
+	ErrDependencyNotFound      = errors.New("dependency model not found")
+	ErrRangeNotAvailable       = errors.New("required range not available")
+	ErrRangeNotCovered         = errors.New("range not fully covered")
+	ErrNotTransformationModel  = errors.New("model is not a transformation")
+	ErrInvalidDependencyType   = errors.New("invalid dependency type")
+	ErrInvalidModelType        = errors.New("invalid dependency model type")
+	ErrFailedModelCast         = errors.New("failed to cast model to transformation")
+	ErrInsufficientRange       = errors.New("insufficient dependency range for interval")
+	ErrNoORDependencyAvailable = errors.New("no dependencies in OR group are available")
 )
 
 // NewDependencyValidator creates a new dependency validator
@@ -317,8 +319,9 @@ func (v *dependencyValidator) collectTransformationBounds(ctx context.Context, d
 	return minDep, maxDep, nil
 }
 
-// collectDependencyBounds collects all dependency bounds for a model
-func (v *dependencyValidator) collectDependencyBounds(ctx context.Context, deps []string) (*dependencyBounds, error) {
+// collectDependencyBoundsWithOR collects dependency bounds considering OR groups
+// For OR groups, it takes the best available bounds from the group
+func (v *dependencyValidator) collectDependencyBoundsWithOR(ctx context.Context, model models.Transformation) (*dependencyBounds, error) {
 	bounds := &dependencyBounds{
 		externalMins:       []uint64{},
 		externalMaxs:       []uint64{},
@@ -326,40 +329,126 @@ func (v *dependencyValidator) collectDependencyBounds(ctx context.Context, deps 
 		transformationMaxs: []uint64{},
 	}
 
-	for _, depID := range deps {
-		depNode, err := v.dag.GetNode(depID)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %s", ErrDependencyNotFound, depID)
-		}
-
-		switch depNode.NodeType {
-		case models.NodeTypeExternal:
-			minDep, maxDep, err := v.collectExternalBounds(ctx, depNode, depID)
-			if err != nil {
+	transformConfig := model.GetConfig()
+	for _, dep := range transformConfig.Dependencies {
+		if dep.IsGroup {
+			// Process OR group
+			if err := v.processORGroup(ctx, dep, bounds); err != nil {
 				return nil, err
 			}
-			bounds.externalMins = append(bounds.externalMins, minDep)
-			bounds.externalMaxs = append(bounds.externalMaxs, maxDep)
-
-		case models.NodeTypeTransformation:
-			minDep, maxDep, err := v.collectTransformationBounds(ctx, depID)
-			if err != nil {
+		} else {
+			// Process single dependency
+			if err := v.processSingleDependency(ctx, dep.SingleDep, bounds); err != nil {
 				return nil, err
 			}
-			// Only include transformations that have data
-			if minDep > 0 {
-				bounds.transformationMins = append(bounds.transformationMins, minDep)
-			}
-			if maxDep > 0 {
-				bounds.transformationMaxs = append(bounds.transformationMaxs, maxDep)
-			}
-
-		default:
-			return nil, fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)
 		}
 	}
 
 	return bounds, nil
+}
+
+// processORGroup processes an OR group dependency and adds the best available bounds
+func (v *dependencyValidator) processORGroup(ctx context.Context, dep transformation.Dependency, bounds *dependencyBounds) error {
+	bestMin := uint64(0)
+	bestMax := uint64(0)
+	bestFound := false
+	bestDepID := ""
+	bestNodeType := models.NodeType("")
+
+	// Find the best available dependency in the OR group
+	for _, depID := range dep.GroupDeps {
+		depNode, err := v.dag.GetNode(depID)
+		if err != nil {
+			continue // Skip missing dependencies in OR groups
+		}
+
+		minDep, maxDep, err := v.getBoundsForNode(ctx, depNode, depID)
+		if err != nil {
+			continue
+		}
+
+		// For transformations, skip if no data
+		if depNode.NodeType == models.NodeTypeTransformation && (minDep == 0 || maxDep == 0) {
+			continue
+		}
+
+		// Use the dependency with the best (widest) range
+		if !bestFound || (maxDep-minDep) > (bestMax-bestMin) {
+			bestMin = minDep
+			bestMax = maxDep
+			bestFound = true
+			bestDepID = depID
+			bestNodeType = depNode.NodeType
+		}
+	}
+
+	if !bestFound {
+		return fmt.Errorf("%w: %v", ErrNoORDependencyAvailable, dep.GroupDeps)
+	}
+
+	// Add the best bounds to the appropriate category
+	switch bestNodeType {
+	case models.NodeTypeExternal:
+		bounds.externalMins = append(bounds.externalMins, bestMin)
+		bounds.externalMaxs = append(bounds.externalMaxs, bestMax)
+	case models.NodeTypeTransformation:
+		bounds.transformationMins = append(bounds.transformationMins, bestMin)
+		bounds.transformationMaxs = append(bounds.transformationMaxs, bestMax)
+	}
+
+	v.log.WithFields(logrus.Fields{
+		"or_group": dep.GroupDeps,
+		"selected": bestDepID,
+		"min":      bestMin,
+		"max":      bestMax,
+	}).Debug("Selected best dependency from OR group")
+
+	return nil
+}
+
+// processSingleDependency processes a single (AND) dependency
+func (v *dependencyValidator) processSingleDependency(ctx context.Context, depID string, bounds *dependencyBounds) error {
+	depNode, err := v.dag.GetNode(depID)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrDependencyNotFound, depID)
+	}
+
+	minDep, maxDep, err := v.getBoundsForNode(ctx, depNode, depID)
+	if err != nil {
+		return err
+	}
+
+	switch depNode.NodeType {
+	case models.NodeTypeExternal:
+		bounds.externalMins = append(bounds.externalMins, minDep)
+		bounds.externalMaxs = append(bounds.externalMaxs, maxDep)
+
+	case models.NodeTypeTransformation:
+		// Only include transformations that have data
+		if minDep > 0 {
+			bounds.transformationMins = append(bounds.transformationMins, minDep)
+		}
+		if maxDep > 0 {
+			bounds.transformationMaxs = append(bounds.transformationMaxs, maxDep)
+		}
+
+	default:
+		return fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)
+	}
+
+	return nil
+}
+
+// getBoundsForNode gets bounds for a dependency node (external or transformation)
+func (v *dependencyValidator) getBoundsForNode(ctx context.Context, depNode models.Node, depID string) (minBound, maxBound uint64, err error) {
+	switch depNode.NodeType {
+	case models.NodeTypeExternal:
+		return v.collectExternalBounds(ctx, depNode, depID)
+	case models.NodeTypeTransformation:
+		return v.collectTransformationBounds(ctx, depID)
+	default:
+		return 0, 0, fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)
+	}
 }
 
 // calculateFinalRange calculates the final min/max from collected bounds
@@ -420,14 +509,13 @@ func (v *dependencyValidator) GetValidRange(ctx context.Context, modelID string)
 	// Get the model's configuration
 	config := model.GetConfig()
 
-	deps := v.dag.GetDependencies(modelID)
-	if len(deps) == 0 {
+	if len(config.Dependencies) == 0 {
 		// No dependencies - no valid range (model needs dependencies to process)
 		return 0, 0, nil
 	}
 
-	// Collect all dependency bounds
-	bounds, err := v.collectDependencyBounds(ctx, deps)
+	// Collect all dependency bounds (with OR group support)
+	bounds, err := v.collectDependencyBoundsWithOR(ctx, model)
 	if err != nil {
 		return 0, 0, err
 	}

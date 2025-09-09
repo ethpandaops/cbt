@@ -228,17 +228,34 @@ Dependencies can reference other models using:
 - **Default database placeholders**: 
   - `{{external}}.table` - References a table in the default external database
   - `{{transformation}}.table` - References a table in the default transformation database
+- **OR groups**: `["option1", "option2", ...]` - At least one dependency from the group must be available
 
 This allows models to reference dependencies without hardcoding database names:
 
 ```yaml
 dependencies:
-  - {{external}}.beacon_blocks        # Resolves to external defaultDatabase
-  - {{transformation}}.hourly_stats    # Resolves to transformation defaultDatabase
-  - custom_db.specific_table           # Explicit database reference
+  - {{external}}.beacon_blocks                    # Required (AND logic)
+  - ["source1.data", "source2.data"]              # At least one required (OR logic)
+  - {{transformation}}.hourly_stats                # Required (AND logic)
+  - ["backup1.blocks", "backup2.blocks", "backup3.blocks"]  # At least one required (OR logic)
+  - custom_db.specific_table                       # Explicit database reference
 ```
 
 The placeholders are replaced with actual database names from your configuration during model loading.
+
+##### OR Dependency Groups
+
+OR groups provide flexibility for:
+- **Data source migration**: Seamlessly transition between old and new tables
+- **Multi-provider redundancy**: Use data from different systems (e.g., different metrics providers)
+- **Regional failover**: Automatically use available regional data sources
+- **A/B testing**: Process data from multiple experimental sources
+
+When CBT processes OR groups:
+1. It checks each dependency in the group for availability
+2. Selects the dependency with the best (widest) data range
+3. Proceeds if at least one dependency is available
+4. Fails only if none of the dependencies in the group are available
 
 #### Template Variables
 
@@ -708,6 +725,7 @@ Next cycle when dependencies have more data (e.g., max_valid reaches 1150), the 
 ### Key Validation Features
 
 - **Pull-through validation**: Workers always verify dependencies at execution time, not just at scheduling
+- **OR dependency groups**: Models can specify alternative dependencies using array syntax `["option1", "option2"]`, processing continues if at least one is available
 - **Lag handling**: External models with `lag` configured have their max boundary adjusted during validation to ignore recent, potentially incomplete data
 - **Coverage tracking**: The admin table tracks all completed intervals, enabling precise dependency validation
 - **Automatic retry**: Failed validations are automatically retried on the next schedule cycle

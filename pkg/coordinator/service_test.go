@@ -277,7 +277,7 @@ func (m *mockTransformation) GetConfig() *transformation.Config {
 		Schedules: &transformation.SchedulesConfig{
 			ForwardFill: "@every 1m",
 		},
-		Dependencies: []string{},
+		Dependencies: []transformation.Dependency{},
 	}
 }
 func (m *mockTransformation) GetValue() string                  { return "" }
@@ -403,7 +403,9 @@ func TestAdjustIntervalForDependencies(t *testing.T) {
 					Schedules: &transformation.SchedulesConfig{
 						ForwardFill: "@every 1m",
 					},
-					Dependencies: []string{"dep1"},
+					Dependencies: []transformation.Dependency{
+						{IsGroup: false, SingleDep: "dep1"},
+					},
 				},
 			}
 
