@@ -52,16 +52,17 @@ type Result struct {
 
 // Validation-specific errors
 var (
-	ErrModelNotFound           = errors.New("model not found")
-	ErrDependencyNotFound      = errors.New("dependency model not found")
-	ErrRangeNotAvailable       = errors.New("required range not available")
-	ErrRangeNotCovered         = errors.New("range not fully covered")
-	ErrNotTransformationModel  = errors.New("model is not a transformation")
-	ErrInvalidDependencyType   = errors.New("invalid dependency type")
-	ErrInvalidModelType        = errors.New("invalid dependency model type")
-	ErrFailedModelCast         = errors.New("failed to cast model to transformation")
-	ErrInsufficientRange       = errors.New("insufficient dependency range for interval")
-	ErrNoORDependencyAvailable = errors.New("no dependencies in OR group are available")
+	ErrModelNotFound               = errors.New("model not found")
+	ErrDependencyNotFound          = errors.New("dependency model not found")
+	ErrRangeNotAvailable           = errors.New("required range not available")
+	ErrRangeNotCovered             = errors.New("range not fully covered")
+	ErrNotTransformationModel      = errors.New("model is not a transformation")
+	ErrInvalidDependencyType       = errors.New("invalid dependency type")
+	ErrInvalidModelType            = errors.New("invalid dependency model type")
+	ErrFailedModelCast             = errors.New("failed to cast model to transformation")
+	ErrInsufficientRange           = errors.New("insufficient dependency range for interval")
+	ErrNoORDependencyAvailable     = errors.New("no dependencies in OR group are available")
+	ErrUninitializedTransformation = errors.New("transformation dependency has not been initialized")
 )
 
 // NewDependencyValidator creates a new dependency validator
@@ -359,16 +360,29 @@ func (v *dependencyValidator) processORGroup(ctx context.Context, dep transforma
 	for _, depID := range dep.GroupDeps {
 		depNode, err := v.dag.GetNode(depID)
 		if err != nil {
+			v.log.WithFields(logrus.Fields{
+				"dependency": depID,
+				"error":      err,
+			}).Debug("Skipping missing dependency in OR group")
 			continue // Skip missing dependencies in OR groups
 		}
 
 		minDep, maxDep, err := v.getBoundsForNode(ctx, depNode, depID)
 		if err != nil {
+			v.log.WithFields(logrus.Fields{
+				"dependency": depID,
+				"error":      err,
+			}).Debug("Skipping dependency with bounds error in OR group")
 			continue
 		}
 
-		// For transformations, skip if no data
-		if depNode.NodeType == models.NodeTypeTransformation && (minDep == 0 || maxDep == 0) {
+		// For transformations, skip if no data (not initialized)
+		if depNode.NodeType == models.NodeTypeTransformation && (minDep == 0 && maxDep == 0) {
+			v.log.WithFields(logrus.Fields{
+				"dependency": depID,
+				"min":        minDep,
+				"max":        maxDep,
+			}).Debug("Skipping uninitialized transformation dependency in OR group")
 			continue
 		}
 
@@ -383,7 +397,7 @@ func (v *dependencyValidator) processORGroup(ctx context.Context, dep transforma
 	}
 
 	if !bestFound {
-		return fmt.Errorf("%w: %v", ErrNoORDependencyAvailable, dep.GroupDeps)
+		return fmt.Errorf("%w: %v (all dependencies are uninitialized or unavailable)", ErrNoORDependencyAvailable, dep.GroupDeps)
 	}
 
 	// Add the best bounds to the appropriate category
@@ -424,13 +438,14 @@ func (v *dependencyValidator) processSingleDependency(ctx context.Context, depID
 		bounds.externalMaxs = append(bounds.externalMaxs, maxDep)
 
 	case models.NodeTypeTransformation:
-		// Only include transformations that have data
-		if minDep > 0 {
-			bounds.transformationMins = append(bounds.transformationMins, minDep)
+		// Check if transformation has been initialized (has data)
+		if minDep == 0 && maxDep == 0 {
+			// Transformation dependency has no data - cannot process
+			return fmt.Errorf("%w: %s", ErrUninitializedTransformation, depID)
 		}
-		if maxDep > 0 {
-			bounds.transformationMaxs = append(bounds.transformationMaxs, maxDep)
-		}
+		// Include transformation bounds
+		bounds.transformationMins = append(bounds.transformationMins, minDep)
+		bounds.transformationMaxs = append(bounds.transformationMaxs, maxDep)
 
 	default:
 		return fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)

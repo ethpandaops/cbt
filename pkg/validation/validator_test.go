@@ -130,6 +130,58 @@ func TestValidateDependencies(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name:     "uninitialized transformation dependency - should fail with error",
+			modelID:  "model.test",
+			position: 1000,
+			interval: 100,
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"dep.uninitialized"}
+				dag.nodes = map[string]models.Node{
+					"model.test":        models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"dep.uninitialized"}}},
+					"dep.uninitialized": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.uninitialized", interval: 100}},
+				}
+				// Uninitialized transformation has no data (0, 0)
+				admin.firstPositions = map[string]uint64{
+					"dep.uninitialized": 0,
+				}
+				admin.lastPositions = map[string]uint64{
+					"dep.uninitialized": 0,
+				}
+			},
+			expectedResult: Result{
+				CanProcess: false,
+			},
+			wantErr: false, // GetValidRange returns error but ValidateDependencies handles it gracefully
+		},
+		{
+			name:     "mixed dependencies - external initialized, transformation uninitialized",
+			modelID:  "model.test",
+			position: 1000,
+			interval: 100,
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"ext.model1", "dep.uninitialized"}
+				dag.nodes = map[string]models.Node{
+					"model.test":        models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"ext.model1", "dep.uninitialized"}}},
+					"ext.model1":        models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
+					"dep.uninitialized": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.uninitialized", interval: 100}},
+				}
+				// External has data
+				admin.firstPositions = map[string]uint64{
+					"ext.model1": 500,
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.model1": 2000,
+				}
+				// Transformation has no data (uninitialized)
+				admin.firstPositions["dep.uninitialized"] = 0
+				admin.lastPositions["dep.uninitialized"] = 0
+			},
+			expectedResult: Result{
+				CanProcess: false,
+			},
+			wantErr: false,
+		},
 	}
 
 	// Run tests
@@ -148,7 +200,7 @@ func TestValidateDependencies(t *testing.T) {
 				log:   logrus.New().WithField("test", tt.name),
 				dag:   mockDAG,
 				admin: mockAdmin,
-				externalManager: &ExternalModelValidator{
+				externalManager: &mockExternalModelValidator{
 					admin: mockAdmin,
 				},
 			}
@@ -190,7 +242,7 @@ func TestValidateDependencies_ContextCancellation(t *testing.T) {
 		log:   logrus.New(),
 		dag:   mockDAG,
 		admin: mockAdmin,
-		externalManager: &ExternalModelValidator{
+		externalManager: &mockExternalModelValidator{
 			admin: mockAdmin,
 		},
 	}
@@ -225,7 +277,7 @@ func TestValidateDependencies_Concurrent(t *testing.T) {
 		log:   logrus.New(),
 		dag:   mockDAG,
 		admin: mockAdmin,
-		externalManager: &ExternalModelValidator{
+		externalManager: &mockExternalModelValidator{
 			admin: mockAdmin,
 		},
 	}
@@ -405,7 +457,7 @@ func BenchmarkValidateDependencies(b *testing.B) {
 		log:   logrus.New(),
 		dag:   mockDAG,
 		admin: mockAdmin,
-		externalManager: &ExternalModelValidator{
+		externalManager: &mockExternalModelValidator{
 			admin: mockAdmin,
 		},
 	}
@@ -585,9 +637,10 @@ func (m *mockAdmin) GetAdminTable() string {
 }
 
 type mockTransformation struct {
-	id           string
-	interval     uint64
-	dependencies []string
+	id             string
+	interval       uint64
+	dependencies   []string
+	orDependencies []transformation.Dependency // Support for OR groups
 }
 
 func (m *mockTransformation) GetID() string { return m.id }
@@ -595,14 +648,22 @@ func (m *mockTransformation) GetConfig() *transformation.Config {
 	if m.interval == 0 {
 		m.interval = 100 // Default interval
 	}
-	// Convert string dependencies to Dependency structs
-	deps := make([]transformation.Dependency, len(m.dependencies))
-	for i, dep := range m.dependencies {
-		deps[i] = transformation.Dependency{
-			IsGroup:   false,
-			SingleDep: dep,
+
+	// Use orDependencies if provided, otherwise convert string dependencies
+	var deps []transformation.Dependency
+	if len(m.orDependencies) > 0 {
+		deps = m.orDependencies
+	} else {
+		// Convert string dependencies to Dependency structs
+		deps = make([]transformation.Dependency, len(m.dependencies))
+		for i, dep := range m.dependencies {
+			deps[i] = transformation.Dependency{
+				IsGroup:   false,
+				SingleDep: dep,
+			}
 		}
 	}
+
 	return &transformation.Config{
 		Database: "test_db",
 		Table:    "test_table",
@@ -676,6 +737,9 @@ func TestGetEarliestPosition(t *testing.T) {
 				admin.firstPositions = map[string]uint64{
 					"dep.model1": 100,
 				}
+				admin.lastPositions = map[string]uint64{
+					"dep.model1": 1000, // Add last position to show it's initialized
+				}
 			},
 			expectedPos: 100,
 			wantErr:     false,
@@ -697,6 +761,11 @@ func TestGetEarliestPosition(t *testing.T) {
 					"ext.model2": 200,
 					"ext.model3": 150,
 				}
+				admin.lastPositions = map[string]uint64{
+					"ext.model1": 5000,
+					"ext.model2": 5000,
+					"ext.model3": 5000,
+				}
 			},
 			expectedPos: 100, // Minimum of external mins (can start from earliest external data)
 			wantErr:     false,
@@ -716,6 +785,11 @@ func TestGetEarliestPosition(t *testing.T) {
 					"dep.model1": 100,
 					"dep.model2": 300,
 					"dep.model3": 200,
+				}
+				admin.lastPositions = map[string]uint64{
+					"dep.model1": 1000,
+					"dep.model2": 1000,
+					"dep.model3": 1000,
 				}
 			},
 			expectedPos: 300, // Maximum of transformation mins
@@ -739,6 +813,12 @@ func TestGetEarliestPosition(t *testing.T) {
 					"dep.model1": 200, // Transformation max will be 250
 					"dep.model2": 250,
 				}
+				admin.lastPositions = map[string]uint64{
+					"ext.model1": 5000,
+					"ext.model2": 5000,
+					"dep.model1": 2000,
+					"dep.model2": 2000,
+				}
 			},
 			expectedPos: 250, // Result: max of (external_min=50, transformation_max=250)
 			wantErr:     false,
@@ -760,6 +840,12 @@ func TestGetEarliestPosition(t *testing.T) {
 					"ext.model2": 350,
 					"dep.model1": 100, // Transformation max will be 150
 					"dep.model2": 150,
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.model1": 5000,
+					"ext.model2": 5000,
+					"dep.model1": 2000,
+					"dep.model2": 2000,
 				}
 			},
 			expectedPos: 300, // Result: max of (external_min=300, transformation_max=150)
@@ -1070,6 +1156,53 @@ func TestGetValidRange(t *testing.T) {
 			expectedMax: 0,
 			wantErr:     true,
 		},
+		{
+			name:    "uninitialized transformation dependency - should return error",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"dep.uninitialized"}
+				dag.nodes = map[string]models.Node{
+					"model.test":        models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"dep.uninitialized"}}},
+					"dep.uninitialized": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.uninitialized", interval: 100}},
+				}
+				// Uninitialized transformation has no data (0, 0)
+				admin.firstPositions = map[string]uint64{
+					"dep.uninitialized": 0,
+				}
+				admin.lastPositions = map[string]uint64{
+					"dep.uninitialized": 0,
+				}
+			},
+			expectedMin: 0,
+			expectedMax: 0,
+			wantErr:     true, // Should error due to uninitialized transformation
+		},
+		{
+			name:    "mixed deps with one uninitialized transformation - should error",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"ext.model1", "dep.initialized", "dep.uninitialized"}
+				dag.nodes = map[string]models.Node{
+					"model.test":        models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"ext.model1", "dep.initialized", "dep.uninitialized"}}},
+					"ext.model1":        models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
+					"dep.initialized":   models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.initialized", interval: 100}},
+					"dep.uninitialized": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.uninitialized", interval: 100}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"ext.model1":        100,
+					"dep.initialized":   200,
+					"dep.uninitialized": 0, // No data
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.model1":        5000,
+					"dep.initialized":   4000,
+					"dep.uninitialized": 0, // No data
+				}
+			},
+			expectedMin: 0,
+			expectedMax: 0,
+			wantErr:     true, // Should error due to uninitialized transformation in AND dependency
+		},
 	}
 
 	for _, tt := range tests {
@@ -1093,6 +1226,207 @@ func TestGetValidRange(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedMin, minPos, "min position mismatch")
+				assert.Equal(t, tt.expectedMax, maxPos, "max position mismatch")
+			}
+		})
+	}
+}
+
+// TestGetValidRangeWithORGroups specifically tests OR group dependency handling
+func TestGetValidRangeWithORGroups(t *testing.T) {
+	tests := []struct {
+		name        string
+		modelID     string
+		setupMocks  func(*mockDAGReader, *mockAdmin)
+		expectedMin uint64
+		expectedMax uint64
+		wantErr     bool
+		errMessage  string
+	}{
+		{
+			name:    "OR group with all dependencies initialized - uses best range",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				// Create a model with an OR dependency group
+				orDeps := []transformation.Dependency{
+					{
+						IsGroup:   true,
+						GroupDeps: []string{"dep.model1", "dep.model2"},
+					},
+				}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, orDependencies: orDeps}},
+					"dep.model1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
+					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
+				}
+				// Both transformations have data
+				admin.firstPositions = map[string]uint64{
+					"dep.model1": 100,
+					"dep.model2": 200,
+				}
+				admin.lastPositions = map[string]uint64{
+					"dep.model1": 3000, // Wider range
+					"dep.model2": 1500, // Narrower range
+				}
+			},
+			expectedMin: 100,  // Uses dep.model1 with wider range
+			expectedMax: 3000, // Uses dep.model1's max
+			wantErr:     false,
+		},
+		{
+			name:    "OR group with one uninitialized - uses initialized one",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				orDeps := []transformation.Dependency{
+					{
+						IsGroup:   true,
+						GroupDeps: []string{"dep.uninitialized", "dep.initialized"},
+					},
+				}
+				dag.nodes = map[string]models.Node{
+					"model.test":        models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, orDependencies: orDeps}},
+					"dep.uninitialized": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.uninitialized", interval: 100}},
+					"dep.initialized":   models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.initialized", interval: 100}},
+				}
+				// One has no data, one has data
+				admin.firstPositions = map[string]uint64{
+					"dep.uninitialized": 0,
+					"dep.initialized":   500,
+				}
+				admin.lastPositions = map[string]uint64{
+					"dep.uninitialized": 0,
+					"dep.initialized":   2000,
+				}
+			},
+			expectedMin: 500,  // Uses the initialized one
+			expectedMax: 2000, // Uses the initialized one's max
+			wantErr:     false,
+		},
+		{
+			name:    "OR group with all uninitialized - should error",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				orDeps := []transformation.Dependency{
+					{
+						IsGroup:   true,
+						GroupDeps: []string{"dep.uninit1", "dep.uninit2"},
+					},
+				}
+				dag.nodes = map[string]models.Node{
+					"model.test":  models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, orDependencies: orDeps}},
+					"dep.uninit1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.uninit1", interval: 100}},
+					"dep.uninit2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.uninit2", interval: 100}},
+				}
+				// Both have no data
+				admin.firstPositions = map[string]uint64{
+					"dep.uninit1": 0,
+					"dep.uninit2": 0,
+				}
+				admin.lastPositions = map[string]uint64{
+					"dep.uninit1": 0,
+					"dep.uninit2": 0,
+				}
+			},
+			expectedMin: 0,
+			expectedMax: 0,
+			wantErr:     true,
+			errMessage:  "no dependencies in OR group are available",
+		},
+		{
+			name:    "Mixed OR and AND dependencies - AND has uninitialized",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				// OR group (at least one available) + AND dependency (uninitialized)
+				orDeps := []transformation.Dependency{
+					{
+						IsGroup:   true,
+						GroupDeps: []string{"dep.or1", "dep.or2"},
+					},
+					{
+						IsGroup:   false,
+						SingleDep: "dep.and_uninit",
+					},
+				}
+				dag.nodes = map[string]models.Node{
+					"model.test":     models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, orDependencies: orDeps}},
+					"dep.or1":        models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.or1", interval: 100}},
+					"dep.or2":        models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.or2", interval: 100}},
+					"dep.and_uninit": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.and_uninit", interval: 100}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"dep.or1":        100,
+					"dep.or2":        200,
+					"dep.and_uninit": 0, // Uninitialized AND dependency
+				}
+				admin.lastPositions = map[string]uint64{
+					"dep.or1":        3000,
+					"dep.or2":        2000,
+					"dep.and_uninit": 0,
+				}
+			},
+			expectedMin: 0,
+			expectedMax: 0,
+			wantErr:     true,
+			errMessage:  "transformation dependency has not been initialized",
+		},
+		{
+			name:    "OR group with external and transformation deps mixed",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				orDeps := []transformation.Dependency{
+					{
+						IsGroup:   true,
+						GroupDeps: []string{"ext.model1", "dep.transform1"},
+					},
+				}
+				dag.nodes = map[string]models.Node{
+					"model.test":     models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, orDependencies: orDeps}},
+					"ext.model1":     models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
+					"dep.transform1": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.transform1", interval: 100}},
+				}
+				// External always has data, transformation is uninitialized
+				admin.firstPositions = map[string]uint64{
+					"ext.model1":     100,
+					"dep.transform1": 0, // Uninitialized
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.model1":     5000,
+					"dep.transform1": 0,
+				}
+			},
+			expectedMin: 100,  // Uses external since transformation is uninitialized
+			expectedMax: 5000, // Uses external's max
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			mockDAG := newMockDAGReader()
+			mockAdmin := newMockAdmin()
+
+			tt.setupMocks(mockDAG, mockAdmin)
+
+			validator := &dependencyValidator{
+				log:   logrus.New(),
+				dag:   mockDAG,
+				admin: mockAdmin,
+				externalManager: &mockExternalModelValidator{
+					admin: mockAdmin,
+				},
+			}
+
+			minPos, maxPos, err := validator.GetValidRange(ctx, tt.modelID)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errMessage != "" {
+					assert.Contains(t, err.Error(), tt.errMessage)
+				}
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expectedMin, minPos, "min position mismatch")
