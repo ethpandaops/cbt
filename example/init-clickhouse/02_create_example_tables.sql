@@ -173,4 +173,52 @@ PARTITION BY toYYYYMM(slot_start_date_time)
 ORDER BY (slot_start_date_time, slot, position)
 ;
 
--- No initial data - the data generator will create all sample data
+-- Create tables for transformation dependency examples
+
+-- Level 1: Minute Block Summary (minute aggregations)
+CREATE TABLE IF NOT EXISTS analytics.minute_block_summary (
+    updated_date_time DateTime64(3),
+    event_date_time DateTime64(3),
+    minute DateTime,
+    block_count UInt32,
+    unique_validators UInt32,
+    avg_slot Float64,
+    min_slot UInt64,
+    max_slot UInt64,
+    position UInt64
+) ENGINE = ReplacingMergeTree(updated_date_time)
+ORDER BY (minute)
+PARTITION BY toYYYYMM(minute);
+
+-- Level 2: Two Minute Aggregation (2-minute aggregations)
+CREATE TABLE IF NOT EXISTS analytics.two_minute_aggregation (
+    updated_date_time DateTime64(3),
+    event_date_time DateTime64(3),
+    two_minute_window DateTime,
+    total_blocks UInt64,
+    total_unique_validators UInt64,
+    avg_blocks_per_minute Float64,
+    window_min_slot UInt64,
+    window_max_slot UInt64,
+    minutes_with_data UInt32,
+    position UInt64
+) ENGINE = ReplacingMergeTree(updated_date_time)
+ORDER BY (two_minute_window)
+PARTITION BY toYYYYMM(two_minute_window);
+
+-- Level 3: Five Minute Report (5-minute aggregations)
+CREATE TABLE IF NOT EXISTS analytics.five_minute_report (
+    updated_date_time DateTime64(3),
+    event_date_time DateTime64(3),
+    five_minute_window DateTime,
+    window_blocks UInt64,
+    max_validators_in_window UInt64,
+    avg_blocks_per_minute Float64,
+    period_min_slot UInt64,
+    period_max_slot UInt64,
+    total_minutes_with_data UInt64,
+    two_minute_windows_with_data UInt32,
+    position UInt64
+) ENGINE = ReplacingMergeTree(updated_date_time)
+ORDER BY (five_minute_window)
+PARTITION BY toYYYYMM(five_minute_window);
