@@ -41,11 +41,13 @@ type ClientInterface interface {
 
 // client implements the ClientInterface using HTTP
 type client struct {
-	log        logrus.FieldLogger
-	httpClient *http.Client
-	baseURL    string
-	debug      bool
-	lock       sync.RWMutex
+	log           logrus.FieldLogger
+	httpClient    *http.Client
+	baseURL       string
+	debug         bool
+	lock          sync.RWMutex
+	queryTimeout  time.Duration
+	insertTimeout time.Duration
 }
 
 // NewClient creates a new HTTP-based ClickHouse client
@@ -71,10 +73,12 @@ func NewClient(logger *logrus.Logger, cfg *Config) (ClientInterface, error) {
 	}
 
 	c := &client{
-		log:        logger.WithField("component", "clickhouse-http"),
-		httpClient: httpClient,
-		baseURL:    strings.TrimRight(cfg.URL, "/"),
-		debug:      cfg.Debug,
+		log:           logger.WithField("component", "clickhouse-http"),
+		httpClient:    httpClient,
+		baseURL:       strings.TrimRight(cfg.URL, "/"),
+		debug:         cfg.Debug,
+		queryTimeout:  cfg.QueryTimeout,
+		insertTimeout: cfg.InsertTimeout,
 	}
 
 	return c, nil
@@ -315,10 +319,10 @@ func (c *client) getTimeout(ctx context.Context, operation string) time.Duration
 	// Use default timeouts based on operation type
 	switch operation {
 	case "insert":
-		return 5 * time.Minute
+		return c.insertTimeout
 	case "query":
-		return 30 * time.Second
+		return c.queryTimeout
 	default:
-		return 30 * time.Second
+		return c.queryTimeout
 	}
 }
