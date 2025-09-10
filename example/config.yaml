@@ -18,8 +18,8 @@ clickhouse:
   url: "http://clickhouse:8123"
   cluster: ""
   localSuffix: "_local"
-  queryTimeout: 30s
-  insertTimeout: 60s
+  queryTimeout: 300s  # Increased from 30s to handle large queries
+  insertTimeout: 5m    # Increased from 60s for bulk operations
   debug: false
   keepAlive: 30s
   # Admin table uses defaults (admin.cbt)
