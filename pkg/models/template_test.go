@@ -618,3 +618,57 @@ func BenchmarkRenderExternal(b *testing.B) {
 		_, _ = engine.RenderExternal(model, nil)
 	}
 }
+
+// TestTemplateRenderingWithHyphenatedDatabases tests that template rendering works correctly with hyphenated database names
+func TestTemplateRenderingWithHyphenatedDatabases(t *testing.T) {
+	clickhouseCfg := &clickhouse.Config{
+		Cluster:     "test_cluster",
+		LocalSuffix: "_local",
+	}
+
+	dag := NewDependencyGraph()
+	engine := NewTemplateEngine(clickhouseCfg, dag)
+
+	// Create a mock transformation with hyphenated database
+	mockTransform := &mockTransformationWithTemplate{
+		config: transformation.Config{
+			Database: "analytics-db",
+			Table:    "hourly_stats",
+		},
+		value: "INSERT INTO `{{ .self.database }}`.`{{ .self.table }}` SELECT * FROM source",
+	}
+
+	// Render the template
+	rendered, err := engine.RenderTransformation(
+		mockTransform,
+		1000, // position
+		3600, // interval
+		time.Now(),
+	)
+
+	require.NoError(t, err)
+	assert.Contains(t, rendered, "`analytics-db`.`hourly_stats`")
+}
+
+// TestPlaceholderSubstitutionWithHyphenatedDatabases tests placeholder substitution with hyphenated database names
+func TestPlaceholderSubstitutionWithHyphenatedDatabases(t *testing.T) {
+	config := &transformation.Config{
+		Database: "target-db",
+		Table:    "processed",
+		Dependencies: []transformation.Dependency{
+			{SingleDep: "{{external}}.raw_data", IsGroup: false},
+			{SingleDep: "{{transformation}}.hourly", IsGroup: false},
+		},
+	}
+
+	// Apply substitution with hyphenated database names
+	config.SubstituteDependencyPlaceholders("source-db", "analytics-db")
+
+	// Check that placeholders were correctly replaced
+	assert.Equal(t, "source-db.raw_data", config.Dependencies[0].SingleDep)
+	assert.Equal(t, "analytics-db.hourly", config.Dependencies[1].SingleDep)
+
+	// Check that original dependencies were preserved
+	assert.Equal(t, "{{external}}.raw_data", config.OriginalDependencies[0].SingleDep)
+	assert.Equal(t, "{{transformation}}.hourly", config.OriginalDependencies[1].SingleDep)
+}

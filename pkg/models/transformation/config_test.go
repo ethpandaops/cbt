@@ -481,3 +481,62 @@ func TestConfigSubstitutionWithORGroups(t *testing.T) {
 	assert.Equal(t, "{{external}}.blocks", config.OriginalDependencies[0].SingleDep)
 	assert.Equal(t, []string{"{{external}}.source1", "{{transformation}}.processed"}, config.OriginalDependencies[1].GroupDeps)
 }
+
+// TestGetIDWithHyphenatedDatabases tests that GetID correctly handles database names with hyphens
+func TestGetIDWithHyphenatedDatabases(t *testing.T) {
+	tests := []struct {
+		name       string
+		database   string
+		table      string
+		expectedID string
+	}{
+		{
+			name:       "simple hyphenated database",
+			database:   "some-database",
+			table:      "my_table",
+			expectedID: "some-database.my_table",
+		},
+		{
+			name:       "multiple hyphens in database",
+			database:   "my-super-long-database",
+			table:      "users",
+			expectedID: "my-super-long-database.users",
+		},
+		{
+			name:       "hyphen at start and end",
+			database:   "-database-",
+			table:      "data",
+			expectedID: "-database-.data",
+		},
+		{
+			name:       "hyphenated database and table with underscore",
+			database:   "analytics-db",
+			table:      "user_events",
+			expectedID: "analytics-db.user_events",
+		},
+		{
+			name:       "numeric with hyphens",
+			database:   "db-2024-01",
+			table:      "metrics",
+			expectedID: "db-2024-01.metrics",
+		},
+		{
+			name:       "hyphenated database with dependencies",
+			database:   "analytics-db",
+			table:      "aggregates",
+			expectedID: "analytics-db.aggregates",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &Config{
+				Database: tt.database,
+				Table:    tt.table,
+			}
+
+			// Test GetID
+			assert.Equal(t, tt.expectedID, config.GetID())
+		})
+	}
+}
