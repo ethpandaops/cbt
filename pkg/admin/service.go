@@ -107,7 +107,7 @@ func (a *service) RecordCompletion(ctx context.Context, modelID string, position
 	// Using string formatting with proper escaping
 	// In production, consider using parameterized queries for better security
 	query := fmt.Sprintf(`
-		INSERT INTO %s.%s (updated_date_time, database, table, position, interval)
+		INSERT INTO `+"`%s`.`%s`"+` (updated_date_time, database, table, position, interval)
 		VALUES (now(), '%s', '%s', %d, %d)
 	`, a.adminDatabase, a.adminTable, parts[0], parts[1], position, interval)
 
@@ -123,7 +123,7 @@ func (a *service) GetFirstPosition(ctx context.Context, modelID string) (uint64,
 
 	query := fmt.Sprintf(`
 		SELECT coalesce(min(position), 0) as first_pos
-		FROM %s.%s FINAL
+		FROM `+"`%s`.`%s`"+` FINAL
 		WHERE database = '%s' AND table = '%s'
 	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
 
@@ -152,7 +152,7 @@ func (a *service) GetLastProcessedEndPosition(ctx context.Context, modelID strin
 
 	query := fmt.Sprintf(`
 		SELECT coalesce(max(position + interval), 0) as last_end_pos
-		FROM %s.%s FINAL
+		FROM `+"`%s`.`%s`"+` FINAL
 		WHERE database = '%s' AND table = '%s'
 	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
 
@@ -187,7 +187,7 @@ func (a *service) GetLastProcessedPosition(ctx context.Context, modelID string) 
 
 	query := fmt.Sprintf(`
 		SELECT coalesce(max(position), 0) as last_pos
-		FROM %s.%s FINAL
+		FROM `+"`%s`.`%s`"+` FINAL
 		WHERE database = '%s' AND table = '%s'
 	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
 
@@ -216,7 +216,7 @@ func (a *service) GetCoverage(ctx context.Context, modelID string, startPos, end
 	query := fmt.Sprintf(`
 		WITH coverage AS (
 			SELECT position, position + interval as end_pos
-			FROM %s.%s FINAL
+			FROM `+"`%s`.`%s`"+` FINAL
 			WHERE database = '%s' AND table = '%s'
 			  AND position < %d
 			  AND position + interval > %d
@@ -269,7 +269,7 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 				interval,
 				position + interval as end_pos,
 				row_number() OVER (ORDER BY position) as rn
-			FROM %s.%s FINAL
+			FROM `+"`%s`.`%s`"+` FINAL
 			WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position < %d
 			ORDER BY position
@@ -340,7 +340,7 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 	// Also check for a gap at the beginning
 	firstPosQuery := fmt.Sprintf(`
 		SELECT min(position) as first_pos
-		FROM %s.%s FINAL
+		FROM `+"`%s`.`%s`"+` FINAL
 		WHERE database = '%s' AND table = '%s'
 		  AND position >= %d
 	`, a.adminDatabase, a.adminTable, parts[0], parts[1], minPos)
@@ -400,7 +400,7 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 				interval,
 				position + interval as end_pos,
 				row_number() OVER (ORDER BY position) as rn
-			FROM %s.%s FINAL
+			FROM `+"`%s`.`%s`"+` FINAL
 			WHERE database = '%s' AND table = '%s'
 			ORDER BY position
 		),
@@ -499,7 +499,7 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 	// Insert the consolidated row FIRST to avoid gaps
 	consolidatedInterval := rangeResult.EndPos - rangeResult.StartPos
 	insertQuery := fmt.Sprintf(`
-		INSERT INTO %s.%s (updated_date_time, database, table, position, interval)
+		INSERT INTO `+"`%s`.`%s`"+` (updated_date_time, database, table, position, interval)
 		VALUES (now(), '%s', '%s', %d, %d)
 	`, a.adminDatabase, a.adminTable, database, table, rangeResult.StartPos, consolidatedInterval)
 
@@ -514,7 +514,7 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 	if a.cluster != "" {
 		// Cluster mode: use local suffix and ON CLUSTER
 		deleteQuery = fmt.Sprintf(`
-			DELETE FROM %s.%s%s ON CLUSTER '%s'
+			DELETE FROM `+"`%s`.`%s`%s"+` ON CLUSTER '%s'
 			WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position < %d
 			  AND NOT (position = %d AND interval = %d)
@@ -524,7 +524,7 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 	} else {
 		// Non-cluster mode: simple DELETE
 		deleteQuery = fmt.Sprintf(`
-			DELETE FROM %s.%s
+			DELETE FROM `+"`%s`.`%s`"+`
 			WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position < %d
 			  AND NOT (position = %d AND interval = %d)

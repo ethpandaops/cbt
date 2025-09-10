@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
@@ -439,3 +441,225 @@ func (m *mockClickhouseClient) Stop() error {
 
 // Ensure mock implements the interface
 var _ clickhouse.ClientInterface = (*mockClickhouseClient)(nil)
+
+// TestHyphenatedDatabaseNamesInQueries tests that SQL queries properly escape hyphenated database names
+func TestHyphenatedDatabaseNamesInQueries(t *testing.T) {
+	tests := []struct {
+		name          string
+		adminDatabase string
+		adminTable    string
+		modelID       string
+		position      uint64
+		interval      uint64
+		expectedInSQL []string // Strings that should appear in the SQL
+	}{
+		{
+			name:          "simple hyphenated database",
+			adminDatabase: "admin-db",
+			adminTable:    "cbt",
+			modelID:       "source-database.events",
+			position:      1000,
+			interval:      100,
+			expectedInSQL: []string{
+				"`admin-db`.`cbt`",
+				"'source-database'",
+				"'events'",
+			},
+		},
+		{
+			name:          "hyphenated admin and model databases",
+			adminDatabase: "fusake-devnet-3",
+			adminTable:    "admin_cbt",
+			modelID:       "analytics-db.aggregates",
+			position:      2000,
+			interval:      200,
+			expectedInSQL: []string{
+				"`fusake-devnet-3`.`admin_cbt`",
+				"'analytics-db'",
+				"'aggregates'",
+			},
+		},
+		{
+			name:          "multiple hyphens in names",
+			adminDatabase: "my-super-admin-db",
+			adminTable:    "tracking-table",
+			modelID:       "data-lake-2024.user-events",
+			position:      3000,
+			interval:      300,
+			expectedInSQL: []string{
+				"`my-super-admin-db`.`tracking-table`",
+				"'data-lake-2024'",
+				"'user-events'",
+			},
+		},
+		{
+			name:          "numeric with hyphens",
+			adminDatabase: "admin-2024-01",
+			adminTable:    "cbt-v2",
+			modelID:       "db-2024-01.metrics",
+			position:      4000,
+			interval:      400,
+			expectedInSQL: []string{
+				"`admin-2024-01`.`cbt-v2`",
+				"'db-2024-01'",
+				"'metrics'",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a mock client that captures queries
+			mockClient := &queryCapturingClient{
+				queries: []string{},
+			}
+
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+
+			// Create service with hyphenated admin database/table
+			svc := NewService(log, mockClient, "", "", tt.adminDatabase, tt.adminTable, nil)
+			ctx := context.Background()
+
+			// Test RecordCompletion (INSERT query)
+			err := svc.RecordCompletion(ctx, tt.modelID, tt.position, tt.interval)
+			require.NoError(t, err)
+
+			// Check that the INSERT query has proper escaping
+			require.Len(t, mockClient.queries, 1, "Expected one INSERT query")
+			insertQuery := mockClient.queries[0]
+
+			for _, expected := range tt.expectedInSQL {
+				assert.Contains(t, insertQuery, expected,
+					"INSERT query should contain %s", expected)
+			}
+
+			// Reset queries
+			mockClient.queries = []string{}
+
+			// Test GetFirstPosition (SELECT query)
+			_, err = svc.GetFirstPosition(ctx, tt.modelID)
+			require.NoError(t, err)
+
+			require.Len(t, mockClient.queries, 1, "Expected one SELECT query")
+			selectQuery := mockClient.queries[0]
+
+			// Check for proper escaping in SELECT
+			assert.Contains(t, selectQuery, fmt.Sprintf("`%s`.`%s`", tt.adminDatabase, tt.adminTable),
+				"SELECT query should have escaped admin table reference")
+
+			// Check SELECT query has proper WHERE clause
+			parts := strings.Split(tt.modelID, ".")
+			assert.Contains(t, selectQuery, fmt.Sprintf("database = '%s'", parts[0]),
+				"SELECT query should have database in WHERE clause")
+			assert.Contains(t, selectQuery, fmt.Sprintf("table = '%s'", parts[1]),
+				"SELECT query should have table in WHERE clause")
+
+			// Reset queries
+			mockClient.queries = []string{}
+
+			// Test GetLastProcessedEndPosition
+			_, err = svc.GetLastProcessedEndPosition(ctx, tt.modelID)
+			require.NoError(t, err)
+
+			require.Len(t, mockClient.queries, 1, "Expected one SELECT query")
+			selectQuery2 := mockClient.queries[0]
+
+			assert.Contains(t, selectQuery2, fmt.Sprintf("`%s`.`%s`", tt.adminDatabase, tt.adminTable),
+				"SELECT query should have escaped admin table reference")
+			assert.Contains(t, selectQuery2, fmt.Sprintf("database = '%s'", parts[0]),
+				"SELECT query should have database in WHERE clause")
+			assert.Contains(t, selectQuery2, fmt.Sprintf("table = '%s'", parts[1]),
+				"SELECT query should have table in WHERE clause")
+		})
+	}
+}
+
+// queryCapturingClient is a mock ClickHouse client that captures queries for inspection
+type queryCapturingClient struct {
+	queries     []string
+	mockResults []interface{}
+	resultIndex int
+}
+
+func (m *queryCapturingClient) Execute(_ context.Context, query string) error {
+	m.queries = append(m.queries, query)
+	return nil
+}
+
+func (m *queryCapturingClient) QueryOne(_ context.Context, query string, result interface{}) error {
+	m.queries = append(m.queries, query)
+
+	// Return mock results if available
+	if m.resultIndex < len(m.mockResults) {
+		// Simple type assertion - in real tests you'd handle this better
+		switch v := result.(type) {
+		case *struct {
+			FirstPos uint64 `json:"first_pos,string"`
+		}:
+			v.FirstPos = 1000 // Default value
+		case *struct {
+			LastEndPos uint64 `json:"last_end_pos,string"`
+		}:
+			v.LastEndPos = 2000 // Default value
+		case *struct {
+			LastPos uint64 `json:"last_pos,string"`
+		}:
+			v.LastPos = 1500 // Default value
+		case *struct {
+			StartPos uint64 `json:"start_pos,string"`
+			EndPos   uint64 `json:"end_pos,string"`
+			RowCount int    `json:"row_count,string"`
+		}:
+			// For consolidation query
+			v.StartPos = 1000
+			v.EndPos = 2000
+			v.RowCount = 5
+		}
+		m.resultIndex++
+	}
+
+	return nil
+}
+
+func (m *queryCapturingClient) QueryMany(_ context.Context, query string, result interface{}) error {
+	m.queries = append(m.queries, query)
+
+	if m.resultIndex < len(m.mockResults) {
+		// Return the mock result based on the actual type expected
+		switch v := result.(type) {
+		case *[]struct {
+			GapStart uint64 `json:"gap_start,string"`
+			GapEnd   uint64 `json:"gap_end,string"`
+		}:
+			// For FindGaps query
+			*v = []struct {
+				GapStart uint64 `json:"gap_start,string"`
+				GapEnd   uint64 `json:"gap_end,string"`
+			}{
+				{GapStart: 1000, GapEnd: 1100},
+				{GapStart: 2000, GapEnd: 2200},
+			}
+		case *[]GapInfo:
+			// For other queries that might use GapInfo directly
+			if mockGaps, ok := m.mockResults[m.resultIndex].([]GapInfo); ok {
+				*v = mockGaps
+			}
+		}
+		m.resultIndex++
+	}
+
+	return nil
+}
+
+func (m *queryCapturingClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
+	return nil
+}
+
+func (m *queryCapturingClient) Start() error {
+	return nil
+}
+
+func (m *queryCapturingClient) Stop() error {
+	return nil
+}
