@@ -58,13 +58,14 @@ models:
 
 # Optional: Override configuration for specific transformation models
 # Useful for environment-specific adjustments (staging, production, etc.)
+# You can use either full ID (database.table) or table-only format for models using default database
 # overrides:
-#   # Disable a model entirely
+#   # Disable a model entirely (full ID format)
 #   analytics.block_never_loads:
 #     enabled: false
 #   
-#   # Override interval and schedules for staging environment
-#   analytics.hourly_block_stats:
+#   # Override using table-only format (works because model uses defaultDatabase: "analytics")
+#   hourly_block_stats:
 #     config:
 #       interval:
 #         max: 7200  # Increase to 2 hours in staging
@@ -72,22 +73,22 @@ models:
 #         forwardfill: "@every 10m"  # Slower schedule
 #         backfill: null  # Disable backfill
 #   
-#   # Only override schedules, keep other settings
-#   analytics.entity_changes:
+#   # Table-only format for simpler configs
+#   entity_changes:
 #     config:
 #       schedules:
 #         forwardfill: "@every 5m"
 #         backfill: "@every 30m"
 #   
-#   # Add additional tags to a model
-#   analytics.five_minute_report:
+#   # Mix both formats as needed
+#   five_minute_report:  # Table-only format
 #     config:
 #       tags:
 #         - "staging-only"
 #         - "low-priority"
 #   
-#   # Set position limits for a model
-#   analytics.block_propagation:
+#   # Models with custom databases must use full ID
+#   custom_db.special_model:
 #     config:
 #       limits:
 #         min: 1000000  # Start from specific position

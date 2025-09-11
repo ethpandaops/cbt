@@ -342,6 +342,119 @@ func TestOverrideIntegration(t *testing.T) {
 	assert.True(t, disabledOverride.IsDisabled())
 }
 
+func TestTableOnlyOverrides(t *testing.T) {
+	// Test that table-only overrides work when models use default database
+	tests := []struct {
+		name                string
+		defaultDatabase     string
+		overrides           map[string]*ModelOverride
+		modelFullID         string
+		modelTable          string
+		expectOverrideFound bool
+		expectDisabled      bool
+	}{
+		{
+			name:            "table-only override matches model with default database",
+			defaultDatabase: "analytics",
+			overrides: map[string]*ModelOverride{
+				"hourly_stats": {
+					Enabled: boolPtr(false),
+				},
+			},
+			modelFullID:         "analytics.hourly_stats",
+			modelTable:          "hourly_stats",
+			expectOverrideFound: true,
+			expectDisabled:      true,
+		},
+		{
+			name:            "full ID override still works",
+			defaultDatabase: "analytics",
+			overrides: map[string]*ModelOverride{
+				"analytics.hourly_stats": {
+					Enabled: boolPtr(false),
+				},
+			},
+			modelFullID:         "analytics.hourly_stats",
+			modelTable:          "hourly_stats",
+			expectOverrideFound: true,
+			expectDisabled:      true,
+		},
+		{
+			name:            "table-only override doesn't match model with different database",
+			defaultDatabase: "analytics",
+			overrides: map[string]*ModelOverride{
+				"hourly_stats": {
+					Enabled: boolPtr(false),
+				},
+			},
+			modelFullID:         "custom.hourly_stats",
+			modelTable:          "hourly_stats",
+			expectOverrideFound: false,
+			expectDisabled:      false,
+		},
+		{
+			name:            "prefer full ID override over table-only",
+			defaultDatabase: "analytics",
+			overrides: map[string]*ModelOverride{
+				"analytics.hourly_stats": {
+					Enabled: boolPtr(false),
+				},
+				"hourly_stats": {
+					Enabled: boolPtr(true),
+				},
+			},
+			modelFullID:         "analytics.hourly_stats",
+			modelTable:          "hourly_stats",
+			expectOverrideFound: true,
+			expectDisabled:      true, // Should use the full ID override (disabled)
+		},
+		{
+			name:            "no override found",
+			defaultDatabase: "analytics",
+			overrides: map[string]*ModelOverride{
+				"other_table": {
+					Enabled: boolPtr(false),
+				},
+			},
+			modelFullID:         "analytics.hourly_stats",
+			modelTable:          "hourly_stats",
+			expectOverrideFound: false,
+			expectDisabled:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a minimal service with the config
+			s := &service{
+				config: &Config{
+					Transformation: TransformationConfig{
+						DefaultDatabase: tt.defaultDatabase,
+					},
+					Overrides: tt.overrides,
+				},
+			}
+
+			// Test the findOverride method
+			override, overrideKey := s.findOverride(tt.modelFullID, tt.modelTable)
+
+			if tt.expectOverrideFound {
+				assert.NotNil(t, override, "Expected to find override")
+				assert.NotEmpty(t, overrideKey, "Expected override key")
+
+				if tt.expectDisabled {
+					assert.True(t, override.IsDisabled(), "Expected model to be disabled")
+				} else {
+					assert.False(t, override.IsDisabled(), "Expected model to be enabled")
+				}
+			} else {
+				assert.Nil(t, override, "Expected no override")
+				assert.Empty(t, overrideKey, "Expected no override key")
+			}
+		})
+	}
+}
+
 // Helper functions for creating pointers
 func boolPtr(b bool) *bool {
 	return &b

@@ -188,17 +188,25 @@ CBT supports configuration overrides for transformation models, allowing you to 
 
 #### Override Configuration
 
-Add an `overrides` section to your config to customize specific models by their ID (`database.table`):
+Add an `overrides` section to your config to customize specific models. You can reference models in two ways:
+
+1. **Full ID format**: `database.table` - Always works for any model
+2. **Table-only format**: `table` - Works for models using the default database
 
 ```yaml
+# Example with default database configured
+models:
+  transformations:
+    defaultDatabase: "analytics"
+
 # Override specific transformation models
 overrides:
-  # Disable a model entirely
+  # Full ID format - explicit and always works
   analytics.expensive_model:
     enabled: false
   
-  # Customize processing settings
-  analytics.hourly_block_stats:
+  # Table-only format - cleaner when using default database
+  hourly_block_stats:  # Equivalent to analytics.hourly_block_stats
     config:
       interval:
         max: 7200  # Increase interval to 2 hours (staging environment)
@@ -206,14 +214,20 @@ overrides:
         forwardfill: "@every 10m"  # Slower schedule for staging
         backfill: null  # Disable backfill
   
-  # Override only specific fields
-  analytics.entity_changes:
+  # Models with custom databases must use full ID
+  custom_db.special_model:
     config:
       schedules:
-        forwardfill: "@every 5m"   # Keep other settings unchanged
+        forwardfill: "@every 5m"
+  
+  # You can mix both formats
+  entity_changes:  # Uses default database (analytics)
+    config:
       tags:
-        - "staging-only"            # Add environment-specific tags
+        - "staging-only"
 ```
+
+**Note**: If both formats exist for the same model, the full ID format takes precedence.
 
 #### Override Features
 
@@ -227,9 +241,10 @@ overrides:
 
 **Staging Environment:**
 ```yaml
+# Assuming defaultDatabase: "analytics"
 overrides:
-  # Reduce resource usage in staging
-  analytics.heavy_aggregation:
+  # Reduce resource usage in staging (table-only format)
+  heavy_aggregation:
     config:
       interval:
         max: 14400  # Process larger chunks less frequently
@@ -237,8 +252,8 @@ overrides:
         forwardfill: "@every 30m"
         backfill: null  # No backfill in staging
   
-  # Disable production-only models
-  analytics.production_reporting:
+  # Disable production-only models (table-only format)
+  production_reporting:
     enabled: false
 ```
 

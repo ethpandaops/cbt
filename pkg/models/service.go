@@ -142,10 +142,14 @@ func (s *service) applyOverrides() {
 	// Filter transformations based on overrides - pre-allocate with capacity
 	filteredTransformations := make([]Transformation, 0, len(s.transformationModels))
 	for _, model := range s.transformationModels {
-		modelID := model.GetConfig().GetID()
+		config := model.GetConfig()
+		modelID := config.GetID()
 
-		if override, exists := s.config.Overrides[modelID]; exists {
-			appliedOverrides[modelID] = true
+		// Try to find override using either full ID or table-only format
+		override, overrideKey := s.findOverride(modelID, config.Table)
+
+		if override != nil {
+			appliedOverrides[overrideKey] = true
 
 			// Check if model is disabled
 			if override.IsDisabled() {
@@ -154,7 +158,7 @@ func (s *service) applyOverrides() {
 			}
 
 			// Apply configuration overrides
-			override.ApplyToTransformation(model.GetConfig())
+			override.ApplyToTransformation(config)
 			s.log.WithField("model", modelID).Debug("Applied configuration override")
 		}
 
@@ -169,6 +173,27 @@ func (s *service) applyOverrides() {
 	}
 
 	s.transformationModels = filteredTransformations
+}
+
+// findOverride looks up an override using both full ID and table-only formats
+func (s *service) findOverride(fullID, tableName string) (override *ModelOverride, overrideKey string) {
+	// First, try with the full model ID (database.table)
+	if override, exists := s.config.Overrides[fullID]; exists {
+		return override, fullID
+	}
+
+	// If the model uses the default database, also try with just the table name
+	// This allows more intuitive overrides when using default databases
+	if s.config.Transformation.DefaultDatabase != "" {
+		// Check if this model is using the default database
+		if fullID == fmt.Sprintf("%s.%s", s.config.Transformation.DefaultDatabase, tableName) {
+			if override, exists := s.config.Overrides[tableName]; exists {
+				return override, tableName
+			}
+		}
+	}
+
+	return nil, ""
 }
 
 func (s *service) buildDAG() error {
