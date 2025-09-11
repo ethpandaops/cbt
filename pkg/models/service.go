@@ -125,7 +125,50 @@ func (s *service) parseModels() error {
 		}
 	}
 
+	// Apply overrides after all models are loaded
+	s.applyOverrides()
+
 	return nil
+}
+
+func (s *service) applyOverrides() {
+	if len(s.config.Overrides) == 0 {
+		return
+	}
+
+	// Track which overrides were applied
+	appliedOverrides := make(map[string]bool)
+
+	// Filter transformations based on overrides - pre-allocate with capacity
+	filteredTransformations := make([]Transformation, 0, len(s.transformationModels))
+	for _, model := range s.transformationModels {
+		modelID := model.GetConfig().GetID()
+
+		if override, exists := s.config.Overrides[modelID]; exists {
+			appliedOverrides[modelID] = true
+
+			// Check if model is disabled
+			if override.IsDisabled() {
+				s.log.WithField("model", modelID).Info("Model disabled by override")
+				continue // Skip this model
+			}
+
+			// Apply configuration overrides
+			override.ApplyToTransformation(model.GetConfig())
+			s.log.WithField("model", modelID).Debug("Applied configuration override")
+		}
+
+		filteredTransformations = append(filteredTransformations, model)
+	}
+
+	// Warn about overrides that didn't match any models
+	for modelID := range s.config.Overrides {
+		if !appliedOverrides[modelID] {
+			s.log.WithField("model", modelID).Warn("Override specified for non-existent model")
+		}
+	}
+
+	s.transformationModels = filteredTransformations
 }
 
 func (s *service) buildDAG() error {
