@@ -30,8 +30,8 @@ func NewTemplateEngine(clickhouseCfg *clickhouse.Config, dag *DependencyGraph) *
 }
 
 // RenderTransformation renders a transformation model template with variables
-func (t *TemplateEngine) RenderTransformation(model Transformation, position, interval uint64, startTime time.Time) (string, error) {
-	variables, err := t.buildTransformationVariables(model, position, interval, startTime)
+func (t *TemplateEngine) RenderTransformation(model Transformation, position, interval uint64, startTime time.Time, direction string) (string, error) {
+	variables, err := t.buildTransformationVariables(model, position, interval, startTime, direction)
 	if err != nil {
 		return "", fmt.Errorf("failed to build variables: %w", err)
 	}
@@ -49,10 +49,10 @@ func (t *TemplateEngine) RenderTransformation(model Transformation, position, in
 	return buf.String(), nil
 }
 
-func (t *TemplateEngine) buildTransformationVariables(model Transformation, position, interval uint64, startTime time.Time) (map[string]interface{}, error) {
+func (t *TemplateEngine) buildTransformationVariables(model Transformation, position, interval uint64, startTime time.Time, direction string) (map[string]interface{}, error) {
 	config := model.GetConfig()
 
-	variables := t.buildBaseVariables(config, position, interval, startTime)
+	variables := t.buildBaseVariables(config, position, interval, startTime, direction)
 
 	deps, err := t.buildDependencyVariables(config)
 	if err != nil {
@@ -64,8 +64,8 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 }
 
 // buildBaseVariables creates the base template variables
-func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, position, interval uint64, startTime time.Time) map[string]interface{} {
-	return map[string]interface{}{
+func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, position, interval uint64, startTime time.Time, direction string) map[string]interface{} {
+	vars := map[string]interface{}{
 		"clickhouse": map[string]interface{}{
 			"cluster":      t.clickhouseCfg.Cluster,
 			"local_suffix": t.clickhouseCfg.LocalSuffix,
@@ -73,16 +73,35 @@ func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, posit
 		"self": map[string]interface{}{
 			"database": config.Database,
 			"table":    config.Table,
-			"interval": interval,
 		},
 		"task": map[string]interface{}{
-			"start": startTime.Unix(),
-		},
-		"bounds": map[string]interface{}{
-			"start": position,
-			"end":   position + interval,
+			"start":     startTime.Unix(),
+			"direction": direction,
 		},
 	}
+
+	// Add direction-specific boolean flags for convenience
+	vars["is_forward"] = (direction == "forward")
+	vars["is_backfill"] = (direction == "backfill")
+
+	// Only add position/interval variables for non-standalone
+	if !config.IsStandalone() {
+		if selfMap, ok := vars["self"].(map[string]interface{}); ok {
+			selfMap["interval"] = interval
+		}
+		vars["bounds"] = map[string]interface{}{
+			"start": position,
+			"end":   position + interval,
+		}
+	} else {
+		// For standalone, provide time-based variables instead
+		vars["execution"] = map[string]interface{}{
+			"timestamp": startTime.Unix(),
+			"datetime":  startTime.Format(time.RFC3339),
+		}
+	}
+
+	return vars
 }
 
 // buildDependencyVariables processes all dependencies and builds the dep variables
@@ -210,7 +229,7 @@ func (t *TemplateEngine) processExternalDependency(dep Node, depID, originalDep 
 }
 
 // GetTransformationEnvironmentVariables builds environment variables for transformation execution
-func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error) {
+func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time, direction string) (*[]string, error) {
 	config := model.GetConfig()
 
 	env := []string{
@@ -218,10 +237,28 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 		fmt.Sprintf("SELF_DATABASE=%s", config.Database),
 		fmt.Sprintf("SELF_TABLE=%s", config.Table),
 		fmt.Sprintf("TASK_START=%d", startTime.Unix()),
-		fmt.Sprintf("TASK_MODEL=%s.%s", config.Database, config.Table),
-		fmt.Sprintf("TASK_INTERVAL=%d", interval),
-		fmt.Sprintf("BOUNDS_START=%d", position),
-		fmt.Sprintf("BOUNDS_END=%d", position+interval),
+		fmt.Sprintf("TASK_DIRECTION=%s", direction),
+	}
+
+	// Add boolean flags for convenience
+	if direction == "forward" {
+		env = append(env, "IS_FORWARD=true", "IS_BACKFILL=false")
+	} else {
+		env = append(env, "IS_FORWARD=false", "IS_BACKFILL=true")
+	}
+
+	if !config.IsStandalone() {
+		env = append(env,
+			fmt.Sprintf("TASK_MODEL=%s.%s", config.Database, config.Table),
+			fmt.Sprintf("TASK_INTERVAL=%d", interval),
+			fmt.Sprintf("BOUNDS_START=%d", position),
+			fmt.Sprintf("BOUNDS_END=%d", position+interval),
+		)
+	} else {
+		env = append(env,
+			"STANDALONE_MODE=true",
+			fmt.Sprintf("EXECUTION_TIME=%d", time.Now().Unix()),
+		)
 	}
 
 	if t.clickhouseCfg.Cluster != "" {

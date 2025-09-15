@@ -1,0 +1,34 @@
+# Standalone transformation that generates reference data
+# Other transformations can depend on this, treating it as always available
+table: exchange_rates
+schedules:
+  forwardfill: "@every 1h"  # Update exchange rates hourly
+exec: |
+  #!/bin/bash
+  
+  echo "Fetching latest exchange rates"
+  
+  # Simulate fetching exchange rates from external API
+  # In production, this would call a real API
+  
+  clickhouse-client --query="
+    INSERT INTO \`${SELF_DATABASE}\`.\`${SELF_TABLE}\`
+    SELECT
+      now() as updated_at,
+      'USD' as base_currency,
+      'EUR' as target_currency,
+      0.85 + (rand() % 100) / 10000.0 as rate,
+      '${TASK_DIRECTION}' as update_type
+  "
+  
+  clickhouse-client --query="
+    INSERT INTO \`${SELF_DATABASE}\`.\`${SELF_TABLE}\`
+    SELECT
+      now() as updated_at,
+      'USD' as base_currency,
+      'GBP' as target_currency,
+      0.73 + (rand() % 100) / 10000.0 as rate,
+      '${TASK_DIRECTION}' as update_type
+  "
+  
+  echo "Exchange rates updated successfully"

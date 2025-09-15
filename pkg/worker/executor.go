@@ -276,7 +276,7 @@ func (e *ModelExecutor) Validate(ctx context.Context, taskCtxInterface interface
 func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskContext) error {
 	config := taskCtx.Transformation.GetConfig()
 
-	renderedSQL, err := e.models.RenderTransformation(taskCtx.Transformation, taskCtx.Position, taskCtx.Interval, taskCtx.StartTime)
+	renderedSQL, err := e.models.RenderTransformation(taskCtx.Transformation, taskCtx.Position, taskCtx.Interval, taskCtx.StartTime, taskCtx.Direction)
 	if err != nil {
 		return fmt.Errorf("failed to render SQL template: %w", err)
 	}
@@ -333,7 +333,7 @@ func (e *ModelExecutor) executeCommand(ctx context.Context, taskCtx *tasks.TaskC
 	config := taskCtx.Transformation.GetConfig()
 	command := taskCtx.Transformation.GetValue()
 
-	env, err := e.models.GetTransformationEnvironmentVariables(taskCtx.Transformation, taskCtx.Position, taskCtx.Interval, taskCtx.StartTime)
+	env, err := e.models.GetTransformationEnvironmentVariables(taskCtx.Transformation, taskCtx.Position, taskCtx.Interval, taskCtx.StartTime, taskCtx.Direction)
 	if err != nil {
 		return fmt.Errorf("failed to render SQL template: %w", err)
 	}

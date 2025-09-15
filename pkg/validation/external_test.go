@@ -118,7 +118,7 @@ func (m *testModelsService) Stop() error {
 	return nil
 }
 
-func (m *testModelsService) RenderTransformation(_ interface{}, _, _ uint64, _ time.Time) (string, error) {
+func (m *testModelsService) RenderTransformation(_ interface{}, _, _ uint64, _ time.Time, _ string) (string, error) {
 	return "", nil
 }
 
@@ -135,11 +135,11 @@ func (a *modelServiceAdapter) RenderExternal(model models.External, _ map[string
 	return a.testModels.RenderExternal(model)
 }
 
-func (a *modelServiceAdapter) RenderTransformation(_ models.Transformation, _, _ uint64, _ time.Time) (string, error) {
+func (a *modelServiceAdapter) RenderTransformation(_ models.Transformation, _, _ uint64, _ time.Time, _ string) (string, error) {
 	return "", nil
 }
 
-func (a *modelServiceAdapter) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time) (*[]string, error) {
+func (a *modelServiceAdapter) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time, _ string) (*[]string, error) {
 	return nil, nil
 }
 
@@ -158,7 +158,7 @@ func (a *modelServiceAdapter) Stop() error {
 	return a.testModels.Stop()
 }
 
-func (m *testModelsService) GetTransformationEnvironmentVariables(_ interface{}, _, _ uint64, _ time.Time) (*[]string, error) {
+func (m *testModelsService) GetTransformationEnvironmentVariables(_ interface{}, _, _ uint64, _ time.Time, _ string) (*[]string, error) {
 	return nil, nil
 }
 

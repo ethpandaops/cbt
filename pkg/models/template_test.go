@@ -101,7 +101,7 @@ GROUP BY block_number, block_hash`,
 	engine := NewTemplateEngine(clickhouseCfg, dag)
 
 	// Render the template
-	rendered, err := engine.RenderTransformation(transformModel, 1000, 100, time.Now())
+	rendered, err := engine.RenderTransformation(transformModel, 1000, 100, time.Now(), "forward")
 	require.NoError(t, err)
 
 	// Verify the SQL was rendered correctly with the resolved database
@@ -175,7 +175,7 @@ Transformation resolved: {{ index .dep "analytics" "hourly_stats" "database" }}.
 	engine := NewTemplateEngine(clickhouseCfg, dag)
 
 	// Render the template
-	rendered, err := engine.RenderTransformation(mainTransformModel, 1000, 100, time.Now())
+	rendered, err := engine.RenderTransformation(mainTransformModel, 1000, 100, time.Now(), "forward")
 	require.NoError(t, err)
 
 	// Verify both placeholder and resolved forms work
@@ -228,8 +228,91 @@ func TestRenderTransformation(t *testing.T) {
 		},
 	}
 
-	// Build DAG
-	err := dag.BuildGraph([]Transformation{dep1}, []External{})
+	// Build DAG with all test models
+	testModels := []Transformation{
+		dep1,
+		&mockTransformationWithTemplate{
+			id: "test.model",
+			config: transformation.Config{
+				Database: "test_db",
+				Table:    "test_table",
+				Interval: &transformation.IntervalConfig{
+					Max: 100,
+					Min: 0,
+				},
+				Schedules: &transformation.SchedulesConfig{
+					ForwardFill: "@every 1m",
+				},
+				Dependencies: []transformation.Dependency{
+					{IsGroup: false, SingleDep: "dep.model1"},
+				},
+			},
+		},
+		&mockTransformationWithTemplate{
+			id: "test.model2",
+			config: transformation.Config{
+				Database: "test_db",
+				Table:    "test_table2",
+				Interval: &transformation.IntervalConfig{
+					Max: 100,
+					Min: 0,
+				},
+				Schedules: &transformation.SchedulesConfig{
+					ForwardFill: "@every 1m",
+				},
+				Dependencies: []transformation.Dependency{
+					{IsGroup: false, SingleDep: "dep.model1"},
+				},
+			},
+		},
+		&mockTransformationWithTemplate{
+			id: "test.model3",
+			config: transformation.Config{
+				Database: "test_db",
+				Table:    "test_table3",
+				Interval: &transformation.IntervalConfig{
+					Max: 100,
+					Min: 0,
+				},
+				Schedules: &transformation.SchedulesConfig{
+					ForwardFill: "@every 1m",
+				},
+				Dependencies: []transformation.Dependency{
+					{IsGroup: false, SingleDep: "dep.model1"},
+				},
+			},
+		},
+		&mockTransformationWithTemplate{
+			id: "test.standalone",
+			config: transformation.Config{
+				Database: "test_db",
+				Table:    "standalone_table",
+				Schedules: &transformation.SchedulesConfig{
+					ForwardFill: "@every 1m",
+				},
+				Dependencies: []transformation.Dependency{}, // No dependencies = standalone
+			},
+		},
+		&mockTransformationWithTemplate{
+			id: "test.model4",
+			config: transformation.Config{
+				Database: "test_db",
+				Table:    "test_table4",
+				Interval: &transformation.IntervalConfig{
+					Max: 100,
+					Min: 0,
+				},
+				Schedules: &transformation.SchedulesConfig{
+					ForwardFill: "@every 1m",
+				},
+				Dependencies: []transformation.Dependency{
+					{IsGroup: false, SingleDep: "dep.model1"},
+				},
+			},
+		},
+	}
+
+	err := dag.BuildGraph(testModels, []External{})
 	require.NoError(t, err)
 
 	engine := NewTemplateEngine(chConfig, dag)
@@ -243,7 +326,7 @@ func TestRenderTransformation(t *testing.T) {
 		contains    []string
 	}{
 		{
-			name: "simple template rendering",
+			name: "simple template rendering with dependencies",
 			model: &mockTransformationWithTemplate{
 				id: "test.model",
 				config: transformation.Config{
@@ -256,7 +339,9 @@ func TestRenderTransformation(t *testing.T) {
 					Schedules: &transformation.SchedulesConfig{
 						ForwardFill: "@every 1m",
 					},
-					Dependencies: []transformation.Dependency{},
+					Dependencies: []transformation.Dependency{
+						{IsGroup: false, SingleDep: "dep.model1"},
+					},
 				},
 				value: "SELECT * FROM {{ .self.database }}.{{ .self.table }} WHERE position >= {{ .bounds.start }} AND position < {{ .bounds.end }}",
 			},
@@ -291,6 +376,25 @@ func TestRenderTransformation(t *testing.T) {
 			contains:    []string{"dep_db", "model1"},
 		},
 		{
+			name: "standalone transformation template",
+			model: &mockTransformationWithTemplate{
+				id: "test.standalone",
+				config: transformation.Config{
+					Database: "test_db",
+					Table:    "standalone_table",
+					Schedules: &transformation.SchedulesConfig{
+						ForwardFill: "@every 1m",
+					},
+					Dependencies: []transformation.Dependency{}, // No dependencies = standalone
+				},
+				value: "SELECT '{{ .self.database }}.{{ .self.table }}' as table_name, {{ .execution.timestamp }} as exec_time",
+			},
+			position:    0, // Ignored for standalone
+			interval:    0, // Ignored for standalone
+			expectedErr: false,
+			contains:    []string{"test_db", "standalone_table"},
+		},
+		{
 			name: "template with sprig functions",
 			model: &mockTransformationWithTemplate{
 				id: "test.model3",
@@ -304,7 +408,9 @@ func TestRenderTransformation(t *testing.T) {
 					Schedules: &transformation.SchedulesConfig{
 						ForwardFill: "@every 1m",
 					},
-					Dependencies: []transformation.Dependency{},
+					Dependencies: []transformation.Dependency{
+						{IsGroup: false, SingleDep: "dep.model1"},
+					},
 				},
 				value: "SELECT '{{ .self.table | upper }}' as table_name",
 			},
@@ -327,7 +433,9 @@ func TestRenderTransformation(t *testing.T) {
 					Schedules: &transformation.SchedulesConfig{
 						ForwardFill: "@every 1m",
 					},
-					Dependencies: []transformation.Dependency{},
+					Dependencies: []transformation.Dependency{
+						{IsGroup: false, SingleDep: "dep.model1"},
+					},
 				},
 				value: "SELECT * FROM {{ .invalid.syntax",
 			},
@@ -340,7 +448,7 @@ func TestRenderTransformation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			startTime := time.Now()
-			result, err := engine.RenderTransformation(tt.model, tt.position, tt.interval, startTime)
+			result, err := engine.RenderTransformation(tt.model, tt.position, tt.interval, startTime, "forward")
 
 			if tt.expectedErr {
 				require.Error(t, err)
@@ -491,7 +599,7 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 	}
 
 	startTime := time.Now()
-	envVars, err := engine.GetTransformationEnvironmentVariables(model, 1000, 100, startTime)
+	envVars, err := engine.GetTransformationEnvironmentVariables(model, 1000, 100, startTime, "forward")
 	require.NoError(t, err)
 	require.NotNil(t, envVars)
 
@@ -554,7 +662,7 @@ func TestBuildTransformationVariables_MissingDependency(t *testing.T) {
 	}
 
 	startTime := time.Now()
-	_, err := engine.RenderTransformation(model, 1000, 100, startTime)
+	_, err := engine.RenderTransformation(model, 1000, 100, startTime, "forward")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get dependency")
 }
@@ -590,7 +698,7 @@ func BenchmarkRenderTransformation(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = engine.RenderTransformation(model, 1000, 100, startTime)
+		_, _ = engine.RenderTransformation(model, 1000, 100, startTime, "forward")
 	}
 }
 
@@ -644,6 +752,7 @@ func TestTemplateRenderingWithHyphenatedDatabases(t *testing.T) {
 		1000, // position
 		3600, // interval
 		time.Now(),
+		"forward", // direction
 	)
 
 	require.NoError(t, err)

@@ -53,6 +53,7 @@ type TaskContext struct {
 	Transformation models.Transformation
 	Position       uint64
 	Interval       uint64
+	Direction      string // "forward" or "backfill"
 	StartTime      time.Time
 	Variables      map[string]interface{}
 }
@@ -118,41 +119,47 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 		return ErrModelConfigNotFound
 	}
 
-	// Validate dependencies
-	h.log.WithField("model_id", payload.ModelID).Info("Validating dependencies")
-	depStartTime := time.Now()
-	validationResult, err := h.validator.ValidateDependencies(ctx, payload.ModelID, payload.Position, payload.Interval)
-	depDuration := time.Since(depStartTime).Seconds()
+	// Skip dependency validation for standalone transformations
+	if !transformation.GetConfig().IsStandalone() {
+		// Validate dependencies
+		h.log.WithField("model_id", payload.ModelID).Info("Validating dependencies")
+		depStartTime := time.Now()
+		validationResult, err := h.validator.ValidateDependencies(ctx, payload.ModelID, payload.Position, payload.Interval)
+		depDuration := time.Since(depStartTime).Seconds()
 
-	if err != nil {
-		h.log.WithError(err).Error("Dependency validation error")
-		observability.RecordDependencyValidation(payload.ModelID, "error", depDuration)
-		observability.RecordTaskComplete(payload.ModelID, workerID, "failed", time.Since(startTime).Seconds())
-		observability.RecordError("task-handler", "dependency_validation_error")
-		return fmt.Errorf("dependency validation error: %w", err)
+		if err != nil {
+			h.log.WithError(err).Error("Dependency validation error")
+			observability.RecordDependencyValidation(payload.ModelID, "error", depDuration)
+			observability.RecordTaskComplete(payload.ModelID, workerID, "failed", time.Since(startTime).Seconds())
+			observability.RecordError("task-handler", "dependency_validation_error")
+			return fmt.Errorf("dependency validation error: %w", err)
+		}
+
+		h.log.WithFields(logrus.Fields{
+			"model_id":    payload.ModelID,
+			"can_process": validationResult.CanProcess,
+		}).Info("Validation result")
+
+		if !validationResult.CanProcess {
+			h.log.WithField("model_id", payload.ModelID).Warn("Dependencies not satisfied")
+			observability.RecordDependencyValidation(payload.ModelID, "not_satisfied", depDuration)
+			observability.RecordTaskComplete(payload.ModelID, workerID, "failed", time.Since(startTime).Seconds())
+			return ErrDependenciesNotSatisfied
+		}
+
+		observability.RecordDependencyValidation(payload.ModelID, "satisfied", depDuration)
+
+		h.log.WithField("model_id", payload.ModelID).Info("Dependencies satisfied, executing transformation")
+	} else {
+		h.log.WithField("model_id", payload.ModelID).Info("Standalone transformation, skipping dependency validation")
 	}
-
-	h.log.WithFields(logrus.Fields{
-		"model_id":    payload.ModelID,
-		"can_process": validationResult.CanProcess,
-	}).Info("Validation result")
-
-	if !validationResult.CanProcess {
-		h.log.WithField("model_id", payload.ModelID).Warn("Dependencies not satisfied")
-		observability.RecordDependencyValidation(payload.ModelID, "not_satisfied", depDuration)
-		observability.RecordTaskComplete(payload.ModelID, workerID, "failed", time.Since(startTime).Seconds())
-		return ErrDependenciesNotSatisfied
-	}
-
-	observability.RecordDependencyValidation(payload.ModelID, "satisfied", depDuration)
-
-	h.log.WithField("model_id", payload.ModelID).Info("Dependencies satisfied, executing transformation")
 
 	// Execute transformation
 	taskCtx := &TaskContext{
 		Transformation: transformation,
 		Position:       payload.Position,
 		Interval:       payload.Interval,
+		Direction:      payload.Direction,
 		StartTime:      startTime,
 	}
 
@@ -165,18 +172,21 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 	}
 	h.log.WithField("model_id", payload.ModelID).Info("Model execution completed")
 
-	// Record completion in admin table
-	if err := h.admin.RecordCompletion(ctx, payload.ModelID, payload.Position, payload.Interval); err != nil {
-		observability.RecordTaskComplete(payload.ModelID, workerID, "failed", time.Since(startTime).Seconds())
-		observability.RecordError("task-handler", "record_completion_error")
-		return fmt.Errorf("failed to record completion: %w", err)
-	}
+	// Skip admin table recording for standalone transformations
+	if !transformation.GetConfig().IsStandalone() {
+		// Record completion in admin table
+		if err := h.admin.RecordCompletion(ctx, payload.ModelID, payload.Position, payload.Interval); err != nil {
+			observability.RecordTaskComplete(payload.ModelID, workerID, "failed", time.Since(startTime).Seconds())
+			observability.RecordError("task-handler", "record_completion_error")
+			return fmt.Errorf("failed to record completion: %w", err)
+		}
 
-	// Record transformation bounds in metrics
-	minPos, _ := h.admin.GetFirstPosition(ctx, payload.ModelID)
-	maxPos, _ := h.admin.GetLastProcessedEndPosition(ctx, payload.ModelID)
-	if minPos > 0 && maxPos > 0 {
-		observability.RecordModelBounds(payload.ModelID, minPos, maxPos)
+		// Record transformation bounds in metrics
+		minPos, _ := h.admin.GetFirstPosition(ctx, payload.ModelID)
+		maxPos, _ := h.admin.GetLastProcessedEndPosition(ctx, payload.ModelID)
+		if minPos > 0 && maxPos > 0 {
+			observability.RecordModelBounds(payload.ModelID, minPos, maxPos)
+		}
 	}
 
 	// Record successful completion

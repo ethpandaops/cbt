@@ -312,13 +312,13 @@ func (m *mockModelsService) Stop() error  { return nil }
 func (m *mockModelsService) GetDAG() models.DAGReader {
 	return &mockDAGReader{transformations: m.transformations}
 }
-func (m *mockModelsService) RenderTransformation(_ models.Transformation, _, _ uint64, _ time.Time) (string, error) {
+func (m *mockModelsService) RenderTransformation(_ models.Transformation, _, _ uint64, _ time.Time, _ string) (string, error) {
 	return "", nil
 }
 func (m *mockModelsService) RenderExternal(_ models.External, _ map[string]interface{}) (string, error) {
 	return "", nil
 }
-func (m *mockModelsService) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time) (*[]string, error) {
+func (m *mockModelsService) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time, _ string) (*[]string, error) {
 	vars := []string{}
 	return &vars, nil
 }

@@ -139,15 +139,6 @@ func (c *Config) Validate() error {
 		return ErrTableRequired
 	}
 
-	// Interval must be configured
-	if c.Interval == nil {
-		return ErrIntervalRequired
-	}
-
-	if err := c.Interval.Validate(); err != nil {
-		return fmt.Errorf("interval validation failed: %w", err)
-	}
-
 	// At least one schedule must be configured
 	if c.Schedules == nil || (c.Schedules.ForwardFill == "" && c.Schedules.Backfill == "") {
 		return ErrNoSchedulesConfig
@@ -157,15 +148,49 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("schedules validation failed: %w", err)
 	}
 
-	// Limits are optional, but if specified must be valid
+	// Validate based on whether this is standalone or not
+	if c.IsStandalone() {
+		return c.validateStandalone()
+	}
+
+	return c.validateWithDependencies()
+}
+
+// validateStandalone validates configuration for standalone transformations
+func (c *Config) validateStandalone() error {
+	// Interval is optional for standalone transformations
+	if c.Interval != nil {
+		if err := c.Interval.Validate(); err != nil {
+			return fmt.Errorf("interval validation failed: %w", err)
+		}
+	}
+
+	// Limits are optional
 	if c.Limits != nil {
 		if err := c.Limits.Validate(); err != nil {
 			return fmt.Errorf("limits validation failed: %w", err)
 		}
 	}
 
-	if len(c.Dependencies) == 0 {
-		return ErrDependenciesRequired
+	return nil
+}
+
+// validateWithDependencies validates configuration for transformations with dependencies
+func (c *Config) validateWithDependencies() error {
+	// Interval required when dependencies exist
+	if c.Interval == nil {
+		return ErrIntervalRequired
+	}
+
+	if err := c.Interval.Validate(); err != nil {
+		return fmt.Errorf("interval validation failed: %w", err)
+	}
+
+	// Limits are optional
+	if c.Limits != nil {
+		if err := c.Limits.Validate(); err != nil {
+			return fmt.Errorf("limits validation failed: %w", err)
+		}
 	}
 
 	return nil
@@ -356,4 +381,9 @@ func ValidateScheduleFormat(schedule string) error {
 	}
 
 	return nil
+}
+
+// IsStandalone returns true if this is a standalone transformation (no dependencies)
+func (c *Config) IsStandalone() bool {
+	return len(c.Dependencies) == 0
 }

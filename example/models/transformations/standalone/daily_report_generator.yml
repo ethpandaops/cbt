@@ -1,0 +1,51 @@
+# Standalone exec transformation - no dependencies, no interval
+table: daily_reports
+schedules:
+  forwardfill: "0 2 * * *"  # Run at 2 AM daily
+  backfill: "@every 24h"    # Manual backfill every 24 hours
+exec: |
+  #!/bin/bash
+  
+  echo "Running standalone report generator"
+  echo "Mode: ${TASK_DIRECTION}"
+  echo "Database: ${SELF_DATABASE}"
+  echo "Table: ${SELF_TABLE}"
+  echo "Execution time: ${EXECUTION_TIME}"
+  echo "Standalone mode: ${STANDALONE_MODE}"
+  
+  if [ "$TASK_DIRECTION" = "forward" ]; then
+    echo "Generating daily report for today"
+    
+    # Generate report using clickhouse-client
+    clickhouse-client --query="
+      INSERT INTO \`${SELF_DATABASE}\`.\`${SELF_TABLE}\`
+      SELECT 
+        now() as report_generated_at,
+        today() as report_date,
+        'forward' as generation_mode,
+        count() as total_records,
+        uniq(user_id) as unique_users,
+        sum(amount) as total_amount
+      FROM events
+      WHERE date = today()
+    "
+  else
+    echo "Running backfill report generation"
+    
+    # Backfill historical reports
+    clickhouse-client --query="
+      INSERT INTO \`${SELF_DATABASE}\`.\`${SELF_TABLE}\`
+      SELECT 
+        now() as report_generated_at,
+        date,
+        'backfill' as generation_mode,
+        count() as total_records,
+        uniq(user_id) as unique_users,
+        sum(amount) as total_amount
+      FROM events
+      WHERE date >= today() - 7
+      GROUP BY date
+    "
+  fi
+  
+  echo "Report generation completed"

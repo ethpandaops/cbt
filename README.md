@@ -2,7 +2,7 @@
   <h1> CBT - ClickHouse Build Tool </h1>
 </img>
 
-A simple ClickHouse-focused data transformation tool that provides fast idempotent transformations with pure SQL or external scripts.
+A simple ClickHouse-focused data transformation tool that provides fast idempotent transformations with pure SQL or external scripts. Supports both position-tracked data pipelines and standalone transformations for monitoring, reference data, and scheduled tasks.
 
 ## Architecture
 
@@ -221,6 +221,23 @@ Transformation models process data in intervals. Intervals are agnostic to the s
 
 > Note: CBT does not create transformation tables and **requires** you to create them manually by design.
 
+#### Standalone Transformations
+
+Transformations with no dependencies automatically operate in **standalone mode**. These transformations:
+- Run purely on schedule without position tracking
+- Don't require interval configuration
+- Don't create admin table entries
+- Are always considered "available" to dependent transformations
+- Receive different template variables focused on execution context
+
+Standalone transformations are ideal for:
+- **System monitoring**: Health checks, metrics collection
+- **Reference data**: Exchange rates, configuration values
+- **Report generation**: Daily/weekly/monthly reports
+- **Maintenance tasks**: Cleanup, optimization, archival
+
+When a transformation has an empty `dependencies` array (or no dependencies field), CBT automatically treats it as standalone.
+
 #### Dependencies
 
 Dependencies can reference other models using:
@@ -259,8 +276,9 @@ When CBT processes OR groups:
 
 #### Template Variables
 
-Models support Go template syntax with the following variables:
+Models support Go template syntax with different variables based on whether they're standalone or regular transformations:
 
+**Regular Transformations** (with dependencies):
 - `{{ .clickhouse.cluster }}` - ClickHouse cluster name
 - `{{ .clickhouse.local_suffix }}` - Local table suffix for cluster setups
 - `{{ .self.database }}` - Current model's database
@@ -268,7 +286,19 @@ Models support Go template syntax with the following variables:
 - `{{ .bounds.start }}` - Processing interval start
 - `{{ .bounds.end }}` - Processing interval end
 - `{{ .task.start }}` - Task start timestamp
+- `{{ .task.direction }}` - Execution direction ("forward" or "backfill")
 - `{{ index .dep "db" "table" "field" }}` - Access dependency configuration
+- `{{ .is_forward }}` / `{{ .is_backfill }}` - Boolean helpers for conditional logic
+
+**Standalone Transformations** (no dependencies):
+- `{{ .clickhouse.cluster }}` - ClickHouse cluster name
+- `{{ .clickhouse.local_suffix }}` - Local table suffix for cluster setups
+- `{{ .self.database }}` - Current model's database
+- `{{ .self.table }}` - Current model's table
+- `{{ .execution.timestamp }}` - Unix timestamp of execution
+- `{{ .execution.datetime }}` - Formatted datetime string
+- `{{ .task.direction }}` - Execution direction ("forward" or "backfill")
+- `{{ .is_forward }}` / `{{ .is_backfill }}` - Boolean helpers for conditional logic
 
 When using placeholder dependencies (e.g., `{{external}}.beacon_blocks`), you can access them in templates using either form:
 - **Placeholder form**: `{{ index .dep "{{external}}" "beacon_blocks" "database" }}`
@@ -325,20 +355,90 @@ WHERE
   AND updated_date_time != fromUnixTimestamp({{ .task.start }});
 ```
 
+#### Standalone Transformation Example
+
+```sql
+---
+# No dependencies - automatically operates in standalone mode
+table: system_health_check
+schedules:
+  forwardfill: "@every 5m"  # Runs every 5 minutes
+  # No interval configuration needed for standalone
+---
+-- System health monitoring - no position tracking
+INSERT INTO `{{ .self.database }}`.`{{ .self.table }}`
+SELECT 
+    now() as check_time,
+    'healthy' as status,
+    '{{ .task.direction }}' as execution_mode,
+    {{ .execution.timestamp }} as execution_timestamp,
+    {{ if .is_forward }}
+        'scheduled check' as check_type
+    {{ else }}
+        'manual check' as check_type
+    {{ end }},
+    (SELECT count() FROM system.processes) as active_processes,
+    (SELECT count() FROM system.tables) as total_tables
+```
+
+#### Transformation Depending on Standalone
+
+```sql
+---
+table: transactions_normalized
+interval:
+  max: 3600  # Regular transformation with interval
+  min: 0
+schedules:
+  forwardfill: "@every 5m"
+dependencies:
+  # exchange_rates is standalone - always available
+  - "{{transformation}}.exchange_rates"
+  # raw_transactions has position tracking
+  - "{{external}}.raw_transactions"
+---
+-- This transformation can always access exchange_rates data
+-- since standalone transformations are always "available"
+INSERT INTO `{{ .self.database }}`.`{{ .self.table }}`
+SELECT 
+    t.*,
+    t.amount * r.rate as amount_usd,
+    r.rate as exchange_rate,
+    {{ .bounds.start }} as position
+FROM `{{ index .dep "{{external}}" "raw_transactions" "database" }}`.`{{ index .dep "{{external}}" "raw_transactions" "table" }}` t
+LEFT JOIN (
+    -- Join with standalone transformation's data
+    SELECT * FROM `{{ index .dep "{{transformation}}" "exchange_rates" "database" }}`.`{{ index .dep "{{transformation}}" "exchange_rates" "table" }}`
+    WHERE base_currency = 'USD'
+) r ON t.currency = r.target_currency
+WHERE t.timestamp >= fromUnixTimestamp({{ .bounds.start }})
+  AND t.timestamp < fromUnixTimestamp({{ .bounds.end }})
+```
+
 ### External Script Models
 
-Models can execute external scripts instead of SQL. The script receives environment variables with ClickHouse credentials and task context.
+Models can execute external scripts instead of SQL. The script receives environment variables with ClickHouse credentials and task context. Like SQL transformations, script models with no dependencies automatically operate in standalone mode.
 
 > Note: CBT does not create transformation tables and **requires** you to create them manually by design.
 
 #### Environment Variables
 
-Environment variables provided to scripts:
+Environment variables provided to scripts vary based on whether the transformation is standalone:
+
+**Regular Transformations** (with dependencies):
 - `CLICKHOUSE_URL`: Connection URL (e.g., `clickhouse://host:9000`)
 - `BOUNDS_START`, `BOUNDS_END`: Bounds for processing
 - `TASK_START`: Task execution timestamp
+- `TASK_DIRECTION`: Execution direction ("forward" or "backfill")
 - `SELF_DATABASE`, `SELF_TABLE`: Target table info
 - `DEP_<MODEL>_DATABASE`, `DEP_<MODEL>_TABLE`: Dependency info
+
+**Standalone Transformations** (no dependencies):
+- `CLICKHOUSE_URL`: Connection URL
+- `EXECUTION_TIME`: Unix timestamp of execution
+- `TASK_DIRECTION`: Execution direction ("forward" or "backfill")
+- `SELF_DATABASE`, `SELF_TABLE`: Target table info
+- `STANDALONE_MODE`: Set to "true" for standalone transformations
 
 #### Example
 
@@ -368,11 +468,16 @@ See the [example script](./example/scripts/entity_changes.py) for a the python s
 The example deployment demonstrates CBT's capabilities with sample models including SQL transformations, Python scripts, and tag-based filtering.
 
 #### What's Included
-- **External Models**: `beacon_blocks`, `validator_entity` (simulated data sources)
+- **External Models**: `beacon_blocks`, `validator_entity`, `raw_transactions` (simulated data sources)
 - **SQL Transformations**: 
   - `block_propagation` - Aggregates block propagation metrics
   - `block_entity` - Joins blocks with validator entities
   - `entity_network_effects` - Complex aggregation across multiple dependencies
+  - `transactions_with_rates` - Demonstrates dependency on standalone transformation
+- **Standalone Transformations** (no dependencies, no position tracking):
+  - `system_health_check` - System monitoring without position tracking
+  - `exchange_rates` - Reference data updated on schedule
+  - `daily_reports` - Report generation without interval management
 - **Python Model**: `entity_changes` - Demonstrates external script execution with ClickHouse HTTP API
 - **Data Generator**: Continuously inserts sample blockchain data
 - **Chaos Generator**: Simulates data gaps and out-of-order arrivals for resilience testing
@@ -424,6 +529,8 @@ cbt --config production.yaml
 ### Admin Table Setup
 
 CBT tracks completed transformations in an admin table for idempotency and gap detection. This table must be created before running CBT.
+
+> Note: Standalone transformations (those with no dependencies) do not create admin table entries as they don't track position intervals.
 
 ### Configuration
 
@@ -562,6 +669,11 @@ CBT uses a sophisticated validation system to determine when a model can process
 2. **Transformation Models**: Query the admin table for processed data range
    - `min`: First processed position (earliest data available)
    - `max`: Last processed end position (latest data available)
+
+3. **Standalone Transformations**: Always return infinite bounds `[0, MaxUint64]`
+   - No position tracking or admin table queries
+   - Always considered "available" to dependent transformations
+   - Dependents can process any position range without waiting
 
 #### Valid Range Calculation
 
@@ -725,9 +837,10 @@ Next cycle when dependencies have more data (e.g., max_valid reaches 1150), the 
 ### Key Validation Features
 
 - **Pull-through validation**: Workers always verify dependencies at execution time, not just at scheduling
+- **Standalone transformations**: Models with no dependencies automatically operate without position tracking, always appearing "available" to dependents
 - **OR dependency groups**: Models can specify alternative dependencies using array syntax `["option1", "option2"]`, processing continues if at least one is available
 - **Lag handling**: External models with `lag` configured have their max boundary adjusted during validation to ignore recent, potentially incomplete data
-- **Coverage tracking**: The admin table tracks all completed intervals, enabling precise dependency validation
+- **Coverage tracking**: The admin table tracks all completed intervals, enabling precise dependency validation (except for standalone transformations)
 - **Automatic retry**: Failed validations are automatically retried on the next schedule cycle
 - **Cascade triggering**: When a model completes, all dependent models are immediately (within 5 seconds) checked for processing
 - **Partial interval processing**: When `interval.min < interval.max`, forward fill can process partial intervals based on available dependency data instead of waiting for full intervals. This reduces processing lag when dependencies are incrementally updating. Set `interval.min` to control the minimum acceptable chunk size, or use `interval.min = interval.max` to enforce strict full intervals only

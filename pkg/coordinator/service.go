@@ -190,6 +190,12 @@ func (s *service) processForward(trans models.Transformation) {
 
 	ctx := context.Background()
 
+	// Handle standalone transformations differently
+	if config.IsStandalone() {
+		s.processStandaloneTransformation(ctx, trans, "forward")
+		return
+	}
+
 	// Get the next position to process for forward fill
 	nextPos, err := s.admin.GetNextUnprocessedPosition(ctx, trans.GetID())
 	if err != nil {
@@ -254,7 +260,7 @@ func (s *service) processForward(trans models.Transformation) {
 		interval = adjustedInterval
 	}
 
-	s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval)
+	s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval, "forward")
 }
 
 // adjustIntervalForDependencies adjusts the interval based on dependency availability
@@ -304,20 +310,71 @@ func (s *service) adjustIntervalForDependencies(ctx context.Context, trans model
 }
 
 func (s *service) processBack(trans models.Transformation) {
-	if !trans.GetConfig().IsBackfillEnabled() {
+	config := trans.GetConfig()
+
+	if !config.IsBackfillEnabled() {
 		return
 	}
 
 	ctx := context.Background()
+
+	// Handle standalone transformations differently
+	if config.IsStandalone() {
+		s.processStandaloneTransformation(ctx, trans, "backfill")
+		return
+	}
+
 	s.checkBackfillOpportunities(ctx, trans)
 }
 
-func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64) {
+// processStandaloneTransformation handles standalone transformations (no dependencies, no position tracking)
+func (s *service) processStandaloneTransformation(_ context.Context, trans models.Transformation, direction string) {
+	// Create task with zero position/interval for standalone
+	payload := tasks.TaskPayload{
+		ModelID:    trans.GetID(),
+		Position:   0, // No position tracking for standalone
+		Interval:   0, // No interval for standalone
+		Direction:  direction,
+		EnqueuedAt: time.Now(),
+	}
+
+	// Check if already running
+	isPending, err := s.queueManager.IsTaskPendingOrRunning(payload)
+	if err != nil {
+		s.log.WithError(err).WithField("task_id", payload.UniqueID()).Error("Failed to check task status")
+		return
+	}
+
+	if isPending {
+		s.log.WithField("task_id", payload.UniqueID()).Debug("Standalone task already pending or running")
+		return
+	}
+
+	// Enqueue directly without dependency validation
+	if err := s.queueManager.EnqueueTransformation(payload); err != nil {
+		s.log.WithError(err).WithFields(logrus.Fields{
+			"model_id":  trans.GetID(),
+			"direction": direction,
+		}).Error("Failed to enqueue standalone task")
+		observability.RecordError("coordinator", "enqueue_error")
+		return
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"model_id":  trans.GetID(),
+		"direction": direction,
+	}).Info("Enqueued standalone transformation task")
+
+	observability.RecordTaskEnqueued(trans.GetID())
+}
+
+func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64, direction string) {
 	// Create task payload
 	payload := tasks.TaskPayload{
 		ModelID:    trans.GetID(),
 		Position:   position,
 		Interval:   interval,
+		Direction:  direction,
 		EnqueuedAt: time.Now(),
 	}
 
@@ -547,7 +604,7 @@ func (s *service) processSingleGap(ctx context.Context, trans models.Transformat
 		"gap_size":       gapSize,
 	}).Info("Enqueueing backfill task for gap (processing from end backward)")
 
-	s.checkAndEnqueuePositionWithTrigger(ctx, trans, pos, intervalToUse)
+	s.checkAndEnqueuePositionWithTrigger(ctx, trans, pos, intervalToUse, "backfill")
 	return true
 }
 
@@ -766,7 +823,7 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		}
 
 		// Check if this completion unblocks the dependent
-		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, config.GetMaxInterval())
+		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, config.GetMaxInterval(), "forward")
 	}
 }
 

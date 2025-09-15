@@ -234,7 +234,7 @@ func TestConfigValidate(t *testing.T) {
 			errMsg:  ErrTableRequired,
 		},
 		{
-			name: "invalid config without dependencies",
+			name: "valid standalone config without dependencies",
 			config: &Config{
 				Database: "test_db",
 				Table:    "test_table",
@@ -247,8 +247,32 @@ func TestConfigValidate(t *testing.T) {
 				},
 				Dependencies: []Dependency{},
 			},
+			wantErr: false,
+		},
+		{
+			name: "valid standalone config without interval",
+			config: &Config{
+				Database: "test_db",
+				Table:    "test_table",
+				Schedules: &SchedulesConfig{
+					ForwardFill: "0 * * * *",
+				},
+				Dependencies: []Dependency{}, // No dependencies = standalone
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid config with dependencies but no interval",
+			config: &Config{
+				Database: "test_db",
+				Table:    "test_table",
+				Schedules: &SchedulesConfig{
+					ForwardFill: "0 * * * *",
+				},
+				Dependencies: []Dependency{{IsGroup: false, SingleDep: "dep1"}},
+			},
 			wantErr: true,
-			errMsg:  ErrDependenciesRequired,
+			errMsg:  ErrIntervalRequired,
 		},
 	}
 

@@ -529,7 +529,7 @@ func (m *mockExecutorModelsService) GetDAG() models.DAGReader {
 	}
 	return &mockDAGReader{}
 }
-func (m *mockExecutorModelsService) RenderTransformation(_ models.Transformation, _, _ uint64, _ time.Time) (string, error) {
+func (m *mockExecutorModelsService) RenderTransformation(_ models.Transformation, _, _ uint64, _ time.Time, _ string) (string, error) {
 	if m.renderErr != nil {
 		return "", m.renderErr
 	}
@@ -538,7 +538,7 @@ func (m *mockExecutorModelsService) RenderTransformation(_ models.Transformation
 func (m *mockExecutorModelsService) RenderExternal(_ models.External, _ map[string]interface{}) (string, error) {
 	return "", nil
 }
-func (m *mockExecutorModelsService) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time) (*[]string, error) {
+func (m *mockExecutorModelsService) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time, _ string) (*[]string, error) {
 	if m.envVars != nil {
 		return m.envVars, nil
 	}
