@@ -22,10 +22,15 @@ clickhouse:
   # cluster: "default"
   # localSuffix: "_local"
   
-  # Admin table configuration (optional)
-  # Defaults to admin.cbt if not specified
-  # adminDatabase: admin
-  # adminTable: cbt
+  # Type-specific admin tables configuration (optional)
+  # Defaults shown below
+  # admin:
+  #   incremental:
+  #     database: admin
+  #     table: cbt_incremental
+  #   scheduled:
+  #     database: admin
+  #     table: cbt_scheduled
   
   # Query timeout
   queryTimeout: 30s

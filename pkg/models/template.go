@@ -65,7 +65,7 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 
 // buildBaseVariables creates the base template variables
 func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, position, interval uint64, startTime time.Time) map[string]interface{} {
-	return map[string]interface{}{
+	vars := map[string]interface{}{
 		"clickhouse": map[string]interface{}{
 			"cluster":      t.clickhouseCfg.Cluster,
 			"local_suffix": t.clickhouseCfg.LocalSuffix,
@@ -73,16 +73,30 @@ func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, posit
 		"self": map[string]interface{}{
 			"database": config.Database,
 			"table":    config.Table,
-			"interval": interval,
 		},
 		"task": map[string]interface{}{
 			"start": startTime.Unix(),
 		},
-		"bounds": map[string]interface{}{
+	}
+
+	// Only add position/interval variables for incremental transformations
+	if config.IsIncremental() {
+		if selfMap, ok := vars["self"].(map[string]interface{}); ok {
+			selfMap["interval"] = interval
+		}
+		vars["bounds"] = map[string]interface{}{
 			"start": position,
 			"end":   position + interval,
-		},
+		}
+	} else {
+		// For standalone, provide time-based variables instead
+		vars["execution"] = map[string]interface{}{
+			"timestamp": startTime.Unix(),
+			"datetime":  startTime.Format(time.RFC3339),
+		}
 	}
+
+	return vars
 }
 
 // buildDependencyVariables processes all dependencies and builds the dep variables
@@ -218,10 +232,22 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 		fmt.Sprintf("SELF_DATABASE=%s", config.Database),
 		fmt.Sprintf("SELF_TABLE=%s", config.Table),
 		fmt.Sprintf("TASK_START=%d", startTime.Unix()),
-		fmt.Sprintf("TASK_MODEL=%s.%s", config.Database, config.Table),
-		fmt.Sprintf("TASK_INTERVAL=%d", interval),
-		fmt.Sprintf("BOUNDS_START=%d", position),
-		fmt.Sprintf("BOUNDS_END=%d", position+interval),
+	}
+
+	// Add boolean flags for convenience
+
+	if config.IsIncremental() {
+		env = append(env,
+			fmt.Sprintf("TASK_MODEL=%s.%s", config.Database, config.Table),
+			fmt.Sprintf("TASK_INTERVAL=%d", interval),
+			fmt.Sprintf("BOUNDS_START=%d", position),
+			fmt.Sprintf("BOUNDS_END=%d", position+interval),
+		)
+	} else {
+		env = append(env,
+			"STANDALONE_MODE=true",
+			fmt.Sprintf("EXECUTION_TIME=%d", time.Now().Unix()),
+		)
 	}
 
 	if t.clickhouseCfg.Cluster != "" {

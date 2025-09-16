@@ -222,3 +222,87 @@ CREATE TABLE IF NOT EXISTS analytics.five_minute_report (
 ) ENGINE = ReplacingMergeTree(updated_date_time)
 ORDER BY (five_minute_window)
 PARTITION BY toYYYYMM(five_minute_window);
+
+-- ===== STANDALONE TRANSFORMATION TABLES =====
+-- These tables are used by standalone transformations that have no dependencies
+-- and no position tracking (they don't create admin table entries)
+
+-- System health check table (standalone monitoring)
+CREATE TABLE IF NOT EXISTS analytics.system_health_check (
+    check_time DateTime DEFAULT now(),
+    status String,
+    execution_mode String,
+    execution_timestamp UInt64,
+    execution_datetime String,
+    check_type String,
+    active_processes UInt32,
+    total_tables UInt32
+) ENGINE = ReplacingMergeTree(check_time)
+ORDER BY (check_time)
+PARTITION BY toYYYYMM(check_time);
+
+-- Exchange rates table (standalone reference data)
+CREATE TABLE IF NOT EXISTS analytics.exchange_rates (
+    updated_at DateTime DEFAULT now(),
+    base_currency String,
+    target_currency String,
+    rate Float64,
+    update_type String
+) ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY (base_currency, target_currency, updated_at)
+PARTITION BY toYYYYMM(updated_at);
+
+-- Daily reports table (standalone report generation)
+CREATE TABLE IF NOT EXISTS analytics.daily_reports (
+    report_generated_at DateTime DEFAULT now(),
+    report_date Date,
+    generation_mode String,
+    total_records UInt64,
+    unique_users UInt64,
+    total_amount Float64
+) ENGINE = ReplacingMergeTree(report_generated_at)
+ORDER BY (report_date, report_generated_at)
+PARTITION BY toYYYYMM(report_date);
+
+-- ===== SUPPORTING TABLES FOR STANDALONE EXAMPLES =====
+
+-- Events table (source for daily_reports)
+CREATE TABLE IF NOT EXISTS ethereum.events (
+    event_id UInt64,
+    user_id UInt32,
+    amount Float64,
+    date Date,
+    timestamp DateTime DEFAULT now()
+) ENGINE = MergeTree()
+ORDER BY (date, user_id, event_id)
+PARTITION BY toYYYYMM(date);
+
+-- Raw transactions table (external source for transactions_with_rates)
+CREATE TABLE IF NOT EXISTS ethereum.raw_transactions (
+    transaction_id String,
+    user_id UInt32,
+    amount Float64,
+    currency String,
+    timestamp DateTime,
+    slot UInt64 -- For position tracking in external model
+) ENGINE = ReplacingMergeTree(timestamp)
+ORDER BY (timestamp, transaction_id)
+PARTITION BY toYYYYMM(timestamp);
+
+-- Normalized transactions table (output of transactions_with_rates)
+CREATE TABLE IF NOT EXISTS analytics.transactions_normalized (
+    transaction_id String,
+    user_id UInt32,
+    amount Float64,
+    currency String,
+    timestamp DateTime,
+    amount_usd Float64,
+    exchange_rate Float64,
+    rate_updated_at DateTime,
+    position UInt64,
+    processing_mode String,
+    data_type String,
+    updated_date_time DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(updated_date_time)
+ORDER BY (timestamp, transaction_id, position)
+PARTITION BY toYYYYMM(timestamp);

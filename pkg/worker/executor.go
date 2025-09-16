@@ -244,9 +244,28 @@ func (e *ModelExecutor) Execute(ctx context.Context, taskCtxInterface interface{
 		return fmt.Errorf("%w: %s", ErrInvalidTransformationType, taskCtx.Transformation.GetType())
 	}
 
-	// Record completion in admin table
-	if err := e.admin.RecordCompletion(ctx, taskCtx.Transformation.GetID(), taskCtx.Position, taskCtx.Interval); err != nil {
-		return fmt.Errorf("failed to record completion: %w", err)
+	// Record completion in admin table based on transformation type
+	transformationType := config.GetType()
+
+	if config.IsIncremental() {
+		completion := transformation.IncrementalCompletion{
+			Database: config.Database,
+			Table:    config.Table,
+			Position: taskCtx.Position,
+			Interval: taskCtx.Interval,
+		}
+		if err := e.admin.RecordCompletion(ctx, transformationType, completion); err != nil {
+			return fmt.Errorf("failed to record completion: %w", err)
+		}
+	} else if config.IsScheduled() {
+		completion := transformation.ScheduledCompletion{
+			Database:  config.Database,
+			Table:     config.Table,
+			StartTime: taskCtx.StartTime,
+		}
+		if err := e.admin.RecordCompletion(ctx, transformationType, completion); err != nil {
+			return fmt.Errorf("failed to record completion: %w", err)
+		}
 	}
 
 	return nil

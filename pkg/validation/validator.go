@@ -239,6 +239,12 @@ func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
 	}
+
+	// Standalone transformations don't need initial position calculation
+	if model.GetConfig().IsScheduled() {
+		return 0, nil
+	}
+
 	interval := model.GetConfig().GetMaxInterval()
 
 	// Use GetValidRange to get the valid range
@@ -303,13 +309,26 @@ func (v *dependencyValidator) collectExternalBounds(ctx context.Context, depNode
 
 // collectTransformationBounds collects bounds for a transformation dependency
 func (v *dependencyValidator) collectTransformationBounds(ctx context.Context, depID string) (minDep, maxDep uint64, err error) {
-	// Get first and last position for transformation
-	minDep, err = v.admin.GetFirstPosition(ctx, depID)
+	// Get the transformation to check if it's standalone
+	node, err := v.dag.GetTransformationNode(depID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get transformation node %s: %w", depID, err)
+	}
+
+	// If standalone, return "always available" bounds
+	if node.GetConfig().IsScheduled() {
+		// Return effectively infinite bounds (beginning to end of time)
+		return 0, ^uint64(0), nil
+	}
+
+	// Regular transformation - check admin table
+	transformationType := node.GetConfig().GetType()
+	minDep, err = v.admin.GetFirstPosition(ctx, transformationType, depID)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get first position for %s: %w", depID, err)
 	}
 
-	maxDep, err = v.admin.GetLastProcessedEndPosition(ctx, depID)
+	maxDep, err = v.admin.GetLastProcessedEndPosition(ctx, transformationType, depID)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get last position for %s: %w", depID, err)
 	}
@@ -524,8 +543,14 @@ func (v *dependencyValidator) GetValidRange(ctx context.Context, modelID string)
 	// Get the model's configuration
 	config := model.GetConfig()
 
+	// Standalone transformations have infinite range
+	if config.IsScheduled() {
+		// Standalone mode - use time-based or infinite range
+		return 0, ^uint64(0), nil
+	}
+
 	if len(config.Dependencies) == 0 {
-		// No dependencies - no valid range (model needs dependencies to process)
+		// Should not happen due to validation, but handle it
 		return 0, 0, nil
 	}
 

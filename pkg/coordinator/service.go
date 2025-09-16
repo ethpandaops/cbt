@@ -182,16 +182,26 @@ func (s *service) Process(trans models.Transformation, direction Direction) {
 
 func (s *service) processForward(trans models.Transformation) {
 	config := trans.GetConfig()
+	ctx := context.Background()
 
-	// Skip if no forward fill schedule configured
-	if !config.IsForwardFillEnabled() {
+	// Route based on transformation type
+	switch config.GetType() {
+	case transformation.TypeScheduled:
+		s.processScheduledTransformation(ctx, trans)
+		return
+	case transformation.TypeIncremental:
+		// Skip if no forward fill schedule configured
+		if !config.IsForwardFillEnabled() {
+			return
+		}
+		// Continue with incremental processing
+	default:
+		s.log.WithField("type", config.GetType()).Error("Unknown transformation type")
 		return
 	}
 
-	ctx := context.Background()
-
 	// Get the next position to process for forward fill
-	nextPos, err := s.admin.GetNextUnprocessedPosition(ctx, trans.GetID())
+	nextPos, err := s.admin.GetNextUnprocessedPosition(ctx, config.GetType(), trans.GetID())
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to get next unprocessed position")
 
@@ -254,7 +264,7 @@ func (s *service) processForward(trans models.Transformation) {
 		interval = adjustedInterval
 	}
 
-	s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval)
+	s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval, "forward")
 }
 
 // adjustIntervalForDependencies adjusts the interval based on dependency availability
@@ -304,15 +314,69 @@ func (s *service) adjustIntervalForDependencies(ctx context.Context, trans model
 }
 
 func (s *service) processBack(trans models.Transformation) {
-	if !trans.GetConfig().IsBackfillEnabled() {
+	config := trans.GetConfig()
+
+	if !config.IsBackfillEnabled() {
 		return
 	}
 
 	ctx := context.Background()
-	s.checkBackfillOpportunities(ctx, trans)
+
+	// Route based on transformation type
+	switch config.GetType() {
+	case transformation.TypeScheduled:
+		// Scheduled transformations don't have backfill
+		return
+	case transformation.TypeIncremental:
+		// Continue with incremental backfill processing
+		s.checkBackfillOpportunities(ctx, trans)
+	default:
+		s.log.WithField("type", config.GetType()).Error("Unknown transformation type")
+		return
+	}
 }
 
-func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64) {
+// processScheduledTransformation handles scheduled transformations (no dependencies, no position tracking)
+func (s *service) processScheduledTransformation(_ context.Context, trans models.Transformation) {
+	config := trans.GetConfig()
+
+	// Skip if no schedule configured
+	if config.GetScheduleForType() == "" {
+		return
+	}
+
+	// Create task with zero position/interval for scheduled transformations
+	payload := tasks.TaskPayload{
+		ModelID:    trans.GetID(),
+		Position:   0, // No position tracking for scheduled
+		Interval:   0, // No interval for scheduled
+		EnqueuedAt: time.Now(),
+	}
+
+	// Check if already running
+	isPending, err := s.queueManager.IsTaskPendingOrRunning(payload)
+	if err != nil {
+		s.log.WithError(err).WithField("task_id", payload.UniqueID()).Error("Failed to check task status")
+		return
+	}
+
+	if isPending {
+		s.log.WithField("task_id", payload.UniqueID()).Debug("Scheduled task already pending or running")
+		return
+	}
+
+	// Enqueue directly without dependency validation
+	if err := s.queueManager.EnqueueTransformation(payload); err != nil {
+		s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to enqueue scheduled task")
+		observability.RecordError("coordinator", "enqueue_error")
+		return
+	}
+
+	s.log.WithField("model_id", trans.GetID()).Info("Enqueued scheduled transformation task")
+	observability.RecordTaskEnqueued(trans.GetID())
+}
+
+func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64, _ string) {
 	// Create task payload
 	payload := tasks.TaskPayload{
 		ModelID:    trans.GetID(),
@@ -392,14 +456,14 @@ type backfillScanRange struct {
 
 // getBackfillBounds retrieves the last processed positions for backfill scanning
 func (s *service) getBackfillBounds(ctx context.Context, modelID string) (lastPos, lastEndPos uint64, hasData bool) {
-	lastEndPos, err := s.admin.GetLastProcessedEndPosition(ctx, modelID)
+	lastEndPos, err := s.admin.GetLastProcessedEndPosition(ctx, transformation.TypeIncremental, modelID)
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", modelID).Debug("Failed to get last processed end position for gap scan")
 		return 0, 0, false
 	}
 
 	// Also get the actual last position for clearer logging
-	lastPos, _ = s.admin.GetLastProcessedPosition(ctx, modelID)
+	lastPos, _ = s.admin.GetLastProcessedPosition(ctx, transformation.TypeIncremental, modelID)
 
 	return lastPos, lastEndPos, true
 }
@@ -547,7 +611,7 @@ func (s *service) processSingleGap(ctx context.Context, trans models.Transformat
 		"gap_size":       gapSize,
 	}).Info("Enqueueing backfill task for gap (processing from end backward)")
 
-	s.checkAndEnqueuePositionWithTrigger(ctx, trans, pos, intervalToUse)
+	s.checkAndEnqueuePositionWithTrigger(ctx, trans, pos, intervalToUse, "backfill")
 	return true
 }
 
@@ -750,7 +814,7 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		config := model.GetConfig()
 
 		// Calculate next position for dependent
-		lastPos, err := s.admin.GetLastProcessedEndPosition(ctx, depModelID)
+		lastPos, err := s.admin.GetLastProcessedEndPosition(ctx, config.GetType(), depModelID)
 		if err != nil {
 			continue
 		}
@@ -766,7 +830,7 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		}
 
 		// Check if this completion unblocks the dependent
-		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, config.GetMaxInterval())
+		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, config.GetMaxInterval(), "forward")
 	}
 }
 
@@ -789,7 +853,7 @@ func (s *service) RunConsolidation(ctx context.Context) {
 			s.log.WithFields(logrus.Fields{
 				"model_id":          modelID,
 				"rows_consolidated": consolidated,
-			}).Info("Consolidated admin.cbt rows")
+			}).Info("Consolidated admin table rows")
 		}
 	}
 }

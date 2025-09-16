@@ -1,5 +1,6 @@
 # database is set in the config models.transformations.defaultDatabase
 # database: analytics
+type: incremental
 table: entity_changes
 interval:
   max: 120  # 2 minute intervals

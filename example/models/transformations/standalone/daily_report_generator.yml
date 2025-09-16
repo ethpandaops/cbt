@@ -1,0 +1,28 @@
+# Scheduled exec transformation - no dependencies, no interval
+type: scheduled
+table: daily_reports
+schedule: "0 2 * * *"  # Run at 2 AM daily
+exec: |
+  #!/bin/bash
+  
+  echo "Running scheduled report generator"
+  echo "Database: ${SELF_DATABASE}"
+  echo "Table: ${SELF_TABLE}"
+
+  echo "Generating daily report for today"
+
+  # Generate report using clickhouse-client
+  clickhouse-client --query="
+    INSERT INTO \`${SELF_DATABASE}\`.\`${SELF_TABLE}\`
+    SELECT
+      now() as report_generated_at,
+      today() as report_date,
+      'scheduled' as generation_mode,
+      count() as total_records,
+      uniq(user_id) as unique_users,
+      sum(amount) as total_amount
+    FROM events
+    WHERE date = today()
+  "
+  
+  echo "Report generation completed"

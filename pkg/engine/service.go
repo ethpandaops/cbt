@@ -59,7 +59,7 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 		log.WithError(err).Fatal("Failed to setup ClickHouse client")
 	}
 
-	adminManager := admin.NewService(log, chClient, cfg.ClickHouse.Cluster, cfg.ClickHouse.LocalSuffix, cfg.ClickHouse.AdminDatabase, cfg.ClickHouse.AdminTable, redisClient)
+	adminManager := admin.NewService(log, chClient, cfg.ClickHouse.Cluster, cfg.ClickHouse.LocalSuffix, cfg.ClickHouse.Admin, redisClient)
 
 	modelsService, err := models.NewService(log, &cfg.Models, redisClient, &cfg.ClickHouse)
 	if err != nil {

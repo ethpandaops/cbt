@@ -2,7 +2,7 @@
   <h1> CBT - ClickHouse Build Tool </h1>
 </img>
 
-A simple ClickHouse-focused data transformation tool that provides fast idempotent transformations with pure SQL or external scripts.
+A simple ClickHouse-focused data transformation tool that provides fast idempotent transformations with pure SQL or external scripts. Supports both position-tracked data pipelines and standalone transformations for monitoring, reference data, and scheduled tasks.
 
 ## Architecture
 
@@ -66,10 +66,15 @@ clickhouse:
   # cluster: "default"
   # localSuffix: "_local"
   
-  # Admin table configuration (optional)
-  # Defaults to admin.cbt if not specified
-  # adminDatabase: admin
-  # adminTable: cbt
+  # Type-specific admin tables configuration (optional)
+  # Defaults shown below
+  # admin:
+  #   incremental:
+  #     database: admin
+  #     table: cbt_incremental
+  #   scheduled:
+  #     database: admin
+  #     table: cbt_scheduled
   
   # Query timeout
   queryTimeout: 30s
@@ -221,6 +226,23 @@ Transformation models process data in intervals. Intervals are agnostic to the s
 
 > Note: CBT does not create transformation tables and **requires** you to create them manually by design.
 
+#### Scheduled Transformations
+
+Transformations with `type: scheduled` operate without position tracking. These transformations:
+- Run purely on schedule without position tracking
+- Don't require interval configuration
+- Create admin table entries with execution timestamps
+- Are always considered "available" to dependent transformations
+- Receive different template variables focused on execution context
+
+Scheduled transformations are ideal for:
+- **System monitoring**: Health checks, metrics collection
+- **Reference data**: Exchange rates, configuration values
+- **Report generation**: Daily/weekly/monthly reports
+- **Maintenance tasks**: Cleanup, optimization, archival
+
+When a transformation has an empty `dependencies` array (or no dependencies field), CBT automatically treats it as standalone.
+
 #### Dependencies
 
 Dependencies can reference other models using:
@@ -259,8 +281,9 @@ When CBT processes OR groups:
 
 #### Template Variables
 
-Models support Go template syntax with the following variables:
+Models support Go template syntax with different variables based on whether they're standalone or regular transformations:
 
+**Regular Transformations** (with dependencies):
 - `{{ .clickhouse.cluster }}` - ClickHouse cluster name
 - `{{ .clickhouse.local_suffix }}` - Local table suffix for cluster setups
 - `{{ .self.database }}` - Current model's database
@@ -268,7 +291,19 @@ Models support Go template syntax with the following variables:
 - `{{ .bounds.start }}` - Processing interval start
 - `{{ .bounds.end }}` - Processing interval end
 - `{{ .task.start }}` - Task start timestamp
+- `{{ .task.direction }}` - Execution direction ("forward" or "backfill")
 - `{{ index .dep "db" "table" "field" }}` - Access dependency configuration
+- `{{ .is_forward }}` / `{{ .is_backfill }}` - Boolean helpers for conditional logic
+
+**Standalone Transformations** (no dependencies):
+- `{{ .clickhouse.cluster }}` - ClickHouse cluster name
+- `{{ .clickhouse.local_suffix }}` - Local table suffix for cluster setups
+- `{{ .self.database }}` - Current model's database
+- `{{ .self.table }}` - Current model's table
+- `{{ .execution.timestamp }}` - Unix timestamp of execution
+- `{{ .execution.datetime }}` - Formatted datetime string
+- `{{ .task.direction }}` - Execution direction ("forward" or "backfill")
+- `{{ .is_forward }}` / `{{ .is_backfill }}` - Boolean helpers for conditional logic
 
 When using placeholder dependencies (e.g., `{{external}}.beacon_blocks`), you can access them in templates using either form:
 - **Placeholder form**: `{{ index .dep "{{external}}" "beacon_blocks" "database" }}`
@@ -325,20 +360,90 @@ WHERE
   AND updated_date_time != fromUnixTimestamp({{ .task.start }});
 ```
 
+#### Standalone Transformation Example
+
+```sql
+---
+# No dependencies - automatically operates in standalone mode
+table: system_health_check
+schedules:
+  forwardfill: "@every 5m"  # Runs every 5 minutes
+  # No interval configuration needed for standalone
+---
+-- System health monitoring - no position tracking
+INSERT INTO `{{ .self.database }}`.`{{ .self.table }}`
+SELECT 
+    now() as check_time,
+    'healthy' as status,
+    '{{ .task.direction }}' as execution_mode,
+    {{ .execution.timestamp }} as execution_timestamp,
+    {{ if .is_forward }}
+        'scheduled check' as check_type
+    {{ else }}
+        'manual check' as check_type
+    {{ end }},
+    (SELECT count() FROM system.processes) as active_processes,
+    (SELECT count() FROM system.tables) as total_tables
+```
+
+#### Transformation Depending on Standalone
+
+```sql
+---
+table: transactions_normalized
+interval:
+  max: 3600  # Regular transformation with interval
+  min: 0
+schedules:
+  forwardfill: "@every 5m"
+dependencies:
+  # exchange_rates is standalone - always available
+  - "{{transformation}}.exchange_rates"
+  # raw_transactions has position tracking
+  - "{{external}}.raw_transactions"
+---
+-- This transformation can always access exchange_rates data
+-- since standalone transformations are always "available"
+INSERT INTO `{{ .self.database }}`.`{{ .self.table }}`
+SELECT 
+    t.*,
+    t.amount * r.rate as amount_usd,
+    r.rate as exchange_rate,
+    {{ .bounds.start }} as position
+FROM `{{ index .dep "{{external}}" "raw_transactions" "database" }}`.`{{ index .dep "{{external}}" "raw_transactions" "table" }}` t
+LEFT JOIN (
+    -- Join with standalone transformation's data
+    SELECT * FROM `{{ index .dep "{{transformation}}" "exchange_rates" "database" }}`.`{{ index .dep "{{transformation}}" "exchange_rates" "table" }}`
+    WHERE base_currency = 'USD'
+) r ON t.currency = r.target_currency
+WHERE t.timestamp >= fromUnixTimestamp({{ .bounds.start }})
+  AND t.timestamp < fromUnixTimestamp({{ .bounds.end }})
+```
+
 ### External Script Models
 
-Models can execute external scripts instead of SQL. The script receives environment variables with ClickHouse credentials and task context.
+Models can execute external scripts instead of SQL. The script receives environment variables with ClickHouse credentials and task context. Like SQL transformations, script models with no dependencies automatically operate in standalone mode.
 
 > Note: CBT does not create transformation tables and **requires** you to create them manually by design.
 
 #### Environment Variables
 
-Environment variables provided to scripts:
+Environment variables provided to scripts vary based on whether the transformation is standalone:
+
+**Regular Transformations** (with dependencies):
 - `CLICKHOUSE_URL`: Connection URL (e.g., `clickhouse://host:9000`)
 - `BOUNDS_START`, `BOUNDS_END`: Bounds for processing
 - `TASK_START`: Task execution timestamp
+- `TASK_DIRECTION`: Execution direction ("forward" or "backfill")
 - `SELF_DATABASE`, `SELF_TABLE`: Target table info
 - `DEP_<MODEL>_DATABASE`, `DEP_<MODEL>_TABLE`: Dependency info
+
+**Standalone Transformations** (no dependencies):
+- `CLICKHOUSE_URL`: Connection URL
+- `EXECUTION_TIME`: Unix timestamp of execution
+- `TASK_DIRECTION`: Execution direction ("forward" or "backfill")
+- `SELF_DATABASE`, `SELF_TABLE`: Target table info
+- `STANDALONE_MODE`: Set to "true" for standalone transformations
 
 #### Example
 
@@ -368,11 +473,16 @@ See the [example script](./example/scripts/entity_changes.py) for a the python s
 The example deployment demonstrates CBT's capabilities with sample models including SQL transformations, Python scripts, and tag-based filtering.
 
 #### What's Included
-- **External Models**: `beacon_blocks`, `validator_entity` (simulated data sources)
+- **External Models**: `beacon_blocks`, `validator_entity`, `raw_transactions` (simulated data sources)
 - **SQL Transformations**: 
   - `block_propagation` - Aggregates block propagation metrics
   - `block_entity` - Joins blocks with validator entities
   - `entity_network_effects` - Complex aggregation across multiple dependencies
+  - `transactions_with_rates` - Demonstrates dependency on standalone transformation
+- **Standalone Transformations** (no dependencies, no position tracking):
+  - `system_health_check` - System monitoring without position tracking
+  - `exchange_rates` - Reference data updated on schedule
+  - `daily_reports` - Report generation without interval management
 - **Python Model**: `entity_changes` - Demonstrates external script execution with ClickHouse HTTP API
 - **Data Generator**: Continuously inserts sample blockchain data
 - **Chaos Generator**: Simulates data gaps and out-of-order arrivals for resilience testing
@@ -398,10 +508,14 @@ docker exec cbt-clickhouse clickhouse-client -q "
 # View logs
 docker-compose logs -f
 
-# Check admin table for completed tasks
+# Check admin tables for completed tasks
 docker exec cbt-clickhouse clickhouse-client -q "
-  SELECT database, table, COUNT(*) as runs 
-  FROM admin.cbt 
+  SELECT 'incremental' as type, database, table, COUNT(*) as runs
+  FROM admin.cbt_incremental
+  GROUP BY database, table
+  UNION ALL
+  SELECT 'scheduled' as type, database, table, COUNT(*) as runs
+  FROM admin.cbt_scheduled
   GROUP BY database, table"
 
 # View task queue web UI
@@ -423,21 +537,28 @@ cbt --config production.yaml
 
 ### Admin Table Setup
 
-CBT tracks completed transformations in an admin table for idempotency and gap detection. This table must be created before running CBT.
+CBT tracks completed transformations in type-specific admin tables for idempotency and gap detection. These tables must be created before running CBT.
+
+> Note: Incremental transformations track position intervals in `admin.cbt_incremental`, while scheduled transformations track execution timestamps in `admin.cbt_scheduled`.
 
 ### Configuration
 
-The admin table location is configurable in your `config.yaml`:
+CBT uses type-specific admin tables to track different transformation types. The configuration is in your `config.yaml`:
 
 ```yaml
 clickhouse:
   url: http://localhost:8123
-  # Optional: Custom admin table (defaults shown)
-  adminDatabase: admin  # Default: "admin"
-  adminTable: cbt       # Default: "cbt"
+  # Optional: Custom admin tables (defaults shown)
+  admin:
+    incremental:
+      database: admin
+      table: cbt_incremental
+    scheduled:
+      database: admin
+      table: cbt_scheduled
 ```
 
-This allows running multiple CBT instances on the same cluster (e.g., `dev_admin.cbt`, `prod_admin.cbt`).
+This allows running multiple CBT instances on the same cluster (e.g., `dev_admin.cbt_incremental`, `prod_admin.cbt_incremental`).
 
 ### Single-Node Setup
 
@@ -447,16 +568,28 @@ For single-node ClickHouse deployments:
 -- Create admin database
 CREATE DATABASE IF NOT EXISTS admin;
 
--- Create admin tracking table
-CREATE TABLE IF NOT EXISTS admin.cbt (
+-- Create incremental transformations admin table (position and interval tracking)
+CREATE TABLE IF NOT EXISTS admin.cbt_incremental (
     updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
     database LowCardinality(String) COMMENT 'The database name',
-    table LowCardinality(String) COMMENT 'The table name', 
+    table LowCardinality(String) COMMENT 'The table name',
     position UInt64 COMMENT 'The starting position of the processed interval',
     interval UInt64 COMMENT 'The size of the interval processed',
     INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
-) ENGINE = ReplacingMergeTree(updated_date_time)
+)
+ENGINE = ReplacingMergeTree(updated_date_time)
 ORDER BY (database, table, position);
+
+-- Create scheduled transformations admin table (start time tracking)
+CREATE TABLE IF NOT EXISTS admin.cbt_scheduled (
+    updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
+    database LowCardinality(String) COMMENT 'The database name',
+    table LowCardinality(String) COMMENT 'The table name',
+    start_date_time DateTime(3) COMMENT 'The start date time of the scheduled job' CODEC(DoubleDelta, ZSTD(1)),
+    INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
+)
+ENGINE = ReplacingMergeTree(updated_date_time)
+ORDER BY (database, table);
 ```
 
 ### Clustered Setup
@@ -467,8 +600,8 @@ For ClickHouse clusters with replication:
 -- Create admin database on all nodes
 CREATE DATABASE IF NOT EXISTS admin ON CLUSTER '{cluster}';
 
--- Create local table on each node
-CREATE TABLE IF NOT EXISTS admin.cbt_local ON CLUSTER '{cluster}' (
+-- Create incremental transformations local table on each node
+CREATE TABLE IF NOT EXISTS admin.cbt_incremental_local ON CLUSTER '{cluster}' (
     updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
     database LowCardinality(String) COMMENT 'The database name',
     table LowCardinality(String) COMMENT 'The table name',
@@ -482,61 +615,93 @@ CREATE TABLE IF NOT EXISTS admin.cbt_local ON CLUSTER '{cluster}' (
 )
 ORDER BY (database, table, position);
 
--- Create distributed table for querying
-CREATE TABLE IF NOT EXISTS admin.cbt ON CLUSTER '{cluster}' AS admin.cbt_local
+-- Create incremental transformations distributed table for querying
+CREATE TABLE IF NOT EXISTS admin.cbt_incremental ON CLUSTER '{cluster}' AS admin.cbt_incremental_local
 ENGINE = Distributed(
     '{cluster}',
     'admin',
-    'cbt_local',
+    'cbt_incremental_local',
+    cityHash64(database, table)
+);
+
+-- Create scheduled transformations local table on each node
+CREATE TABLE IF NOT EXISTS admin.cbt_scheduled_local ON CLUSTER '{cluster}' (
+    updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
+    database LowCardinality(String) COMMENT 'The database name',
+    table LowCardinality(String) COMMENT 'The table name',
+    start_date_time DateTime(3) COMMENT 'The start date time of the scheduled job' CODEC(DoubleDelta, ZSTD(1)),
+    INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
+) ENGINE = ReplicatedReplacingMergeTree(
+    '/clickhouse/{installation}/{cluster}/{database}/tables/{table}/{shard}',
+    '{replica}',
+    updated_date_time
+)
+ORDER BY (database, table);
+
+-- Create scheduled transformations distributed table for querying
+CREATE TABLE IF NOT EXISTS admin.cbt_scheduled ON CLUSTER '{cluster}' AS admin.cbt_scheduled_local
+ENGINE = Distributed(
+    '{cluster}',
+    'admin',
+    'cbt_scheduled_local',
     cityHash64(database, table)
 );
 ```
 
 ### Using Custom Admin Tables
 
-If you need to use a different database or table name:
+If you need to use different database or table names:
 
 1. Update your `config.yaml`:
 ```yaml
 clickhouse:
-  adminDatabase: custom_admin
-  adminTable: custom_tracking
+  admin:
+    incremental:
+      database: custom_admin
+      table: custom_cbt_incremental
+    scheduled:
+      database: custom_admin
+      table: custom_cbt_scheduled
 ```
 
-2. Create the tables using your custom names:
-```sql
-CREATE DATABASE IF NOT EXISTS custom_admin;
-CREATE TABLE IF NOT EXISTS custom_admin.custom_tracking (
-    -- Same schema as above
-);
-```
+2. Create the tables using your custom names with the same schemas as shown above, replacing the table names.
 
-### Monitoring Admin Table
+### Monitoring Admin Tables
 
-Query the admin table to monitor progress, find gaps, or debug processing issues:
+Query the type-specific admin tables to monitor progress, find gaps, or debug processing issues:
 
 ```sql
--- View model processing status
-SELECT 
+-- View incremental transformation processing status
+SELECT
     database,
     table,
     count(*) as intervals_processed,
     min(position) as earliest_position,
     max(position + interval) as latest_position
-FROM admin.cbt FINAL
+FROM admin.cbt_incremental FINAL
 GROUP BY database, table;
 
--- Find gaps in processing
+-- View scheduled transformation execution history
+SELECT
+    database,
+    table,
+    count(*) as executions,
+    min(start_date_time) as first_execution,
+    max(start_date_time) as last_execution
+FROM admin.cbt_scheduled FINAL
+GROUP BY database, table;
+
+-- Find gaps in incremental processing
 WITH intervals AS (
-    SELECT 
+    SELECT
         database,
         table,
         position,
         position + interval as end_pos,
         lead(position) OVER (PARTITION BY database, table ORDER BY position) as next_position
-    FROM admin.cbt FINAL
+    FROM admin.cbt_incremental FINAL
 )
-SELECT 
+SELECT
     database,
     table,
     end_pos as gap_start,
@@ -562,6 +727,11 @@ CBT uses a sophisticated validation system to determine when a model can process
 2. **Transformation Models**: Query the admin table for processed data range
    - `min`: First processed position (earliest data available)
    - `max`: Last processed end position (latest data available)
+
+3. **Standalone Transformations**: Always return infinite bounds `[0, MaxUint64]`
+   - No position tracking or admin table queries
+   - Always considered "available" to dependent transformations
+   - Dependents can process any position range without waiting
 
 #### Valid Range Calculation
 
@@ -725,9 +895,10 @@ Next cycle when dependencies have more data (e.g., max_valid reaches 1150), the 
 ### Key Validation Features
 
 - **Pull-through validation**: Workers always verify dependencies at execution time, not just at scheduling
+- **Standalone transformations**: Models with no dependencies automatically operate without position tracking, always appearing "available" to dependents
 - **OR dependency groups**: Models can specify alternative dependencies using array syntax `["option1", "option2"]`, processing continues if at least one is available
 - **Lag handling**: External models with `lag` configured have their max boundary adjusted during validation to ignore recent, potentially incomplete data
-- **Coverage tracking**: The admin table tracks all completed intervals, enabling precise dependency validation
+- **Coverage tracking**: The admin table tracks all completed intervals, enabling precise dependency validation (except for standalone transformations)
 - **Automatic retry**: Failed validations are automatically retried on the next schedule cycle
 - **Cascade triggering**: When a model completes, all dependent models are immediately (within 5 seconds) checked for processing
 - **Partial interval processing**: When `interval.min < interval.max`, forward fill can process partial intervals based on available dependency data instead of waiting for full intervals. This reduces processing lag when dependencies are incrementally updating. Set `interval.min` to control the minimum acceptable chunk size, or use `interval.min = interval.max` to enforce strict full intervals only
