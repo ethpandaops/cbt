@@ -66,10 +66,15 @@ clickhouse:
   # cluster: "default"
   # localSuffix: "_local"
   
-  # Admin table configuration (optional)
-  # Defaults to admin.cbt if not specified
-  # adminDatabase: admin
-  # adminTable: cbt
+  # Type-specific admin tables configuration (optional)
+  # Defaults shown below
+  # admin:
+  #   incremental:
+  #     database: admin
+  #     table: cbt_incremental
+  #   scheduled:
+  #     database: admin
+  #     table: cbt_scheduled
   
   # Query timeout
   queryTimeout: 30s
@@ -221,16 +226,16 @@ Transformation models process data in intervals. Intervals are agnostic to the s
 
 > Note: CBT does not create transformation tables and **requires** you to create them manually by design.
 
-#### Standalone Transformations
+#### Scheduled Transformations
 
-Transformations with no dependencies automatically operate in **standalone mode**. These transformations:
+Transformations with `type: scheduled` operate without position tracking. These transformations:
 - Run purely on schedule without position tracking
 - Don't require interval configuration
-- Don't create admin table entries
+- Create admin table entries with execution timestamps
 - Are always considered "available" to dependent transformations
 - Receive different template variables focused on execution context
 
-Standalone transformations are ideal for:
+Scheduled transformations are ideal for:
 - **System monitoring**: Health checks, metrics collection
 - **Reference data**: Exchange rates, configuration values
 - **Report generation**: Daily/weekly/monthly reports
@@ -503,10 +508,14 @@ docker exec cbt-clickhouse clickhouse-client -q "
 # View logs
 docker-compose logs -f
 
-# Check admin table for completed tasks
+# Check admin tables for completed tasks
 docker exec cbt-clickhouse clickhouse-client -q "
-  SELECT database, table, COUNT(*) as runs 
-  FROM admin.cbt 
+  SELECT 'incremental' as type, database, table, COUNT(*) as runs
+  FROM admin.cbt_incremental
+  GROUP BY database, table
+  UNION ALL
+  SELECT 'scheduled' as type, database, table, COUNT(*) as runs
+  FROM admin.cbt_scheduled
   GROUP BY database, table"
 
 # View task queue web UI
@@ -528,23 +537,28 @@ cbt --config production.yaml
 
 ### Admin Table Setup
 
-CBT tracks completed transformations in an admin table for idempotency and gap detection. This table must be created before running CBT.
+CBT tracks completed transformations in type-specific admin tables for idempotency and gap detection. These tables must be created before running CBT.
 
-> Note: Standalone transformations (those with no dependencies) do not create admin table entries as they don't track position intervals.
+> Note: Incremental transformations track position intervals in `admin.cbt_incremental`, while scheduled transformations track execution timestamps in `admin.cbt_scheduled`.
 
 ### Configuration
 
-The admin table location is configurable in your `config.yaml`:
+CBT uses type-specific admin tables to track different transformation types. The configuration is in your `config.yaml`:
 
 ```yaml
 clickhouse:
   url: http://localhost:8123
-  # Optional: Custom admin table (defaults shown)
-  adminDatabase: admin  # Default: "admin"
-  adminTable: cbt       # Default: "cbt"
+  # Optional: Custom admin tables (defaults shown)
+  admin:
+    incremental:
+      database: admin
+      table: cbt_incremental
+    scheduled:
+      database: admin
+      table: cbt_scheduled
 ```
 
-This allows running multiple CBT instances on the same cluster (e.g., `dev_admin.cbt`, `prod_admin.cbt`).
+This allows running multiple CBT instances on the same cluster (e.g., `dev_admin.cbt_incremental`, `prod_admin.cbt_incremental`).
 
 ### Single-Node Setup
 
@@ -554,16 +568,28 @@ For single-node ClickHouse deployments:
 -- Create admin database
 CREATE DATABASE IF NOT EXISTS admin;
 
--- Create admin tracking table
-CREATE TABLE IF NOT EXISTS admin.cbt (
+-- Create incremental transformations admin table (position and interval tracking)
+CREATE TABLE IF NOT EXISTS admin.cbt_incremental (
     updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
     database LowCardinality(String) COMMENT 'The database name',
-    table LowCardinality(String) COMMENT 'The table name', 
+    table LowCardinality(String) COMMENT 'The table name',
     position UInt64 COMMENT 'The starting position of the processed interval',
     interval UInt64 COMMENT 'The size of the interval processed',
     INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
-) ENGINE = ReplacingMergeTree(updated_date_time)
+)
+ENGINE = ReplacingMergeTree(updated_date_time)
 ORDER BY (database, table, position);
+
+-- Create scheduled transformations admin table (start time tracking)
+CREATE TABLE IF NOT EXISTS admin.cbt_scheduled (
+    updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
+    database LowCardinality(String) COMMENT 'The database name',
+    table LowCardinality(String) COMMENT 'The table name',
+    start_date_time DateTime(3) COMMENT 'The start date time of the scheduled job' CODEC(DoubleDelta, ZSTD(1)),
+    INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
+)
+ENGINE = ReplacingMergeTree(updated_date_time)
+ORDER BY (database, table);
 ```
 
 ### Clustered Setup
@@ -574,8 +600,8 @@ For ClickHouse clusters with replication:
 -- Create admin database on all nodes
 CREATE DATABASE IF NOT EXISTS admin ON CLUSTER '{cluster}';
 
--- Create local table on each node
-CREATE TABLE IF NOT EXISTS admin.cbt_local ON CLUSTER '{cluster}' (
+-- Create incremental transformations local table on each node
+CREATE TABLE IF NOT EXISTS admin.cbt_incremental_local ON CLUSTER '{cluster}' (
     updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
     database LowCardinality(String) COMMENT 'The database name',
     table LowCardinality(String) COMMENT 'The table name',
@@ -589,61 +615,93 @@ CREATE TABLE IF NOT EXISTS admin.cbt_local ON CLUSTER '{cluster}' (
 )
 ORDER BY (database, table, position);
 
--- Create distributed table for querying
-CREATE TABLE IF NOT EXISTS admin.cbt ON CLUSTER '{cluster}' AS admin.cbt_local
+-- Create incremental transformations distributed table for querying
+CREATE TABLE IF NOT EXISTS admin.cbt_incremental ON CLUSTER '{cluster}' AS admin.cbt_incremental_local
 ENGINE = Distributed(
     '{cluster}',
     'admin',
-    'cbt_local',
+    'cbt_incremental_local',
+    cityHash64(database, table)
+);
+
+-- Create scheduled transformations local table on each node
+CREATE TABLE IF NOT EXISTS admin.cbt_scheduled_local ON CLUSTER '{cluster}' (
+    updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
+    database LowCardinality(String) COMMENT 'The database name',
+    table LowCardinality(String) COMMENT 'The table name',
+    start_date_time DateTime(3) COMMENT 'The start date time of the scheduled job' CODEC(DoubleDelta, ZSTD(1)),
+    INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
+) ENGINE = ReplicatedReplacingMergeTree(
+    '/clickhouse/{installation}/{cluster}/{database}/tables/{table}/{shard}',
+    '{replica}',
+    updated_date_time
+)
+ORDER BY (database, table);
+
+-- Create scheduled transformations distributed table for querying
+CREATE TABLE IF NOT EXISTS admin.cbt_scheduled ON CLUSTER '{cluster}' AS admin.cbt_scheduled_local
+ENGINE = Distributed(
+    '{cluster}',
+    'admin',
+    'cbt_scheduled_local',
     cityHash64(database, table)
 );
 ```
 
 ### Using Custom Admin Tables
 
-If you need to use a different database or table name:
+If you need to use different database or table names:
 
 1. Update your `config.yaml`:
 ```yaml
 clickhouse:
-  adminDatabase: custom_admin
-  adminTable: custom_tracking
+  admin:
+    incremental:
+      database: custom_admin
+      table: custom_cbt_incremental
+    scheduled:
+      database: custom_admin
+      table: custom_cbt_scheduled
 ```
 
-2. Create the tables using your custom names:
-```sql
-CREATE DATABASE IF NOT EXISTS custom_admin;
-CREATE TABLE IF NOT EXISTS custom_admin.custom_tracking (
-    -- Same schema as above
-);
-```
+2. Create the tables using your custom names with the same schemas as shown above, replacing the table names.
 
-### Monitoring Admin Table
+### Monitoring Admin Tables
 
-Query the admin table to monitor progress, find gaps, or debug processing issues:
+Query the type-specific admin tables to monitor progress, find gaps, or debug processing issues:
 
 ```sql
--- View model processing status
-SELECT 
+-- View incremental transformation processing status
+SELECT
     database,
     table,
     count(*) as intervals_processed,
     min(position) as earliest_position,
     max(position + interval) as latest_position
-FROM admin.cbt FINAL
+FROM admin.cbt_incremental FINAL
 GROUP BY database, table;
 
--- Find gaps in processing
+-- View scheduled transformation execution history
+SELECT
+    database,
+    table,
+    count(*) as executions,
+    min(start_date_time) as first_execution,
+    max(start_date_time) as last_execution
+FROM admin.cbt_scheduled FINAL
+GROUP BY database, table;
+
+-- Find gaps in incremental processing
 WITH intervals AS (
-    SELECT 
+    SELECT
         database,
         table,
         position,
         position + interval as end_pos,
         lead(position) OVER (PARTITION BY database, table ORDER BY position) as next_position
-    FROM admin.cbt FINAL
+    FROM admin.cbt_incremental FINAL
 )
-SELECT 
+SELECT
     database,
     table,
     end_pos as gap_start,

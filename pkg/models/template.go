@@ -30,8 +30,8 @@ func NewTemplateEngine(clickhouseCfg *clickhouse.Config, dag *DependencyGraph) *
 }
 
 // RenderTransformation renders a transformation model template with variables
-func (t *TemplateEngine) RenderTransformation(model Transformation, position, interval uint64, startTime time.Time, direction string) (string, error) {
-	variables, err := t.buildTransformationVariables(model, position, interval, startTime, direction)
+func (t *TemplateEngine) RenderTransformation(model Transformation, position, interval uint64, startTime time.Time) (string, error) {
+	variables, err := t.buildTransformationVariables(model, position, interval, startTime)
 	if err != nil {
 		return "", fmt.Errorf("failed to build variables: %w", err)
 	}
@@ -49,10 +49,10 @@ func (t *TemplateEngine) RenderTransformation(model Transformation, position, in
 	return buf.String(), nil
 }
 
-func (t *TemplateEngine) buildTransformationVariables(model Transformation, position, interval uint64, startTime time.Time, direction string) (map[string]interface{}, error) {
+func (t *TemplateEngine) buildTransformationVariables(model Transformation, position, interval uint64, startTime time.Time) (map[string]interface{}, error) {
 	config := model.GetConfig()
 
-	variables := t.buildBaseVariables(config, position, interval, startTime, direction)
+	variables := t.buildBaseVariables(config, position, interval, startTime)
 
 	deps, err := t.buildDependencyVariables(config)
 	if err != nil {
@@ -64,7 +64,7 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 }
 
 // buildBaseVariables creates the base template variables
-func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, position, interval uint64, startTime time.Time, direction string) map[string]interface{} {
+func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, position, interval uint64, startTime time.Time) map[string]interface{} {
 	vars := map[string]interface{}{
 		"clickhouse": map[string]interface{}{
 			"cluster":      t.clickhouseCfg.Cluster,
@@ -75,17 +75,12 @@ func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, posit
 			"table":    config.Table,
 		},
 		"task": map[string]interface{}{
-			"start":     startTime.Unix(),
-			"direction": direction,
+			"start": startTime.Unix(),
 		},
 	}
 
-	// Add direction-specific boolean flags for convenience
-	vars["is_forward"] = (direction == "forward")
-	vars["is_backfill"] = (direction == "backfill")
-
-	// Only add position/interval variables for non-standalone
-	if !config.IsStandalone() {
+	// Only add position/interval variables for incremental transformations
+	if config.IsIncremental() {
 		if selfMap, ok := vars["self"].(map[string]interface{}); ok {
 			selfMap["interval"] = interval
 		}
@@ -229,7 +224,7 @@ func (t *TemplateEngine) processExternalDependency(dep Node, depID, originalDep 
 }
 
 // GetTransformationEnvironmentVariables builds environment variables for transformation execution
-func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time, direction string) (*[]string, error) {
+func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error) {
 	config := model.GetConfig()
 
 	env := []string{
@@ -237,17 +232,11 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 		fmt.Sprintf("SELF_DATABASE=%s", config.Database),
 		fmt.Sprintf("SELF_TABLE=%s", config.Table),
 		fmt.Sprintf("TASK_START=%d", startTime.Unix()),
-		fmt.Sprintf("TASK_DIRECTION=%s", direction),
 	}
 
 	// Add boolean flags for convenience
-	if direction == "forward" {
-		env = append(env, "IS_FORWARD=true", "IS_BACKFILL=false")
-	} else {
-		env = append(env, "IS_FORWARD=false", "IS_BACKFILL=true")
-	}
 
-	if !config.IsStandalone() {
+	if config.IsIncremental() {
 		env = append(env,
 			fmt.Sprintf("TASK_MODEL=%s.%s", config.Database, config.Table),
 			fmt.Sprintf("TASK_INTERVAL=%d", interval),

@@ -2,12 +2,13 @@ package admin
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
+	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
@@ -17,31 +18,70 @@ var (
 	ErrInvalidModelID = errors.New("invalid model ID format: expected database.table")
 	// ErrCacheManagerUnavailable is returned when cache manager is not available
 	ErrCacheManagerUnavailable = errors.New("cache manager not available")
+	// ErrUnsupportedTransformationType is returned for unsupported transformation types
+	ErrUnsupportedTransformationType = errors.New("unsupported transformation type")
+	// ErrNotImplemented is returned for functionality not yet implemented
+	ErrNotImplemented = errors.New("not implemented")
 )
 
-// Service defines the public interface for the admin service
-type Service interface {
-	// Position tracking
-	GetLastProcessedEndPosition(ctx context.Context, modelID string) (uint64, error) // Returns end of last processed range
-	GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error)  // Returns next position for forward fill
-	GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error)    // Returns position of last record
-	GetFirstPosition(ctx context.Context, modelID string) (uint64, error)
-	RecordCompletion(ctx context.Context, modelID string, position, interval uint64) error
+// CompletionRecord represents a completed transformation execution
+type CompletionRecord interface {
+	GetDatabase() string
+	GetTable() string
+}
 
-	// Coverage and gap management
+// IncrementalCompletion represents completion of an incremental transformation
+type IncrementalCompletion struct {
+	Database string
+	Table    string
+	Position uint64
+	Interval uint64
+}
+
+// GetDatabase returns the database name
+func (c IncrementalCompletion) GetDatabase() string { return c.Database }
+
+// GetTable returns the table name
+func (c IncrementalCompletion) GetTable() string { return c.Table }
+
+// ScheduledCompletion represents completion of a scheduled transformation
+type ScheduledCompletion struct {
+	Database  string
+	Table     string
+	StartTime time.Time
+}
+
+// GetDatabase returns the database name
+func (c ScheduledCompletion) GetDatabase() string { return c.Database }
+
+// GetTable returns the table name
+func (c ScheduledCompletion) GetTable() string { return c.Table }
+
+// Service defines the public interface for the type-specific admin service
+type Service interface {
+	// Type-specific position tracking (incremental only)
+	GetLastProcessedEndPosition(ctx context.Context, transformationType transformation.Type, modelID string) (uint64, error)
+	GetNextUnprocessedPosition(ctx context.Context, transformationType transformation.Type, modelID string) (uint64, error)
+	GetLastProcessedPosition(ctx context.Context, transformationType transformation.Type, modelID string) (uint64, error)
+	GetFirstPosition(ctx context.Context, transformationType transformation.Type, modelID string) (uint64, error)
+
+	// Type-specific completion recording
+	RecordCompletion(ctx context.Context, transformationType transformation.Type, completion transformation.CompletionRecord) error
+
+	// Gap management (incremental only)
 	GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error)
 	FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]GapInfo, error)
 
-	// Consolidation
+	// Consolidation (incremental only)
 	ConsolidateHistoricalData(ctx context.Context, modelID string) (int, error)
 
-	// External bounds cache
+	// External bounds cache (shared across types)
 	GetExternalBounds(ctx context.Context, modelID string) (*BoundsCache, error)
 	SetExternalBounds(ctx context.Context, cache *BoundsCache) error
 
-	// Admin table info
-	GetAdminDatabase() string
-	GetAdminTable() string
+	// Admin table management
+	EnsureAdminTables(ctx context.Context) error
+	GetAdminTableConfig(transformationType transformation.Type) (clickhouse.AdminTableConfig, error)
 }
 
 // GapInfo represents a gap in the processed data
@@ -50,513 +90,244 @@ type GapInfo struct {
 	EndPos   uint64
 }
 
-// service manages the admin tracking table for completed transformations
+// service implements the Service interface with type-specific admin tables
 type service struct {
-	log logrus.FieldLogger
-
-	client        clickhouse.ClientInterface
-	cluster       string
-	localSuffix   string
-	adminDatabase string
-	adminTable    string
-
+	log          logrus.FieldLogger
+	client       clickhouse.ClientInterface
+	cluster      string
+	localSuffix  string
+	adminConfig  clickhouse.AdminConfig
+	typeRegistry *transformation.TypeRegistry
 	cacheManager *CacheManager
 }
 
-// NewService creates a new admin table manager
-func NewService(log logrus.FieldLogger, client clickhouse.ClientInterface, cluster, localSuffix, adminDatabase, adminTable string, redisClient *redis.Client) Service {
+// NewService creates a new type-specific admin service
+func NewService(log logrus.FieldLogger, client clickhouse.ClientInterface, cluster, localSuffix string, adminConfig clickhouse.AdminConfig, redisClient *redis.Client) Service {
 	cacheManager := NewCacheManager(redisClient)
+	typeRegistry := transformation.NewTypeRegistry()
 
 	return &service{
-		log:           log.WithField("service", "admin"),
-		client:        client,
-		cluster:       cluster,
-		localSuffix:   localSuffix,
-		adminDatabase: adminDatabase,
-		adminTable:    adminTable,
-		cacheManager:  cacheManager,
+		log:          log.WithField("service", "admin"),
+		client:       client,
+		cluster:      cluster,
+		localSuffix:  localSuffix,
+		adminConfig:  adminConfig,
+		typeRegistry: typeRegistry,
+		cacheManager: cacheManager,
 	}
 }
 
-// GetAdminDatabase returns the admin database name
-func (a *service) GetAdminDatabase() string {
-	return a.adminDatabase
-}
-
-// GetAdminTable returns the admin table name
-func (a *service) GetAdminTable() string {
-	return a.adminTable
-}
-
-// RecordCompletion records a completed transformation in the admin table
-func (a *service) RecordCompletion(ctx context.Context, modelID string, position, interval uint64) error {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return ErrInvalidModelID
-	}
-
-	// Log what we're recording for better debugging
-	a.log.WithFields(logrus.Fields{
-		"model_id":    modelID,
-		"position":    position,
-		"interval":    interval,
-		"range_start": position,
-		"range_end":   position + interval,
-	}).Debug("Recording task completion in admin table")
-
-	// Using string formatting with proper escaping
-	// In production, consider using parameterized queries for better security
-	query := fmt.Sprintf(`
-		INSERT INTO `+"`%s`.`%s`"+` (updated_date_time, database, table, position, interval)
-		VALUES (now(), '%s', '%s', %d, %d)
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1], position, interval)
-
-	return a.client.Execute(ctx, query)
-}
-
-// GetFirstPosition returns the first processed position for a model
-func (a *service) GetFirstPosition(ctx context.Context, modelID string) (uint64, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return 0, ErrInvalidModelID
-	}
-
-	query := fmt.Sprintf(`
-		SELECT coalesce(min(position), 0) as first_pos
-		FROM `+"`%s`.`%s`"+` FINAL
-		WHERE database = '%s' AND table = '%s'
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
-
-	var result struct {
-		FirstPos uint64 `json:"first_pos,string"`
-	}
-
-	err := a.client.QueryOne(ctx, query, &result)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, nil
+// EnsureAdminTables creates all type-specific admin tables
+func (s *service) EnsureAdminTables(ctx context.Context) error {
+	for _, transformationType := range s.typeRegistry.GetSupportedTypes() {
+		handler, err := s.typeRegistry.GetHandler(transformationType)
+		if err != nil {
+			return err
 		}
+
+		adminTableConfig := s.getAdminTableConfigForType(transformationType)
+		sqlStatements := handler.GetCreateTableSQL(adminTableConfig, s.cluster)
+
+		for _, sql := range sqlStatements {
+			if err := s.client.Execute(ctx, sql); err != nil {
+				s.log.WithError(err).WithFields(logrus.Fields{
+					"type": transformationType,
+					"sql":  sql,
+				}).Error("Failed to create admin table")
+				return err
+			}
+		}
+
+		s.log.WithFields(logrus.Fields{
+			"type":     transformationType,
+			"database": adminTableConfig.Database,
+			"table":    adminTableConfig.Table,
+		}).Info("Admin table ensured")
+	}
+
+	return nil
+}
+
+// GetAdminTableConfig returns the admin table config for a specific transformation type
+func (s *service) GetAdminTableConfig(transformationType transformation.Type) (clickhouse.AdminTableConfig, error) {
+	switch transformationType {
+	case transformation.TypeIncremental:
+		return s.adminConfig.Incremental, nil
+	case transformation.TypeScheduled:
+		return s.adminConfig.Scheduled, nil
+	default:
+		return clickhouse.AdminTableConfig{}, ErrUnsupportedTransformationType
+	}
+}
+
+// getAdminTableConfigForType is an internal helper that returns the appropriate admin table config
+func (s *service) getAdminTableConfigForType(transformationType transformation.Type) clickhouse.AdminTableConfig {
+	config, _ := s.GetAdminTableConfig(transformationType)
+	return config
+}
+
+// RecordCompletion records completion using the appropriate type handler
+func (s *service) RecordCompletion(ctx context.Context, transformationType transformation.Type, completion transformation.CompletionRecord) error {
+	handler, err := s.typeRegistry.GetHandler(transformationType)
+	if err != nil {
+		return err
+	}
+
+	adminTableConfig := s.getAdminTableConfigForType(transformationType)
+	return handler.RecordCompletion(ctx, s.client, adminTableConfig, completion)
+}
+
+// GetLastProcessedEndPosition returns the end position of the last processed interval (incremental only)
+func (s *service) GetLastProcessedEndPosition(ctx context.Context, transformationType transformation.Type, modelID string) (uint64, error) {
+	if transformationType != transformation.TypeIncremental {
+		return 0, ErrUnsupportedTransformationType
+	}
+
+	database, table, err := s.parseModelID(modelID)
+	if err != nil {
 		return 0, err
 	}
 
-	return result.FirstPos, nil
-}
-
-// GetLastProcessedEndPosition returns the end of the last processed range (max(position + interval))
-// This is the position where forward processing should continue from
-func (a *service) GetLastProcessedEndPosition(ctx context.Context, modelID string) (uint64, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return 0, ErrInvalidModelID
-	}
+	adminTableConfig := s.getAdminTableConfigForType(transformationType)
 
 	query := fmt.Sprintf(`
-		SELECT coalesce(max(position + interval), 0) as last_end_pos
-		FROM `+"`%s`.`%s`"+` FINAL
+		SELECT COALESCE(max(position + interval), 0) as last_end_position
+		FROM %s.%s FINAL
 		WHERE database = '%s' AND table = '%s'
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
+	`, adminTableConfig.Database, adminTableConfig.Table, database, table)
 
 	var result struct {
-		LastEndPos uint64 `json:"last_end_pos,string"`
+		LastEndPosition uint64 `json:"last_end_position,string"`
 	}
 
-	err := a.client.QueryOne(ctx, query, &result)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	if err := s.client.QueryOne(ctx, query, &result); err != nil {
+		// If the table doesn't exist or has no data, return 0
+		if strings.Contains(err.Error(), "doesn't exist") || strings.Contains(err.Error(), "no rows") {
 			return 0, nil
 		}
+		return 0, fmt.Errorf("failed to get last processed end position: %w", err)
+	}
+
+	return result.LastEndPosition, nil
+}
+
+// GetNextUnprocessedPosition returns the next position for processing (incremental only)
+func (s *service) GetNextUnprocessedPosition(ctx context.Context, transformationType transformation.Type, modelID string) (uint64, error) {
+	if transformationType != transformation.TypeIncremental {
+		return 0, ErrUnsupportedTransformationType
+	}
+
+	// The next unprocessed position is the same as the last processed end position
+	return s.GetLastProcessedEndPosition(ctx, transformationType, modelID)
+}
+
+// GetLastProcessedPosition returns the start position of the last processed interval (incremental only)
+func (s *service) GetLastProcessedPosition(ctx context.Context, transformationType transformation.Type, modelID string) (uint64, error) {
+	if transformationType != transformation.TypeIncremental {
+		return 0, ErrUnsupportedTransformationType
+	}
+
+	database, table, err := s.parseModelID(modelID)
+	if err != nil {
 		return 0, err
 	}
 
-	return result.LastEndPos, nil
-}
-
-// GetNextUnprocessedPosition returns the next position to process for forward fill
-// This is equivalent to GetLastProcessedEndPosition but with clearer naming
-func (a *service) GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error) {
-	return a.GetLastProcessedEndPosition(ctx, modelID)
-}
-
-// GetLastProcessedPosition returns the position of the last processed record (max(position))
-// This is useful for understanding the actual last record processed, not where to continue from
-func (a *service) GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return 0, ErrInvalidModelID
-	}
+	adminTableConfig := s.getAdminTableConfigForType(transformationType)
 
 	query := fmt.Sprintf(`
-		SELECT coalesce(max(position), 0) as last_pos
-		FROM `+"`%s`.`%s`"+` FINAL
+		SELECT COALESCE(max(position), 0) as position
+		FROM %s.%s FINAL
 		WHERE database = '%s' AND table = '%s'
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
+	`, adminTableConfig.Database, adminTableConfig.Table, database, table)
 
 	var result struct {
-		LastPos uint64 `json:"last_pos,string"`
+		Position uint64 `json:"position,string"`
 	}
 
-	err := a.client.QueryOne(ctx, query, &result)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	if err := s.client.QueryOne(ctx, query, &result); err != nil {
+		// If the table doesn't exist or has no data, return 0
+		if strings.Contains(err.Error(), "doesn't exist") || strings.Contains(err.Error(), "no rows") {
 			return 0, nil
 		}
+		return 0, fmt.Errorf("failed to get last processed position: %w", err)
+	}
+
+	return result.Position, nil
+}
+
+// GetFirstPosition returns the first processed position (incremental only)
+func (s *service) GetFirstPosition(ctx context.Context, transformationType transformation.Type, modelID string) (uint64, error) {
+	if transformationType != transformation.TypeIncremental {
+		return 0, ErrUnsupportedTransformationType
+	}
+
+	database, table, err := s.parseModelID(modelID)
+	if err != nil {
 		return 0, err
 	}
 
-	return result.LastPos, nil
-}
-
-// GetCoverage checks if a range is fully covered in the admin table
-func (a *service) GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return false, ErrInvalidModelID
-	}
+	adminTableConfig := s.getAdminTableConfigForType(transformationType)
 
 	query := fmt.Sprintf(`
-		WITH coverage AS (
-			SELECT position, position + interval as end_pos
-			FROM `+"`%s`.`%s`"+` FINAL
-			WHERE database = '%s' AND table = '%s'
-			  AND position < %d
-			  AND position + interval > %d
-		)
-		SELECT CASE 
-			WHEN min(position) <= %d AND max(end_pos) >= %d 
-			THEN 1 ELSE 0 
-		END as fully_covered
-		FROM coverage
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1], endPos, startPos, startPos, endPos)
+		SELECT COALESCE(min(position), 0) as first_position
+		FROM %s.%s FINAL
+		WHERE database = '%s' AND table = '%s'
+	`, adminTableConfig.Database, adminTableConfig.Table, database, table)
 
 	var result struct {
-		FullyCovered int `json:"fully_covered"`
+		FirstPosition uint64 `json:"first_position,string"`
 	}
 
-	err := a.client.QueryOne(ctx, query, &result)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
+	if err := s.client.QueryOne(ctx, query, &result); err != nil {
+		// If the table doesn't exist or has no data, return 0
+		if strings.Contains(err.Error(), "doesn't exist") || strings.Contains(err.Error(), "no rows") {
+			return 0, nil
 		}
-		return false, err
+		return 0, fmt.Errorf("failed to get first processed position: %w", err)
 	}
 
-	return result.FullyCovered == 1, nil
+	return result.FirstPosition, nil
 }
 
-// FindGaps finds all gaps in the processed data for a model
-func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]GapInfo, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return nil, ErrInvalidModelID
-	}
-
-	// Log the gap detection parameters
-	a.log.WithFields(logrus.Fields{
-		"model_id": modelID,
-		"min_pos":  minPos,
-		"max_pos":  maxPos,
-		"interval": interval,
-	}).Debug("Finding gaps in processed data - scanning admin table")
-
-	// Use a similar approach to consolidation but find gaps instead
-	// This properly handles overlapping and contiguous ranges
-	// Note: ClickHouse doesn't allow window functions in WHERE clauses,
-	// so we calculate prev_max_end in a CTE first
-	query := fmt.Sprintf(`
-		WITH ordered_rows AS (
-			SELECT
-				position,
-				interval,
-				position + interval as end_pos,
-				row_number() OVER (ORDER BY position) as rn
-			FROM `+"`%s`.`%s`"+` FINAL
-			WHERE database = '%s' AND table = '%s'
-			  AND position >= %d AND position < %d
-			ORDER BY position
-		),
-		with_max AS (
-			SELECT
-				position,
-				interval,
-				end_pos,
-				rn,
-				max(end_pos) OVER (ORDER BY position ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as max_end_so_far
-			FROM ordered_rows
-		),
-		with_lag AS (
-			SELECT
-				position,
-				end_pos,
-				rn,
-				max_end_so_far,
-				-- Get the max_end_so_far from the previous row
-				if(rn > 1, 
-				   any(max_end_so_far) OVER (ORDER BY position ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING),
-				   0) as prev_max_end
-			FROM with_max
-		),
-		gaps AS (
-			SELECT
-				prev_max_end as gap_start,
-				position as gap_end
-			FROM with_lag
-			WHERE rn > 1 
-			  AND prev_max_end IS NOT NULL
-			  AND position > prev_max_end
-			  AND position - prev_max_end >= %d
-		)
-		SELECT 
-			gap_start,
-			gap_end
-		FROM gaps
-		ORDER BY gap_start DESC
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1], minPos, maxPos, interval)
-
-	var gapResults []struct {
-		GapStart uint64 `json:"gap_start,string"`
-		GapEnd   uint64 `json:"gap_end,string"`
-	}
-
-	err := a.client.QueryMany(ctx, query, &gapResults)
-	if err != nil {
-		return nil, err
-	}
-
-	gaps := make([]GapInfo, 0, len(gapResults))
-	for _, result := range gapResults {
-		a.log.WithFields(logrus.Fields{
-			"model_id":  modelID,
-			"gap_start": result.GapStart,
-			"gap_end":   result.GapEnd,
-			"gap_size":  result.GapEnd - result.GapStart,
-		}).Debug("Found gap between consolidated ranges")
-
-		gaps = append(gaps, GapInfo{
-			StartPos: result.GapStart,
-			EndPos:   result.GapEnd,
-		})
-	}
-
-	// Also check for a gap at the beginning
-	firstPosQuery := fmt.Sprintf(`
-		SELECT min(position) as first_pos
-		FROM `+"`%s`.`%s`"+` FINAL
-		WHERE database = '%s' AND table = '%s'
-		  AND position >= %d
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1], minPos)
-
-	var firstPosResult struct {
-		FirstPos *uint64 `json:"first_pos,string"`
-	}
-
-	err = a.client.QueryOne(ctx, firstPosQuery, &firstPosResult)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
-
-	if firstPosResult.FirstPos != nil && *firstPosResult.FirstPos > minPos {
-		// There's a gap at the beginning - append at end since we're processing DESC
-		a.log.WithFields(logrus.Fields{
-			"model_id":  modelID,
-			"gap_start": minPos,
-			"gap_end":   *firstPosResult.FirstPos,
-			"gap_size":  *firstPosResult.FirstPos - minPos,
-			"first_pos": *firstPosResult.FirstPos,
-			"min_pos":   minPos,
-		}).Debug("Found gap at beginning of range")
-
-		gaps = append(gaps, GapInfo{StartPos: minPos, EndPos: *firstPosResult.FirstPos})
-	}
-
-	// Log summary of gaps found
-	if len(gaps) > 0 {
-		a.log.WithFields(logrus.Fields{
-			"model_id":   modelID,
-			"gap_count":  len(gaps),
-			"total_gaps": gaps,
-		}).Debug("Gap detection complete")
-	}
-
-	return gaps, nil
+// GetCoverage checks if a range is covered (incremental only)
+func (s *service) GetCoverage(_ context.Context, _ string, _, _ uint64) (bool, error) {
+	// Incremental coverage checking not yet implemented
+	return false, ErrNotImplemented
 }
 
-// ConsolidateHistoricalData consolidates historical admin table rows for a model
-func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string) (int, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return 0, ErrInvalidModelID
-	}
-
-	database := parts[0]
-	table := parts[1]
-
-	// Find contiguous/overlapping ranges that can be consolidated
-	// This merges both overlapping and contiguous ranges into single consolidated ranges
-	// Uses window functions compatible with ClickHouse v25
-	rangeQuery := fmt.Sprintf(`
-		WITH ordered_rows AS (
-			SELECT
-				position,
-				interval,
-				position + interval as end_pos,
-				row_number() OVER (ORDER BY position) as rn
-			FROM `+"`%s`.`%s`"+` FINAL
-			WHERE database = '%s' AND table = '%s'
-			ORDER BY position
-		),
-		with_lag AS (
-			SELECT 
-				position,
-				interval,
-				end_pos,
-				rn,
-				any(end_pos) OVER (ORDER BY position ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) as prev_end
-			FROM ordered_rows
-		),
-		with_max AS (
-			SELECT
-				position,
-				interval,
-				end_pos,
-				rn,
-				prev_end,
-				max(end_pos) OVER (ORDER BY position ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as max_end_so_far
-			FROM with_lag
-		),
-		with_groups AS (
-			SELECT
-				position,
-				interval,
-				end_pos,
-				CASE 
-					WHEN rn = 1 THEN 1
-					WHEN position > any(max_end_so_far) OVER (ORDER BY position ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) THEN 1
-					ELSE 0
-				END as new_group
-			FROM with_max
-		),
-		with_group_ids AS (
-			SELECT
-				position,
-				interval,
-				end_pos,
-				sum(new_group) OVER (ORDER BY position) as group_id
-			FROM with_groups
-		),
-		consolidated_ranges AS (
-			SELECT
-				group_id,
-				MIN(position) as start_pos,
-				MAX(end_pos) as end_pos,
-				COUNT(*) as row_count
-			FROM with_group_ids
-			GROUP BY group_id
-		)
-		SELECT
-			start_pos,
-			end_pos,
-			row_count
-		FROM consolidated_ranges
-		WHERE row_count > 1
-		ORDER BY row_count DESC, start_pos
-		LIMIT 1
-	`, a.adminDatabase, a.adminTable, database, table)
-
-	var rangeResult struct {
-		StartPos uint64 `json:"start_pos,string"`
-		EndPos   uint64 `json:"end_pos,string"`
-		RowCount int    `json:"row_count,string"`
-	}
-
-	err := a.client.QueryOne(ctx, rangeQuery, &rangeResult)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, nil // No contiguous ranges found
-		}
-		return 0, fmt.Errorf("failed to find contiguous ranges: %w", err)
-	}
-
-	// Check if we actually got valid results (not zeros/nulls)
-	// If all fields are zero, it means no ranges were found
-	if rangeResult.RowCount == 0 || (rangeResult.StartPos == 0 && rangeResult.EndPos == 0) {
-		return 0, nil // No valid ranges to consolidate
-	}
-
-	// Don't consolidate a single row - it would just create a duplicate
-	if rangeResult.RowCount == 1 {
-		return 0, nil // Single row doesn't need consolidation
-	}
-
-	// Log what we're about to consolidate for debugging
-	a.log.WithFields(logrus.Fields{
-		"model_id":  modelID,
-		"row_count": rangeResult.RowCount,
-		"start_pos": rangeResult.StartPos,
-		"end_pos":   rangeResult.EndPos,
-		"interval":  rangeResult.EndPos - rangeResult.StartPos,
-	}).Debug("Consolidating admin table rows")
-
-	// Insert the consolidated row FIRST to avoid gaps
-	consolidatedInterval := rangeResult.EndPos - rangeResult.StartPos
-	insertQuery := fmt.Sprintf(`
-		INSERT INTO `+"`%s`.`%s`"+` (updated_date_time, database, table, position, interval)
-		VALUES (now(), '%s', '%s', %d, %d)
-	`, a.adminDatabase, a.adminTable, database, table, rangeResult.StartPos, consolidatedInterval)
-
-	if err := a.client.Execute(ctx, insertQuery); err != nil {
-		return 0, fmt.Errorf("failed to insert consolidated row: %w", err)
-	}
-
-	// Delete old rows EXCEPT the consolidated row we just inserted
-	// This ensures we don't create gaps and don't delete our new row
-	// Use lazy DELETE and handle cluster mode if configured
-	var deleteQuery string
-	if a.cluster != "" {
-		// Cluster mode: use local suffix and ON CLUSTER
-		deleteQuery = fmt.Sprintf(`
-			DELETE FROM `+"`%s`.`%s`%s"+` ON CLUSTER '%s'
-			WHERE database = '%s' AND table = '%s'
-			  AND position >= %d AND position < %d
-			  AND NOT (position = %d AND interval = %d)
-		`, a.adminDatabase, a.adminTable, a.localSuffix, a.cluster,
-			database, table, rangeResult.StartPos, rangeResult.EndPos,
-			rangeResult.StartPos, consolidatedInterval)
-	} else {
-		// Non-cluster mode: simple DELETE
-		deleteQuery = fmt.Sprintf(`
-			DELETE FROM `+"`%s`.`%s`"+`
-			WHERE database = '%s' AND table = '%s'
-			  AND position >= %d AND position < %d
-			  AND NOT (position = %d AND interval = %d)
-		`, a.adminDatabase, a.adminTable,
-			database, table, rangeResult.StartPos, rangeResult.EndPos,
-			rangeResult.StartPos, consolidatedInterval)
-	}
-
-	if err := a.client.Execute(ctx, deleteQuery); err != nil {
-		// Log error but don't fail - the consolidated row will eventually replace the old ones
-		// due to ReplacingMergeTree behavior
-		return rangeResult.RowCount, fmt.Errorf("consolidated row inserted but failed to delete old rows: %w", err)
-	}
-
-	return rangeResult.RowCount, nil
+// FindGaps finds gaps in processed data (incremental only)
+func (s *service) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]GapInfo, error) {
+	// Incremental gap detection not yet implemented
+	return nil, ErrNotImplemented
 }
 
-// GetExternalBounds retrieves cached external model bounds
-func (a *service) GetExternalBounds(ctx context.Context, modelID string) (*BoundsCache, error) {
-	if a.cacheManager == nil {
-		return nil, nil
-	}
-	return a.cacheManager.GetBounds(ctx, modelID)
+// ConsolidateHistoricalData consolidates historical records (incremental only)
+func (s *service) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
+	// Incremental data consolidation not yet implemented
+	return 0, ErrNotImplemented
 }
 
-// SetExternalBounds stores external model bounds in cache
-func (a *service) SetExternalBounds(ctx context.Context, cache *BoundsCache) error {
-	if a.cacheManager == nil {
+// GetExternalBounds gets external model bounds from cache
+func (s *service) GetExternalBounds(ctx context.Context, modelID string) (*BoundsCache, error) {
+	if s.cacheManager == nil {
+		return nil, ErrCacheManagerUnavailable
+	}
+	return s.cacheManager.GetBounds(ctx, modelID)
+}
+
+// SetExternalBounds sets external model bounds in cache
+func (s *service) SetExternalBounds(ctx context.Context, cache *BoundsCache) error {
+	if s.cacheManager == nil {
 		return ErrCacheManagerUnavailable
 	}
-	return a.cacheManager.SetBounds(ctx, cache)
+	return s.cacheManager.SetBounds(ctx, cache)
 }
 
-// Ensure service implements the interface
-var _ Service = (*service)(nil)
+// parseModelID splits a model ID into database and table components
+func (s *service) parseModelID(modelID string) (database, table string, err error) {
+	parts := strings.SplitN(modelID, ".", 2)
+	if len(parts) != 2 {
+		return "", "", ErrInvalidModelID
+	}
+	return parts[0], parts[1], nil
+}

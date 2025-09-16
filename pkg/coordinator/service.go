@@ -182,22 +182,26 @@ func (s *service) Process(trans models.Transformation, direction Direction) {
 
 func (s *service) processForward(trans models.Transformation) {
 	config := trans.GetConfig()
-
-	// Skip if no forward fill schedule configured
-	if !config.IsForwardFillEnabled() {
-		return
-	}
-
 	ctx := context.Background()
 
-	// Handle standalone transformations differently
-	if config.IsStandalone() {
-		s.processStandaloneTransformation(ctx, trans, "forward")
+	// Route based on transformation type
+	switch config.GetType() {
+	case transformation.TypeScheduled:
+		s.processScheduledTransformation(ctx, trans)
+		return
+	case transformation.TypeIncremental:
+		// Skip if no forward fill schedule configured
+		if !config.IsForwardFillEnabled() {
+			return
+		}
+		// Continue with incremental processing
+	default:
+		s.log.WithField("type", config.GetType()).Error("Unknown transformation type")
 		return
 	}
 
 	// Get the next position to process for forward fill
-	nextPos, err := s.admin.GetNextUnprocessedPosition(ctx, trans.GetID())
+	nextPos, err := s.admin.GetNextUnprocessedPosition(ctx, config.GetType(), trans.GetID())
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to get next unprocessed position")
 
@@ -318,23 +322,34 @@ func (s *service) processBack(trans models.Transformation) {
 
 	ctx := context.Background()
 
-	// Handle standalone transformations differently
-	if config.IsStandalone() {
-		s.processStandaloneTransformation(ctx, trans, "backfill")
+	// Route based on transformation type
+	switch config.GetType() {
+	case transformation.TypeScheduled:
+		// Scheduled transformations don't have backfill
+		return
+	case transformation.TypeIncremental:
+		// Continue with incremental backfill processing
+		s.checkBackfillOpportunities(ctx, trans)
+	default:
+		s.log.WithField("type", config.GetType()).Error("Unknown transformation type")
+		return
+	}
+}
+
+// processScheduledTransformation handles scheduled transformations (no dependencies, no position tracking)
+func (s *service) processScheduledTransformation(_ context.Context, trans models.Transformation) {
+	config := trans.GetConfig()
+
+	// Skip if no schedule configured
+	if config.GetScheduleForType() == "" {
 		return
 	}
 
-	s.checkBackfillOpportunities(ctx, trans)
-}
-
-// processStandaloneTransformation handles standalone transformations (no dependencies, no position tracking)
-func (s *service) processStandaloneTransformation(_ context.Context, trans models.Transformation, direction string) {
-	// Create task with zero position/interval for standalone
+	// Create task with zero position/interval for scheduled transformations
 	payload := tasks.TaskPayload{
 		ModelID:    trans.GetID(),
-		Position:   0, // No position tracking for standalone
-		Interval:   0, // No interval for standalone
-		Direction:  direction,
+		Position:   0, // No position tracking for scheduled
+		Interval:   0, // No interval for scheduled
 		EnqueuedAt: time.Now(),
 	}
 
@@ -346,35 +361,27 @@ func (s *service) processStandaloneTransformation(_ context.Context, trans model
 	}
 
 	if isPending {
-		s.log.WithField("task_id", payload.UniqueID()).Debug("Standalone task already pending or running")
+		s.log.WithField("task_id", payload.UniqueID()).Debug("Scheduled task already pending or running")
 		return
 	}
 
 	// Enqueue directly without dependency validation
 	if err := s.queueManager.EnqueueTransformation(payload); err != nil {
-		s.log.WithError(err).WithFields(logrus.Fields{
-			"model_id":  trans.GetID(),
-			"direction": direction,
-		}).Error("Failed to enqueue standalone task")
+		s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to enqueue scheduled task")
 		observability.RecordError("coordinator", "enqueue_error")
 		return
 	}
 
-	s.log.WithFields(logrus.Fields{
-		"model_id":  trans.GetID(),
-		"direction": direction,
-	}).Info("Enqueued standalone transformation task")
-
+	s.log.WithField("model_id", trans.GetID()).Info("Enqueued scheduled transformation task")
 	observability.RecordTaskEnqueued(trans.GetID())
 }
 
-func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64, direction string) {
+func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64, _ string) {
 	// Create task payload
 	payload := tasks.TaskPayload{
 		ModelID:    trans.GetID(),
 		Position:   position,
 		Interval:   interval,
-		Direction:  direction,
 		EnqueuedAt: time.Now(),
 	}
 
@@ -449,14 +456,14 @@ type backfillScanRange struct {
 
 // getBackfillBounds retrieves the last processed positions for backfill scanning
 func (s *service) getBackfillBounds(ctx context.Context, modelID string) (lastPos, lastEndPos uint64, hasData bool) {
-	lastEndPos, err := s.admin.GetLastProcessedEndPosition(ctx, modelID)
+	lastEndPos, err := s.admin.GetLastProcessedEndPosition(ctx, transformation.TypeIncremental, modelID)
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", modelID).Debug("Failed to get last processed end position for gap scan")
 		return 0, 0, false
 	}
 
 	// Also get the actual last position for clearer logging
-	lastPos, _ = s.admin.GetLastProcessedPosition(ctx, modelID)
+	lastPos, _ = s.admin.GetLastProcessedPosition(ctx, transformation.TypeIncremental, modelID)
 
 	return lastPos, lastEndPos, true
 }
@@ -807,7 +814,7 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		config := model.GetConfig()
 
 		// Calculate next position for dependent
-		lastPos, err := s.admin.GetLastProcessedEndPosition(ctx, depModelID)
+		lastPos, err := s.admin.GetLastProcessedEndPosition(ctx, config.GetType(), depModelID)
 		if err != nil {
 			continue
 		}
@@ -846,7 +853,7 @@ func (s *service) RunConsolidation(ctx context.Context) {
 			s.log.WithFields(logrus.Fields{
 				"model_id":          modelID,
 				"rows_consolidated": consolidated,
-			}).Info("Consolidated admin.cbt rows")
+			}).Info("Consolidated admin table rows")
 		}
 	}
 }

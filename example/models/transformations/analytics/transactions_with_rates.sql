@@ -1,5 +1,6 @@
 ---
-# Regular transformation that depends on a standalone transformation
+# Incremental transformation that depends on a scheduled transformation
+type: incremental
 table: transactions_normalized
 interval:
   max: 3600  # Process in 1-hour chunks
@@ -8,13 +9,13 @@ schedules:
   forwardfill: "@every 5m"
   backfill: "@every 30m"
 dependencies:
-  # exchange_rates is a standalone transformation - always available
+  # exchange_rates is a scheduled transformation - always available
   - "{{transformation}}.exchange_rates"
   # raw_transactions is a regular data source with position tracking
   - "{{external}}.raw_transactions"
 ---
 -- This transformation depends on both:
--- 1. A standalone transformation (exchange_rates) - always available
+-- 1. A scheduled transformation (exchange_rates) - always available
 -- 2. A regular external model (raw_transactions) - has bounded data
 
 INSERT INTO `{{ .self.database }}`.`{{ .self.table }}`
@@ -30,12 +31,8 @@ SELECT
     r.rate as exchange_rate,
     r.updated_at as rate_updated_at,
     {{ .bounds.start }} as position,
-    '{{ .task.direction }}' as processing_mode,
-    {{ if .is_backfill }}
-        'historical' as data_type
-    {{ else }}
-        'real-time' as data_type
-    {{ end }}
+    'incremental' as processing_mode,
+    'incremental' as data_type
 FROM `{{ index .dep "{{external}}" "raw_transactions" "database" }}`.`{{ index .dep "{{external}}" "raw_transactions" "table" }}` t
 LEFT JOIN (
     SELECT 

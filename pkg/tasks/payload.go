@@ -10,7 +10,6 @@ type TaskPayload struct {
 	ModelID    string    `json:"model_id"`
 	Position   uint64    `json:"position"`
 	Interval   uint64    `json:"interval"`
-	Direction  string    `json:"direction"` // "forward" or "backfill"
 	EnqueuedAt time.Time `json:"enqueued_at"`
 }
 

@@ -19,9 +19,9 @@ type Service interface {
 	GetDAG() DAGReader
 
 	// Rendering operations
-	RenderTransformation(model Transformation, position, interval uint64, startTime time.Time, direction string) (string, error)
+	RenderTransformation(model Transformation, position, interval uint64, startTime time.Time) (string, error)
 	RenderExternal(model External, cacheState map[string]interface{}) (string, error)
-	GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time, direction string) (*[]string, error)
+	GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error)
 }
 
 // service encapsulates the worker application logic
@@ -138,13 +138,13 @@ func (s *service) GetDAG() DAGReader {
 }
 
 // RenderTransformation renders a transformation model template with variables
-func (s *service) RenderTransformation(model Transformation, position, interval uint64, startTime time.Time, direction string) (string, error) {
-	return s.templateEngine.RenderTransformation(model, position, interval, startTime, direction)
+func (s *service) RenderTransformation(model Transformation, position, interval uint64, startTime time.Time) (string, error) {
+	return s.templateEngine.RenderTransformation(model, position, interval, startTime)
 }
 
 // GetTransformationEnvironmentVariables returns environment variables for a transformation
-func (s *service) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time, direction string) (*[]string, error) {
-	return s.templateEngine.GetTransformationEnvironmentVariables(model, position, interval, startTime, direction)
+func (s *service) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error) {
+	return s.templateEngine.GetTransformationEnvironmentVariables(model, position, interval, startTime)
 }
 
 // RenderExternal renders an external model template with variables

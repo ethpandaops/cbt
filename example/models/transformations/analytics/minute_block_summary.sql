@@ -1,5 +1,6 @@
 ---
 # First level transformation - depends only on external data
+type: incremental
 table: minute_block_summary
 interval:
   max: 60   # 1 minute

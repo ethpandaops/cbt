@@ -14,16 +14,22 @@ var (
 	ErrDatabaseRequired = errors.New("database is required")
 	// ErrTableRequired is returned when table is not specified
 	ErrTableRequired = errors.New("table is required")
-	// ErrNoSchedulesConfig is returned when no schedules are configured
-	ErrNoSchedulesConfig = errors.New("at least one schedule must be configured")
+	// ErrTypeRequired is returned when type is not specified
+	ErrTypeRequired = errors.New("type is required")
+	// ErrInvalidType is returned when type is not valid
+	ErrInvalidType = errors.New("type must be 'incremental' or 'scheduled'")
+	// ErrScheduleRequired is returned when schedule is not specified for scheduled type
+	ErrScheduleRequired = errors.New("schedule is required for scheduled transformations")
+	// ErrSchedulesRequired is returned when schedules are not specified for incremental type
+	ErrSchedulesRequired = errors.New("schedules configuration is required for incremental transformations")
 	// ErrIntervalRequired is returned when interval is not specified
-	ErrIntervalRequired = errors.New("interval configuration is required")
+	ErrIntervalRequired = errors.New("interval configuration is required for incremental transformations")
+	// ErrDependenciesRequired is returned when dependencies are not specified for incremental type
+	ErrDependenciesRequired = errors.New("dependencies are required for incremental transformations")
 	// ErrIntervalMaxRequired is returned when interval.max is not specified
 	ErrIntervalMaxRequired = errors.New("interval.max is required")
 	// ErrInvalidInterval is returned when interval.min exceeds interval.max
 	ErrInvalidInterval = errors.New("interval.min cannot exceed interval.max")
-	// ErrDependenciesRequired is returned when dependencies are not specified
-	ErrDependenciesRequired = errors.New("dependencies is required")
 	// ErrInvalidLimits is returned when min limit is greater than max limit
 	ErrInvalidLimits = errors.New("min limit cannot be greater than max limit")
 	// ErrInvalidDependencyType is returned when dependency has invalid YAML type
@@ -32,6 +38,14 @@ var (
 	ErrInvalidDependencyArrayItem = errors.New("expected string in dependency array")
 	// ErrEmptyDependencyGroup is returned when dependency group is empty
 	ErrEmptyDependencyGroup = errors.New("dependency group cannot be empty")
+	// ErrScheduledNoDependencies is returned when scheduled type has dependencies
+	ErrScheduledNoDependencies = errors.New("scheduled transformations cannot have dependencies")
+	// ErrScheduledNoInterval is returned when scheduled type has interval
+	ErrScheduledNoInterval = errors.New("scheduled transformations cannot have interval configuration")
+	// ErrScheduledNoSchedules is returned when scheduled type has schedules
+	ErrScheduledNoSchedules = errors.New("scheduled transformations should use 'schedule' not 'schedules'")
+	// ErrIncrementalNoSchedule is returned when incremental type has schedule
+	ErrIncrementalNoSchedule = errors.New("incremental transformations should use 'schedules' not 'schedule'")
 )
 
 // Dependency represents a dependency that can be either a string (AND) or an array of strings (OR)
@@ -96,14 +110,26 @@ func (d *Dependency) GetAllDependencies() []string {
 	return []string{d.SingleDep}
 }
 
+// Type represents the type of transformation
+type Type string
+
+const (
+	// TypeIncremental represents incremental transformations with position tracking
+	TypeIncremental Type = "incremental"
+	// TypeScheduled represents scheduled transformations without position tracking
+	TypeScheduled Type = "scheduled"
+)
+
 // Config defines the configuration for transformation models
 type Config struct {
+	Type         Type             `yaml:"type"`
 	Database     string           `yaml:"database"` // Optional, can fall back to default
 	Table        string           `yaml:"table"`
 	Limits       *LimitsConfig    `yaml:"limits,omitempty"`
-	Interval     *IntervalConfig  `yaml:"interval"`
-	Schedules    *SchedulesConfig `yaml:"schedules"`
-	Dependencies []Dependency     `yaml:"dependencies"`
+	Interval     *IntervalConfig  `yaml:"interval,omitempty"`
+	Schedules    *SchedulesConfig `yaml:"schedules,omitempty"`
+	Schedule     string           `yaml:"schedule,omitempty"` // For scheduled type
+	Dependencies []Dependency     `yaml:"dependencies,omitempty"`
 	Tags         []string         `yaml:"tags"`
 
 	// OriginalDependencies stores the dependencies before placeholder substitution
@@ -139,30 +165,49 @@ func (c *Config) Validate() error {
 		return ErrTableRequired
 	}
 
-	// At least one schedule must be configured
-	if c.Schedules == nil || (c.Schedules.ForwardFill == "" && c.Schedules.Backfill == "") {
-		return ErrNoSchedulesConfig
+	if c.Type == "" {
+		return ErrTypeRequired
 	}
 
-	if err := c.Schedules.Validate(); err != nil {
-		return fmt.Errorf("schedules validation failed: %w", err)
+	if c.Type != TypeIncremental && c.Type != TypeScheduled {
+		return ErrInvalidType
 	}
 
-	// Validate based on whether this is standalone or not
-	if c.IsStandalone() {
-		return c.validateStandalone()
+	// Validate based on type
+	switch c.Type {
+	case TypeIncremental:
+		return c.validateIncremental()
+	case TypeScheduled:
+		return c.validateScheduled()
+	default:
+		return ErrInvalidType
 	}
-
-	return c.validateWithDependencies()
 }
 
-// validateStandalone validates configuration for standalone transformations
-func (c *Config) validateStandalone() error {
-	// Interval is optional for standalone transformations
+// validateScheduled validates configuration for scheduled transformations
+func (c *Config) validateScheduled() error {
+	// Schedule is required
+	if c.Schedule == "" {
+		return ErrScheduleRequired
+	}
+
+	if err := ValidateScheduleFormat(c.Schedule); err != nil {
+		return fmt.Errorf("invalid schedule: %w", err)
+	}
+
+	// Scheduled transformations cannot have dependencies
+	if len(c.Dependencies) > 0 {
+		return ErrScheduledNoDependencies
+	}
+
+	// Scheduled transformations cannot have interval
 	if c.Interval != nil {
-		if err := c.Interval.Validate(); err != nil {
-			return fmt.Errorf("interval validation failed: %w", err)
-		}
+		return ErrScheduledNoInterval
+	}
+
+	// Scheduled transformations cannot have schedules (use schedule instead)
+	if c.Schedules != nil {
+		return ErrScheduledNoSchedules
 	}
 
 	// Limits are optional
@@ -175,15 +220,34 @@ func (c *Config) validateStandalone() error {
 	return nil
 }
 
-// validateWithDependencies validates configuration for transformations with dependencies
-func (c *Config) validateWithDependencies() error {
-	// Interval required when dependencies exist
+// validateIncremental validates configuration for incremental transformations
+func (c *Config) validateIncremental() error {
+	// Dependencies are required
+	if len(c.Dependencies) == 0 {
+		return ErrDependenciesRequired
+	}
+
+	// Interval required for incremental transformations
 	if c.Interval == nil {
 		return ErrIntervalRequired
 	}
 
 	if err := c.Interval.Validate(); err != nil {
 		return fmt.Errorf("interval validation failed: %w", err)
+	}
+
+	// Schedules are required
+	if c.Schedules == nil || (c.Schedules.ForwardFill == "" && c.Schedules.Backfill == "") {
+		return ErrSchedulesRequired
+	}
+
+	if err := c.Schedules.Validate(); err != nil {
+		return fmt.Errorf("schedules validation failed: %w", err)
+	}
+
+	// Schedule field should not be used for incremental
+	if c.Schedule != "" {
+		return ErrIncrementalNoSchedule
 	}
 
 	// Limits are optional
@@ -383,7 +447,25 @@ func ValidateScheduleFormat(schedule string) error {
 	return nil
 }
 
-// IsStandalone returns true if this is a standalone transformation (no dependencies)
-func (c *Config) IsStandalone() bool {
-	return len(c.Dependencies) == 0
+// GetType returns the transformation type
+func (c *Config) GetType() Type {
+	return c.Type
+}
+
+// IsScheduled returns true if this is a scheduled transformation
+func (c *Config) IsScheduled() bool {
+	return c.Type == TypeScheduled
+}
+
+// IsIncremental returns true if this is an incremental transformation
+func (c *Config) IsIncremental() bool {
+	return c.Type == TypeIncremental
+}
+
+// GetScheduleForType returns the appropriate schedule based on transformation type
+func (c *Config) GetScheduleForType() string {
+	if c.IsScheduled() {
+		return c.Schedule
+	}
+	return "" // Incremental uses Schedules, not Schedule
 }

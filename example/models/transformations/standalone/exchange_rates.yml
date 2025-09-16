@@ -1,8 +1,8 @@
-# Standalone transformation that generates reference data
+# Scheduled transformation that generates reference data
 # Other transformations can depend on this, treating it as always available
+type: scheduled
 table: exchange_rates
-schedules:
-  forwardfill: "@every 1h"  # Update exchange rates hourly
+schedule: "@every 1h"  # Update exchange rates hourly
 exec: |
   #!/bin/bash
   
@@ -18,7 +18,7 @@ exec: |
       'USD' as base_currency,
       'EUR' as target_currency,
       0.85 + (rand() % 100) / 10000.0 as rate,
-      '${TASK_DIRECTION}' as update_type
+      'scheduled' as update_type
   "
   
   clickhouse-client --query="
@@ -28,7 +28,7 @@ exec: |
       'USD' as base_currency,
       'GBP' as target_currency,
       0.73 + (rand() % 100) / 10000.0 as rate,
-      '${TASK_DIRECTION}' as update_type
+      'scheduled' as update_type
   "
   
   echo "Exchange rates updated successfully"

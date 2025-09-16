@@ -241,7 +241,7 @@ func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 	}
 
 	// Standalone transformations don't need initial position calculation
-	if model.GetConfig().IsStandalone() {
+	if model.GetConfig().IsScheduled() {
 		return 0, nil
 	}
 
@@ -316,18 +316,19 @@ func (v *dependencyValidator) collectTransformationBounds(ctx context.Context, d
 	}
 
 	// If standalone, return "always available" bounds
-	if node.GetConfig().IsStandalone() {
+	if node.GetConfig().IsScheduled() {
 		// Return effectively infinite bounds (beginning to end of time)
 		return 0, ^uint64(0), nil
 	}
 
 	// Regular transformation - check admin table
-	minDep, err = v.admin.GetFirstPosition(ctx, depID)
+	transformationType := node.GetConfig().GetType()
+	minDep, err = v.admin.GetFirstPosition(ctx, transformationType, depID)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get first position for %s: %w", depID, err)
 	}
 
-	maxDep, err = v.admin.GetLastProcessedEndPosition(ctx, depID)
+	maxDep, err = v.admin.GetLastProcessedEndPosition(ctx, transformationType, depID)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get last position for %s: %w", depID, err)
 	}
@@ -543,7 +544,7 @@ func (v *dependencyValidator) GetValidRange(ctx context.Context, modelID string)
 	config := model.GetConfig()
 
 	// Standalone transformations have infinite range
-	if config.IsStandalone() {
+	if config.IsScheduled() {
 		// Standalone mode - use time-based or infinite range
 		return 0, ^uint64(0), nil
 	}

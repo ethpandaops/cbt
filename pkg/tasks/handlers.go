@@ -12,6 +12,7 @@ import (
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
+	transformationPkg "github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/ethpandaops/cbt/pkg/validation"
 	"github.com/hibiken/asynq"
@@ -53,7 +54,6 @@ type TaskContext struct {
 	Transformation models.Transformation
 	Position       uint64
 	Interval       uint64
-	Direction      string // "forward" or "backfill"
 	StartTime      time.Time
 	Variables      map[string]interface{}
 }
@@ -120,7 +120,7 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 	}
 
 	// Skip dependency validation for standalone transformations
-	if !transformation.GetConfig().IsStandalone() {
+	if transformation.GetConfig().IsIncremental() {
 		// Validate dependencies
 		h.log.WithField("model_id", payload.ModelID).Info("Validating dependencies")
 		depStartTime := time.Now()
@@ -159,7 +159,6 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 		Transformation: transformation,
 		Position:       payload.Position,
 		Interval:       payload.Interval,
-		Direction:      payload.Direction,
 		StartTime:      startTime,
 	}
 
@@ -172,20 +171,40 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 	}
 	h.log.WithField("model_id", payload.ModelID).Info("Model execution completed")
 
-	// Skip admin table recording for standalone transformations
-	if !transformation.GetConfig().IsStandalone() {
-		// Record completion in admin table
-		if err := h.admin.RecordCompletion(ctx, payload.ModelID, payload.Position, payload.Interval); err != nil {
+	// Record completion based on transformation type
+	transformationType := transformation.GetConfig().GetType()
+
+	if transformation.GetConfig().IsIncremental() {
+		// Record incremental completion in admin table
+		completion := transformationPkg.IncrementalCompletion{
+			Database: transformation.GetConfig().Database,
+			Table:    transformation.GetConfig().Table,
+			Position: payload.Position,
+			Interval: payload.Interval,
+		}
+		if err := h.admin.RecordCompletion(ctx, transformationType, completion); err != nil {
 			observability.RecordTaskComplete(payload.ModelID, workerID, "failed", time.Since(startTime).Seconds())
 			observability.RecordError("task-handler", "record_completion_error")
 			return fmt.Errorf("failed to record completion: %w", err)
 		}
 
 		// Record transformation bounds in metrics
-		minPos, _ := h.admin.GetFirstPosition(ctx, payload.ModelID)
-		maxPos, _ := h.admin.GetLastProcessedEndPosition(ctx, payload.ModelID)
+		minPos, _ := h.admin.GetFirstPosition(ctx, transformationType, payload.ModelID)
+		maxPos, _ := h.admin.GetLastProcessedEndPosition(ctx, transformationType, payload.ModelID)
 		if minPos > 0 && maxPos > 0 {
 			observability.RecordModelBounds(payload.ModelID, minPos, maxPos)
+		}
+	} else if transformation.GetConfig().IsScheduled() {
+		// Record scheduled completion in admin table
+		completion := transformationPkg.ScheduledCompletion{
+			Database:  transformation.GetConfig().Database,
+			Table:     transformation.GetConfig().Table,
+			StartTime: taskCtx.StartTime,
+		}
+		if err := h.admin.RecordCompletion(ctx, transformationType, completion); err != nil {
+			observability.RecordTaskComplete(payload.ModelID, workerID, "failed", time.Since(startTime).Seconds())
+			observability.RecordError("task-handler", "record_completion_error")
+			return fmt.Errorf("failed to record completion: %w", err)
 		}
 	}
 
