@@ -2,6 +2,8 @@ package models
 
 import (
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
+	"github.com/ethpandaops/cbt/pkg/models/transformation/incremental"
+	"github.com/ethpandaops/cbt/pkg/models/transformation/scheduled"
 )
 
 // ModelOverride represents configuration overrides for a specific model
@@ -39,31 +41,75 @@ type LimitsOverride struct {
 }
 
 // ApplyToTransformation applies override configuration to a transformation model
-// TODO: This needs to be refactored to work with the new incremental/scheduled split
-func (o *ModelOverride) ApplyToTransformation(_ *transformation.Config) {
-	// Overrides temporarily disabled during refactor
+func (o *ModelOverride) ApplyToTransformation(model Transformation) {
+	if o == nil || o.Config == nil {
+		return
+	}
+
+	handler := model.GetHandler()
+	if handler == nil {
+		return
+	}
+
+	// Handle incremental type
+	if handler.Type() == transformation.TypeIncremental {
+		if cfg, ok := handler.Config().(*incremental.Config); ok {
+			o.applyIncrementalOverrides(cfg)
+		}
+	}
+
+	// Handle scheduled type
+	if handler.Type() == transformation.TypeScheduled {
+		if cfg, ok := handler.Config().(*scheduled.Config); ok {
+			o.applyScheduledOverrides(cfg)
+		}
+	}
 }
 
-// TODO: These override methods need to be refactored to work with incremental/scheduled configs
-// For now, they're commented out to avoid compilation errors
+// applyIncrementalOverrides applies overrides to incremental transformation config
+func (o *ModelOverride) applyIncrementalOverrides(config *incremental.Config) {
+	if o.Config.Interval != nil && config.Interval != nil {
+		if o.Config.Interval.Max != nil {
+			config.Interval.Max = *o.Config.Interval.Max
+		}
+		if o.Config.Interval.Min != nil {
+			config.Interval.Min = *o.Config.Interval.Min
+		}
+	}
 
-/*
-func (o *ModelOverride) applyIntervalOverrides(config *transformation.Config) {
-	// Needs refactoring for new config types
+	if o.Config.Schedules != nil && config.Schedules != nil {
+		if o.Config.Schedules.ForwardFill != nil {
+			config.Schedules.ForwardFill = *o.Config.Schedules.ForwardFill
+		}
+		if o.Config.Schedules.Backfill != nil {
+			config.Schedules.Backfill = *o.Config.Schedules.Backfill
+		}
+	}
+
+	if o.Config.Limits != nil {
+		if config.Limits == nil {
+			config.Limits = &incremental.LimitsConfig{}
+		}
+		if o.Config.Limits.Min != nil {
+			config.Limits.Min = *o.Config.Limits.Min
+		}
+		if o.Config.Limits.Max != nil {
+			config.Limits.Max = *o.Config.Limits.Max
+		}
+	}
+
+	if len(o.Config.Tags) > 0 {
+		config.Tags = append(config.Tags, o.Config.Tags...)
+	}
 }
 
-func (o *ModelOverride) applyScheduleOverrides(config *transformation.Config) {
-	// Needs refactoring for new config types
+// applyScheduledOverrides applies overrides to scheduled transformation config
+func (o *ModelOverride) applyScheduledOverrides(config *scheduled.Config) {
+	// Scheduled transformations only support tags override
+	if len(o.Config.Tags) > 0 {
+		config.Tags = append(config.Tags, o.Config.Tags...)
+	}
 }
-
-func (o *ModelOverride) applyLimitOverrides(config *transformation.Config) {
-	// Needs refactoring for new config types
-}
-
-func (o *ModelOverride) applyTagOverrides(config *transformation.Config) {
-	// Needs refactoring for new config types
-}
-*/
 
 // IsDisabled returns true if the model is explicitly disabled
 func (o *ModelOverride) IsDisabled() bool {

@@ -108,8 +108,8 @@ func (s *service) parseModels() error {
 		s.transformationModels = append(s.transformationModels, model)
 	}
 
-	// TODO: Overrides temporarily disabled during transformation type refactor
-	// s.applyOverrides()
+	// Apply overrides after all models are loaded
+	s.applyOverrides()
 
 	return nil
 }
@@ -152,6 +152,71 @@ func (s *service) substitutePlaceholders(model Transformation) {
 			s.config.Transformation.DefaultDatabase,
 		)
 	}
+}
+
+func (s *service) applyOverrides() {
+	if len(s.config.Overrides) == 0 {
+		return
+	}
+
+	// Track which overrides were applied
+	appliedOverrides := make(map[string]bool)
+
+	// Filter transformations based on overrides - pre-allocate with capacity
+	filteredTransformations := make([]Transformation, 0, len(s.transformationModels))
+	for _, model := range s.transformationModels {
+		config := model.GetConfig()
+		modelID := config.GetID()
+
+		// Try to find override using either full ID or table-only format
+		override, overrideKey := s.findOverride(modelID, config.Table)
+
+		if override != nil {
+			appliedOverrides[overrideKey] = true
+
+			// Check if model is disabled
+			if override.IsDisabled() {
+				s.log.WithField("model", modelID).Info("Model disabled by override")
+				continue // Skip this model
+			}
+
+			// Apply configuration overrides to the model
+			override.ApplyToTransformation(model)
+			s.log.WithField("model", modelID).Debug("Applied configuration override")
+		}
+
+		filteredTransformations = append(filteredTransformations, model)
+	}
+
+	// Warn about overrides that didn't match any models
+	for modelID := range s.config.Overrides {
+		if !appliedOverrides[modelID] {
+			s.log.WithField("model", modelID).Warn("Override specified for non-existent model")
+		}
+	}
+
+	s.transformationModels = filteredTransformations
+}
+
+// findOverride looks up an override using both full ID and table-only formats
+func (s *service) findOverride(fullID, tableName string) (override *ModelOverride, overrideKey string) {
+	// First, try with the full model ID (database.table)
+	if override, exists := s.config.Overrides[fullID]; exists {
+		return override, fullID
+	}
+
+	// If the model uses the default database, also try with just the table name
+	// This allows more intuitive overrides when using default databases
+	if s.config.Transformation.DefaultDatabase != "" {
+		// Check if this model is using the default database
+		if fullID == fmt.Sprintf("%s.%s", s.config.Transformation.DefaultDatabase, tableName) {
+			if override, exists := s.config.Overrides[tableName]; exists {
+				return override, tableName
+			}
+		}
+	}
+
+	return nil, ""
 }
 
 func (s *service) buildDAG() error {
