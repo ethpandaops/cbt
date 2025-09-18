@@ -55,3 +55,41 @@ models:
     paths:
       - "/app/models/transformations"
     defaultDatabase: "analytics"  # Default database for transformation models
+
+# Optional: Override configuration for specific transformation models
+# Useful for environment-specific adjustments (staging, production, etc.)
+# You can use either full ID (database.table) or table-only format for models using default database
+# overrides:
+#   # Disable a model entirely (full ID format)
+#   analytics.block_never_loads:
+#     enabled: false
+#   
+#   # Override using table-only format (works because model uses defaultDatabase: "analytics")
+#   hourly_block_stats:
+#     config:
+#       interval:
+#         max: 7200  # Increase to 2 hours in staging
+#       schedules:
+#         forwardfill: "@every 10m"  # Slower schedule
+#         backfill: null  # Disable backfill
+#   
+#   # Table-only format for simpler configs
+#   entity_changes:
+#     config:
+#       schedules:
+#         forwardfill: "@every 5m"
+#         backfill: "@every 30m"
+#   
+#   # Mix both formats as needed
+#   five_minute_report:  # Table-only format
+#     config:
+#       tags:
+#         - "staging-only"
+#         - "low-priority"
+#   
+#   # Models with custom databases must use full ID
+#   custom_db.special_model:
+#     config:
+#       limits:
+#         min: 1000000  # Start from specific position
+#         max: 2000000  # End at specific position
