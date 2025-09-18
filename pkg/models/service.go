@@ -108,6 +108,9 @@ func (s *service) parseModels() error {
 		s.transformationModels = append(s.transformationModels, model)
 	}
 
+	// TODO: Overrides temporarily disabled during transformation type refactor
+	// s.applyOverrides()
+
 	return nil
 }
 

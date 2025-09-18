@@ -128,6 +128,20 @@ worker:
 #     paths:
 #       - "models/transformations" # default
 #       - "/additional/transformation/models"
+#
+# # Model overrides for environment-specific adjustments (optional)
+# # Override transformation model configurations without modifying base definitions
+# overrides:
+#   # Disable specific models
+#   analytics.expensive_model:
+#     enabled: false
+#   # Customize model settings
+#   analytics.hourly_stats:
+#     config:
+#       interval:
+#         max: 7200  # Override interval
+#       schedules:
+#         backfill: null  # Disable backfill
 ```
 
 ## Models
@@ -167,6 +181,119 @@ models:
       - "models/transformations"    # Default path
       - "/shared/transformations"   # Shared transformations
 ```
+
+### Model Overrides
+
+CBT supports configuration overrides for transformation models, allowing you to customize model behavior for different environments without modifying the base model definitions. This is particularly useful when pulling models from a remote/shared repository and deploying to staging or production environments with different requirements.
+
+#### Override Configuration
+
+Add an `overrides` section to your config to customize specific models. You can reference models in two ways:
+
+1. **Full ID format**: `database.table` - Always works for any model
+2. **Table-only format**: `table` - Works for models using the default database
+
+```yaml
+# Example with default database configured
+models:
+  transformations:
+    defaultDatabase: "analytics"
+
+# Override specific transformation models
+overrides:
+  # Full ID format - explicit and always works
+  analytics.expensive_model:
+    enabled: false
+  
+  # Table-only format - cleaner when using default database
+  hourly_block_stats:  # Equivalent to analytics.hourly_block_stats
+    config:
+      interval:
+        max: 7200  # Increase interval to 2 hours (staging environment)
+      schedules:
+        forwardfill: "@every 10m"  # Slower schedule for staging
+        backfill: null  # Disable backfill
+  
+  # Models with custom databases must use full ID
+  custom_db.special_model:
+    config:
+      schedules:
+        forwardfill: "@every 5m"
+  
+  # You can mix both formats
+  entity_changes:  # Uses default database (analytics)
+    config:
+      tags:
+        - "staging-only"
+```
+
+**Note**: If both formats exist for the same model, the full ID format takes precedence.
+
+#### Override Features
+
+- **`enabled`**: Set to `false` to completely disable a model
+- **`config.interval`**: Override `max` and/or `min` interval settings
+- **`config.schedules`**: Override `forwardfill` and/or `backfill` schedules (set to `null` to disable)
+- **`config.limits`**: Set or override position limits (`min`/`max`)
+- **`config.tags`**: Add additional tags (appended to existing tags)
+
+#### Use Cases
+
+**Staging Environment:**
+```yaml
+# Assuming defaultDatabase: "analytics"
+overrides:
+  # Reduce resource usage in staging (table-only format)
+  heavy_aggregation:
+    config:
+      interval:
+        max: 14400  # Process larger chunks less frequently
+      schedules:
+        forwardfill: "@every 30m"
+        backfill: null  # No backfill in staging
+  
+  # Disable production-only models (table-only format)
+  production_reporting:
+    enabled: false
+```
+
+**Production Environment:**
+```yaml
+overrides:
+  # Disable debug/test models in production
+  analytics.debug_tracker:
+    enabled: false
+  
+  # Ensure critical models run frequently
+  analytics.real_time_metrics:
+    config:
+      schedules:
+        forwardfill: "@every 30s"
+        backfill: "@every 1m"
+```
+
+**Development Environment:**
+```yaml
+overrides:
+  # Process limited data ranges for testing
+  analytics.block_stats:
+    config:
+      limits:
+        min: 1000000  # Start from specific position
+        max: 2000000  # Stop at specific position
+      schedules:
+        forwardfill: "@every 5m"  # Less frequent for development
+```
+
+#### How Overrides Work
+
+1. Models are loaded from configured paths (potentially remote/shared repositories)
+2. Default databases are applied if not specified in models
+3. **Overrides are applied** to matching transformation models
+4. Validation ensures overridden configurations are still valid
+5. The dependency graph is built with the final configurations
+
+Models referenced in overrides that don't exist will generate warning logs but won't cause failures, making it safe to share override configurations across environments with different model sets.
 
 ### External Models
 
