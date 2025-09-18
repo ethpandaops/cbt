@@ -217,9 +217,80 @@ When no cache exists (first run), a full scan is always performed. The cache per
 
 ### Transformation Models
 
-Transformation models process data in intervals. Intervals are agnostic to the source data and could be a time interval, a block number etc. The `database` field can be omitted if a `defaultDatabase` is configured in the models configuration.
+CBT supports two types of transformation models, each optimized for different use cases. All transformations must specify their type using the `type` field.
 
 > Note: CBT does not create transformation tables and **requires** you to create them manually by design.
+
+#### Transformation Types
+
+##### Type 1: Incremental Transformations (`type: incremental`)
+
+Incremental transformations process data in ordered intervals with position tracking. They maintain exact boundaries for every processed interval, support gap detection and backfilling, and validate dependency availability before processing.
+
+**Use cases:**
+- Event stream processing
+- Time-series aggregations
+- Any transformation requiring ordered, complete data processing
+
+**Configuration:**
+```yaml
+type: incremental           # Required
+database: analytics         # Optional if defaultDatabase configured
+table: hourly_aggregation
+interval:
+  max: 3600                # Maximum interval size (required)
+  min: 0                   # Minimum interval size (0 = allow partial)
+schedules:                 # At least one schedule required
+  forwardfill: "@every 5m"
+  backfill: "@every 1h"
+dependencies:              # Required
+  - {{external}}.source_data
+tags: [aggregation]
+```
+
+##### Type 2: Scheduled Transformations (`type: scheduled`)
+
+Scheduled transformations execute on a schedule without position tracking. They cannot declare dependencies (self-contained) and appear as "always available" to dependent transformations.
+
+**Use cases:**
+- Reference data updates (exchange rates, user lists)
+- System health monitoring
+- Report generation
+- Database maintenance tasks
+
+**Configuration:**
+```yaml
+type: scheduled            # Required
+database: reference        # Optional if defaultDatabase configured
+table: exchange_rates
+schedule: "@every 1h"      # Cron expression (required)
+# No dependencies allowed
+# No interval configuration
+tags: [reference]
+```
+
+##### Key Differences
+
+| Feature | Incremental | Scheduled |
+|---------|------------|-----------|
+| Position tracking | Yes | No |
+| Dependencies | Required | Not allowed |
+| Interval configuration | Required | Not allowed |
+| Admin table | `admin.cbt_incremental` | `admin.cbt_scheduled` |
+| Template variables | Bounds, position | Execution time only |
+| Use case | Data pipelines | Reference data, monitoring |
+
+##### Mixing Transformation Types
+
+Incremental transformations can depend on scheduled transformations. When calculating bounds, scheduled dependencies return unbounded ranges `[0, MaxUint64]`, allowing incremental transformations to proceed without waiting:
+
+```yaml
+type: incremental
+table: transactions_normalized
+dependencies:
+  - {{transformation}}.exchange_rates  # Scheduled - always available
+  - {{external}}.raw_transactions      # Incremental - bounds checked
+```
 
 #### Dependencies
 
@@ -259,16 +330,23 @@ When CBT processes OR groups:
 
 #### Template Variables
 
-Models support Go template syntax with the following variables:
+Models support Go template syntax. Available variables depend on the transformation type:
 
+**Common variables (all types):**
 - `{{ .clickhouse.cluster }}` - ClickHouse cluster name
 - `{{ .clickhouse.local_suffix }}` - Local table suffix for cluster setups
 - `{{ .self.database }}` - Current model's database
 - `{{ .self.table }}` - Current model's table
-- `{{ .bounds.start }}` - Processing interval start
-- `{{ .bounds.end }}` - Processing interval end
-- `{{ .task.start }}` - Task start timestamp
+- `{{ .task.direction }}` - Processing direction ("forward" or "backfill")
+
+**Incremental transformations only:**
+- `{{ .bounds.start }}` - Processing interval start position
+- `{{ .bounds.end }}` - Processing interval end position
+- `{{ .self.interval }}` - Processing interval size
 - `{{ index .dep "db" "table" "field" }}` - Access dependency configuration
+
+**All transformations:**
+- `{{ .task.start }}` - Task start timestamp (Unix)
 
 When using placeholder dependencies (e.g., `{{external}}.beacon_blocks`), you can access them in templates using either form:
 - **Placeholder form**: `{{ index .dep "{{external}}" "beacon_blocks" "database" }}`
@@ -276,10 +354,13 @@ When using placeholder dependencies (e.g., `{{external}}.beacon_blocks`), you ca
 
 Both forms work identically, allowing your templates to be portable across different database configurations.
 
-#### Example
+#### Examples
+
+##### Incremental Transformation Example
 
 ```sql
 ---
+type: incremental    # Required: Specifies this is an incremental transformation
 database: analytics  # Optional: Falls back to models.transformations.defaultDatabase if not specified
 table: block_propagation
 limits:               # Optional: position boundaries for processing
@@ -325,6 +406,30 @@ WHERE
   AND updated_date_time != fromUnixTimestamp({{ .task.start }});
 ```
 
+##### Scheduled Transformation Example
+
+```sql
+---
+type: scheduled      # Required: Specifies this is a scheduled transformation
+database: reference  # Optional: Falls back to models.transformations.defaultDatabase if not specified
+table: exchange_rates
+schedule: "@every 1h"  # Cron expression for scheduling
+tags:
+  - reference
+  - financial
+# No dependencies allowed for scheduled transformations
+# No interval configuration needed
+---
+-- Scheduled transformation SQL - runs without position tracking
+INSERT INTO `{{ .self.database }}`.`{{ .self.table }}`
+SELECT
+    now() as updated_at,
+    'USD' as base_currency,
+    'EUR' as target_currency,
+    0.85 + (rand() * 0.1 - 0.05) as rate,
+    {{ .task.start }} as refresh_timestamp
+```
+
 ### External Script Models
 
 Models can execute external scripts instead of SQL. The script receives environment variables with ClickHouse credentials and task context.
@@ -343,6 +448,7 @@ Environment variables provided to scripts:
 #### Example
 
 ```yaml
+type: incremental    # Required: type field is mandatory
 database: analytics  # Optional: Falls back to models.transformations.defaultDatabase if not specified
 table: python_metrics
 interval:
@@ -423,21 +529,27 @@ cbt --config production.yaml
 
 ### Admin Table Setup
 
-CBT tracks completed transformations in an admin table for idempotency and gap detection. This table must be created before running CBT.
+CBT tracks completed transformations in admin tables. **Each transformation type requires its own admin table:**
+- **Incremental transformations**: Use `cbt_incremental` table for position tracking
+- **Scheduled transformations**: Use `cbt_scheduled` table for execution tracking
 
 ### Configuration
 
-The admin table location is configurable in your `config.yaml`:
+Admin table locations are configurable in your `config.yaml`:
 
 ```yaml
 clickhouse:
   url: http://localhost:8123
-  # Optional: Custom admin table (defaults shown)
-  adminDatabase: admin  # Default: "admin"
-  adminTable: cbt       # Default: "cbt"
+  admin:
+    incremental:
+      database: admin          # Default: "admin"
+      table: cbt_incremental   # Default: "cbt_incremental"
+    scheduled:
+      database: admin          # Default: "admin"
+      table: cbt_scheduled     # Default: "cbt_scheduled"
 ```
 
-This allows running multiple CBT instances on the same cluster (e.g., `dev_admin.cbt`, `prod_admin.cbt`).
+This allows running multiple CBT instances on the same cluster (e.g., `dev_admin.cbt_incremental`, `prod_admin.cbt_scheduled`).
 
 ### Single-Node Setup
 
@@ -447,8 +559,8 @@ For single-node ClickHouse deployments:
 -- Create admin database
 CREATE DATABASE IF NOT EXISTS admin;
 
--- Create admin tracking table
-CREATE TABLE IF NOT EXISTS admin.cbt (
+-- Create admin table for incremental transformations
+CREATE TABLE IF NOT EXISTS admin.cbt_incremental (
     updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
     database LowCardinality(String) COMMENT 'The database name',
     table LowCardinality(String) COMMENT 'The table name', 
@@ -457,6 +569,16 @@ CREATE TABLE IF NOT EXISTS admin.cbt (
     INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
 ) ENGINE = ReplacingMergeTree(updated_date_time)
 ORDER BY (database, table, position);
+
+-- Create admin table for scheduled transformations
+CREATE TABLE IF NOT EXISTS admin.cbt_scheduled (
+    updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
+    database LowCardinality(String) COMMENT 'The database name',
+    table LowCardinality(String) COMMENT 'The table name',
+    start_date_time DateTime(3) COMMENT 'The start time of the scheduled job',
+    INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
+) ENGINE = ReplacingMergeTree(updated_date_time)
+ORDER BY (database, table);
 ```
 
 ### Clustered Setup
@@ -467,8 +589,9 @@ For ClickHouse clusters with replication:
 -- Create admin database on all nodes
 CREATE DATABASE IF NOT EXISTS admin ON CLUSTER '{cluster}';
 
--- Create local table on each node
-CREATE TABLE IF NOT EXISTS admin.cbt_local ON CLUSTER '{cluster}' (
+-- INCREMENTAL TRANSFORMATIONS TABLES
+-- Create local table for incremental transformations on each node
+CREATE TABLE IF NOT EXISTS admin.cbt_incremental_local ON CLUSTER '{cluster}' (
     updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
     database LowCardinality(String) COMMENT 'The database name',
     table LowCardinality(String) COMMENT 'The table name',
@@ -476,57 +599,95 @@ CREATE TABLE IF NOT EXISTS admin.cbt_local ON CLUSTER '{cluster}' (
     interval UInt64 COMMENT 'The size of the interval processed',
     INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree(
-    '/clickhouse/{installation}/{cluster}/{database}/tables/{table}/{shard}',
+    '/clickhouse/{installation}/{cluster}/tables/{shard}/{database}/{table}',
     '{replica}',
     updated_date_time
 )
 ORDER BY (database, table, position);
 
--- Create distributed table for querying
-CREATE TABLE IF NOT EXISTS admin.cbt ON CLUSTER '{cluster}' AS admin.cbt_local
+-- Create distributed table for querying incremental transformations
+CREATE TABLE IF NOT EXISTS admin.cbt_incremental ON CLUSTER '{cluster}' AS admin.cbt_incremental_local
 ENGINE = Distributed(
     '{cluster}',
     'admin',
-    'cbt_local',
+    'cbt_incremental_local',
+    cityHash64(database, table)
+);
+
+-- SCHEDULED TRANSFORMATIONS TABLES
+-- Create local table for scheduled transformations on each node
+CREATE TABLE IF NOT EXISTS admin.cbt_scheduled_local ON CLUSTER '{cluster}' (
+    updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
+    database LowCardinality(String) COMMENT 'The database name',
+    table LowCardinality(String) COMMENT 'The table name',
+    start_date_time DateTime(3) COMMENT 'The start time of the scheduled job',
+    INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
+) ENGINE = ReplicatedReplacingMergeTree(
+    '/clickhouse/{installation}/{cluster}/tables/{shard}/{database}/{table}',
+    '{replica}',
+    updated_date_time
+)
+ORDER BY (database, table);
+
+-- Create distributed table for querying scheduled transformations
+CREATE TABLE IF NOT EXISTS admin.cbt_scheduled ON CLUSTER '{cluster}' AS admin.cbt_scheduled_local
+ENGINE = Distributed(
+    '{cluster}',
+    'admin',
+    'cbt_scheduled_local',
     cityHash64(database, table)
 );
 ```
 
 ### Using Custom Admin Tables
 
-If you need to use a different database or table name:
+If you need to use different database or table names:
 
 1. Update your `config.yaml`:
 ```yaml
 clickhouse:
-  adminDatabase: custom_admin
-  adminTable: custom_tracking
+  admin:
+    incremental:
+      database: custom_admin
+      table: custom_incremental
+    scheduled:
+      database: custom_admin
+      table: custom_scheduled
 ```
 
 2. Create the tables using your custom names:
 ```sql
 CREATE DATABASE IF NOT EXISTS custom_admin;
-CREATE TABLE IF NOT EXISTS custom_admin.custom_tracking (
-    -- Same schema as above
+
+-- For incremental transformations
+CREATE TABLE IF NOT EXISTS custom_admin.custom_incremental (
+    -- Same schema as admin.cbt_incremental above
+);
+
+-- For scheduled transformations  
+CREATE TABLE IF NOT EXISTS custom_admin.custom_scheduled (
+    -- Same schema as admin.cbt_scheduled above
 );
 ```
 
-### Monitoring Admin Table
+### Monitoring Admin Tables
 
-Query the admin table to monitor progress, find gaps, or debug processing issues:
+Query the admin tables to monitor progress, find gaps, or debug processing issues:
+
+#### Monitoring Incremental Transformations
 
 ```sql
--- View model processing status
+-- View incremental transformation processing status
 SELECT 
     database,
     table,
     count(*) as intervals_processed,
     min(position) as earliest_position,
     max(position + interval) as latest_position
-FROM admin.cbt FINAL
+FROM admin.cbt_incremental FINAL
 GROUP BY database, table;
 
--- Find gaps in processing
+-- Find gaps in incremental processing
 WITH intervals AS (
     SELECT 
         database,
@@ -534,7 +695,7 @@ WITH intervals AS (
         position,
         position + interval as end_pos,
         lead(position) OVER (PARTITION BY database, table ORDER BY position) as next_position
-    FROM admin.cbt FINAL
+    FROM admin.cbt_incremental FINAL
 )
 SELECT 
     database,

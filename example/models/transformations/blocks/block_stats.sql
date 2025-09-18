@@ -1,6 +1,7 @@
 ---
 # database is set in the config models.transformations.defaultDatabase
 # database: analytics
+type: incremental
 table: hourly_block_stats
 limits:
   min: 1000  # Optional: minimum position to process

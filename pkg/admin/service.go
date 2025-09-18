@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/redis/go-redis/v9"
@@ -21,12 +22,16 @@ var (
 
 // Service defines the public interface for the admin service
 type Service interface {
-	// Position tracking
+	// Position tracking (for incremental transformations)
 	GetLastProcessedEndPosition(ctx context.Context, modelID string) (uint64, error) // Returns end of last processed range
 	GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error)  // Returns next position for forward fill
 	GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error)    // Returns position of last record
 	GetFirstPosition(ctx context.Context, modelID string) (uint64, error)
 	RecordCompletion(ctx context.Context, modelID string, position, interval uint64) error
+
+	// Scheduled transformation tracking
+	RecordScheduledCompletion(ctx context.Context, modelID string, startDateTime time.Time) error
+	GetLastScheduledExecution(ctx context.Context, modelID string) (*time.Time, error)
 
 	// Coverage and gap management
 	GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error)
@@ -40,8 +45,10 @@ type Service interface {
 	SetExternalBounds(ctx context.Context, cache *BoundsCache) error
 
 	// Admin table info
-	GetAdminDatabase() string
-	GetAdminTable() string
+	GetIncrementalAdminDatabase() string
+	GetIncrementalAdminTable() string
+	GetScheduledAdminDatabase() string
+	GetScheduledAdminTable() string
 }
 
 // GapInfo represents a gap in the processed data
@@ -60,32 +67,55 @@ type service struct {
 	adminDatabase string
 	adminTable    string
 
+	scheduledAdminDatabase string
+	scheduledAdminTable    string
+
 	cacheManager *CacheManager
 }
 
-// NewService creates a new admin table manager
-func NewService(log logrus.FieldLogger, client clickhouse.ClientInterface, cluster, localSuffix, adminDatabase, adminTable string, redisClient *redis.Client) Service {
+// TableConfig represents configuration for admin tables
+type TableConfig struct {
+	IncrementalDatabase string
+	IncrementalTable    string
+	ScheduledDatabase   string
+	ScheduledTable      string
+}
+
+// NewService creates a new admin table manager with type-specific admin tables
+func NewService(log logrus.FieldLogger, client clickhouse.ClientInterface, cluster, localSuffix string, config TableConfig, redisClient *redis.Client) Service {
 	cacheManager := NewCacheManager(redisClient)
 
 	return &service{
-		log:           log.WithField("service", "admin"),
-		client:        client,
-		cluster:       cluster,
-		localSuffix:   localSuffix,
-		adminDatabase: adminDatabase,
-		adminTable:    adminTable,
-		cacheManager:  cacheManager,
+		log:                    log.WithField("service", "admin"),
+		client:                 client,
+		cluster:                cluster,
+		localSuffix:            localSuffix,
+		adminDatabase:          config.IncrementalDatabase,
+		adminTable:             config.IncrementalTable,
+		scheduledAdminDatabase: config.ScheduledDatabase,
+		scheduledAdminTable:    config.ScheduledTable,
+		cacheManager:           cacheManager,
 	}
 }
 
-// GetAdminDatabase returns the admin database name
-func (a *service) GetAdminDatabase() string {
+// GetIncrementalAdminDatabase returns the incremental admin database name
+func (a *service) GetIncrementalAdminDatabase() string {
 	return a.adminDatabase
 }
 
-// GetAdminTable returns the admin table name
-func (a *service) GetAdminTable() string {
+// GetIncrementalAdminTable returns the incremental admin table name
+func (a *service) GetIncrementalAdminTable() string {
 	return a.adminTable
+}
+
+// GetScheduledAdminDatabase returns the scheduled admin database name
+func (a *service) GetScheduledAdminDatabase() string {
+	return a.scheduledAdminDatabase
+}
+
+// GetScheduledAdminTable returns the scheduled admin table name
+func (a *service) GetScheduledAdminTable() string {
+	return a.scheduledAdminTable
 }
 
 // RecordCompletion records a completed transformation in the admin table
@@ -556,6 +586,54 @@ func (a *service) SetExternalBounds(ctx context.Context, cache *BoundsCache) err
 		return ErrCacheManagerUnavailable
 	}
 	return a.cacheManager.SetBounds(ctx, cache)
+}
+
+// RecordScheduledCompletion records a completed scheduled transformation
+func (a *service) RecordScheduledCompletion(ctx context.Context, modelID string, startDateTime time.Time) error {
+	parts := strings.Split(modelID, ".")
+	if len(parts) != 2 {
+		return ErrInvalidModelID
+	}
+
+	a.log.WithFields(logrus.Fields{
+		"model_id":        modelID,
+		"start_date_time": startDateTime,
+	}).Debug("Recording scheduled task completion in admin table")
+
+	query := fmt.Sprintf(`
+		INSERT INTO `+"`%s`.`%s`"+` (updated_date_time, database, table, start_date_time)
+		VALUES (now(), '%s', '%s', '%s')
+	`, a.scheduledAdminDatabase, a.scheduledAdminTable, parts[0], parts[1], startDateTime.Format("2006-01-02 15:04:05.000"))
+
+	return a.client.Execute(ctx, query)
+}
+
+// GetLastScheduledExecution returns the last execution time for a scheduled transformation
+func (a *service) GetLastScheduledExecution(ctx context.Context, modelID string) (*time.Time, error) {
+	parts := strings.Split(modelID, ".")
+	if len(parts) != 2 {
+		return nil, ErrInvalidModelID
+	}
+
+	query := fmt.Sprintf(`
+		SELECT max(start_date_time) as last_execution
+		FROM `+"`%s`.`%s`"+` FINAL
+		WHERE database = '%s' AND table = '%s'
+	`, a.scheduledAdminDatabase, a.scheduledAdminTable, parts[0], parts[1])
+
+	var result struct {
+		LastExecution *time.Time `json:"last_execution"`
+	}
+
+	err := a.client.QueryOne(ctx, query, &result)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return result.LastExecution, nil
 }
 
 // Ensure service implements the interface

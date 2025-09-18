@@ -1,6 +1,7 @@
 ---
 # database is set in the config models.transformations.defaultDatabase
 # database: analytics
+type: incremental
 table: block_propagation
 interval:
   max: 60

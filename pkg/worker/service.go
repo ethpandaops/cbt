@@ -151,8 +151,17 @@ func filteredTransformations(modelsService models.Service, tags []string) []mode
 
 	for _, tag := range tags {
 		for _, transformation := range transformationNodes {
-			if slices.Contains(transformation.GetConfig().Tags, tag) {
-				filteredTransformations = append(filteredTransformations, transformation)
+			// Get tags from handler if it provides them
+			handler := transformation.GetHandler()
+			if handler != nil {
+				type tagsProvider interface {
+					GetTags() []string
+				}
+				if provider, ok := handler.(tagsProvider); ok {
+					if slices.Contains(provider.GetTags(), tag) {
+						filteredTransformations = append(filteredTransformations, transformation)
+					}
+				}
 			}
 		}
 	}

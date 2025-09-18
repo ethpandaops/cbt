@@ -35,6 +35,7 @@ type Transformation interface {
 	GetType() string
 	GetID() string
 	GetConfig() *transformation.Config
+	GetHandler() transformation.Handler
 	GetValue() string
 	SetDefaultDatabase(defaultDB string)
 }

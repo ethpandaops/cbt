@@ -54,7 +54,7 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 
 	variables := t.buildBaseVariables(config, position, interval, startTime)
 
-	deps, err := t.buildDependencyVariables(config)
+	deps, err := t.buildDependencyVariables(model)
 	if err != nil {
 		return nil, err
 	}
@@ -86,8 +86,19 @@ func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, posit
 }
 
 // buildDependencyVariables processes all dependencies and builds the dep variables
-func (t *TemplateEngine) buildDependencyVariables(config *transformation.Config) (map[string]interface{}, error) {
+func (t *TemplateEngine) buildDependencyVariables(model Transformation) (map[string]interface{}, error) {
 	deps := map[string]interface{}{}
+
+	// Get dependencies from handler if it supports them
+	handler := model.GetHandler()
+	if handler == nil {
+		return deps, nil
+	}
+
+	depProvider, ok := handler.(interface{ GetFlattenedDependencies() []string })
+	if !ok {
+		return deps, nil
+	}
 
 	// Helper function to add a dep entry
 	addDepEntry := func(database, table string, data map[string]interface{}) {
@@ -99,8 +110,9 @@ func (t *TemplateEngine) buildDependencyVariables(config *transformation.Config)
 		deps[database] = db
 	}
 
-	for i, dependency := range config.Dependencies {
-		if err := t.processDependency(dependency, i, config, addDepEntry); err != nil {
+	allDeps := depProvider.GetFlattenedDependencies()
+	for _, depID := range allDeps {
+		if err := t.processSingleDependencyID(depID, depID, addDepEntry); err != nil {
 			return nil, err
 		}
 	}
@@ -108,39 +120,8 @@ func (t *TemplateEngine) buildDependencyVariables(config *transformation.Config)
 	return deps, nil
 }
 
-// processDependency processes a single dependency (which may be a group)
-func (t *TemplateEngine) processDependency(dependency transformation.Dependency, index int, config *transformation.Config, addDepEntry func(string, string, map[string]interface{})) error {
-	depIDs := dependency.GetAllDependencies()
-
-	for _, depID := range depIDs {
-		originalDep := t.findOriginalDependency(depID, index, config)
-
-		if err := t.processSingleDependencyID(depID, originalDep, addDepEntry); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// findOriginalDependency finds the original dependency string before placeholder substitution
-func (t *TemplateEngine) findOriginalDependency(depID string, index int, config *transformation.Config) string {
-	if index >= len(config.OriginalDependencies) {
-		return depID
-	}
-
-	originalDeps := config.OriginalDependencies[index].GetAllDependencies()
-	for _, origDep := range originalDeps {
-		if strings.Contains(origDep, ".") {
-			parts := strings.SplitN(origDep, ".", 2)
-			if len(parts) == 2 && strings.HasSuffix(depID, "."+parts[1]) {
-				return origDep
-			}
-		}
-	}
-
-	return depID
-}
+// Deprecated: These functions are no longer needed with the new handler architecture
+// Dependencies are now managed directly by type-specific handlers
 
 // processSingleDependencyID processes a single dependency ID
 func (t *TemplateEngine) processSingleDependencyID(depID, originalDep string, addDepEntry func(string, string, map[string]interface{})) error {
@@ -230,8 +211,14 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 			fmt.Sprintf("CLICKHOUSE_LOCAL_SUFFIX=%s", t.clickhouseCfg.LocalSuffix))
 	}
 
-	// Process all dependencies (single and OR groups)
-	allDeps := config.GetFlattenedDependencies()
+	// Process all dependencies from handler
+	var allDeps []string
+	handler := model.GetHandler()
+	if handler != nil {
+		if depProvider, ok := handler.(interface{ GetFlattenedDependencies() []string }); ok {
+			allDeps = depProvider.GetFlattenedDependencies()
+		}
+	}
 	for _, depID := range allDeps {
 		dep, err := t.dag.GetNode(depID)
 		if err != nil {

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -12,21 +13,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Mock transformation with template value
-type mockTransformationWithTemplate struct {
-	id           string
+// Mock handler for template tests
+type mockTemplateHandler struct {
 	dependencies []string
-	config       transformation.Config
-	value        string
 }
 
-func (m *mockTransformationWithTemplate) GetID() string                     { return m.id }
-func (m *mockTransformationWithTemplate) GetDependencies() []string         { return m.dependencies }
-func (m *mockTransformationWithTemplate) GetConfig() *transformation.Config { return &m.config }
-func (m *mockTransformationWithTemplate) GetSQL() string                    { return "" }
-func (m *mockTransformationWithTemplate) GetType() string                   { return "transformation" }
-func (m *mockTransformationWithTemplate) GetValue() string                  { return m.value }
-func (m *mockTransformationWithTemplate) GetEnvironmentVariables() []string { return []string{} }
+func (h *mockTemplateHandler) GetFlattenedDependencies() []string {
+	return h.dependencies
+}
+
+func (h *mockTemplateHandler) Type() transformation.Type { return "incremental" }
+func (h *mockTemplateHandler) Config() any               { return nil }
+func (h *mockTemplateHandler) Validate() error           { return nil }
+func (h *mockTemplateHandler) ShouldTrackPosition() bool { return true }
+func (h *mockTemplateHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
+	return nil
+}
+func (h *mockTemplateHandler) GetAdminTable() transformation.AdminTable {
+	return transformation.AdminTable{}
+}
+func (h *mockTemplateHandler) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
+	return nil
+}
+
+// Mock transformation with template value
+type mockTransformationWithTemplate struct {
+	id      string
+	config  transformation.Config
+	handler transformation.Handler
+	value   string
+}
+
+func (m *mockTransformationWithTemplate) GetID() string                      { return m.id }
+func (m *mockTransformationWithTemplate) GetConfig() *transformation.Config  { return &m.config }
+func (m *mockTransformationWithTemplate) GetSQL() string                     { return "" }
+func (m *mockTransformationWithTemplate) GetType() string                    { return "transformation" }
+func (m *mockTransformationWithTemplate) GetValue() string                   { return m.value }
+func (m *mockTransformationWithTemplate) GetHandler() transformation.Handler { return m.handler }
 func (m *mockTransformationWithTemplate) SetDefaultDatabase(defaultDB string) {
 	m.config.SetDefaults(defaultDB)
 }
@@ -49,7 +72,7 @@ func (m *mockExternalWithTemplate) SetDefaultDatabase(defaultDB string) {
 	m.config.SetDefaults(defaultDB)
 }
 
-func TestTemplateEngineDualKeyWithRealSQL(t *testing.T) {
+func TestTemplateEngineWithRealSQL(t *testing.T) {
 	// Create a dependency graph
 	dag := NewDependencyGraph()
 
@@ -64,28 +87,25 @@ func TestTemplateEngineDualKeyWithRealSQL(t *testing.T) {
 		},
 	}
 
-	// Create transformation with SQL using placeholder syntax
+	// Create transformation with SQL
 	transformModel := &mockTransformationWithTemplate{
-		id:           "processed.block_summary",
-		dependencies: []string{"{{external}}.blocks"},
+		id: "processed.block_summary",
 		config: transformation.Config{
-			Database:             "processed",
-			Table:                "block_summary",
-			Dependencies:         []transformation.Dependency{{IsGroup: false, SingleDep: "{{external}}.blocks"}},
-			OriginalDependencies: []transformation.Dependency{{IsGroup: false, SingleDep: "{{external}}.blocks"}},
+			Database: "processed",
+			Table:    "block_summary",
+		},
+		handler: &mockTemplateHandler{
+			dependencies: []string{"raw_data.blocks"},
 		},
 		value: `INSERT INTO {{ .self.database }}.{{ .self.table }}
 SELECT 
     block_number,
     block_hash,
     count(*) as tx_count
-FROM {{ index .dep "{{external}}" "blocks" "database" }}.{{ index .dep "{{external}}" "blocks" "table" }}
+FROM {{ index .dep "raw_data" "blocks" "database" }}.{{ index .dep "raw_data" "blocks" "table" }}
 WHERE block_timestamp BETWEEN {{ .bounds.start }} AND {{ .bounds.end }}
 GROUP BY block_number, block_hash`,
 	}
-
-	// Substitute placeholders
-	transformModel.config.SubstituteDependencyPlaceholders("raw_data", "processed")
 
 	// Build the graph
 	transformations := []Transformation{transformModel}
@@ -110,7 +130,7 @@ GROUP BY block_number, block_hash`,
 	assert.Contains(t, rendered, "WHERE block_timestamp BETWEEN 1000 AND 1100")
 }
 
-func TestTemplateEngineDualKeyDependencyAccess(t *testing.T) {
+func TestTemplateEngineDependencyAccess(t *testing.T) {
 	// Create a dependency graph
 	dag := NewDependencyGraph()
 
@@ -127,39 +147,30 @@ func TestTemplateEngineDualKeyDependencyAccess(t *testing.T) {
 
 	// Create transformation model that will be referenced
 	refTransformModel := &mockTransformationWithTemplate{
-		id:           "analytics.hourly_stats",
-		dependencies: []string{},
+		id: "analytics.hourly_stats",
 		config: transformation.Config{
 			Database: "analytics",
 			Table:    "hourly_stats",
 		},
+		handler: &mockTemplateHandler{
+			dependencies: []string{},
+		},
 		value: "SELECT * FROM stats",
 	}
 
-	// Main transformation with placeholder dependencies
+	// Main transformation with resolved dependencies
 	mainTransformModel := &mockTransformationWithTemplate{
-		id:           "analytics.test_transform",
-		dependencies: []string{"{{external}}.beacon_blocks", "{{transformation}}.hourly_stats"},
+		id: "analytics.test_transform",
 		config: transformation.Config{
 			Database: "analytics",
 			Table:    "test_transform",
-			Dependencies: []transformation.Dependency{
-				{IsGroup: false, SingleDep: "{{external}}.beacon_blocks"},
-				{IsGroup: false, SingleDep: "{{transformation}}.hourly_stats"},
-			},
-			OriginalDependencies: []transformation.Dependency{
-				{IsGroup: false, SingleDep: "{{external}}.beacon_blocks"},
-				{IsGroup: false, SingleDep: "{{transformation}}.hourly_stats"},
-			},
 		},
-		value: `Placeholder access: {{ index .dep "{{external}}" "beacon_blocks" "database" }}.{{ index .dep "{{external}}" "beacon_blocks" "table" }}
-Resolved access: {{ index .dep "ethereum" "beacon_blocks" "database" }}.{{ index .dep "ethereum" "beacon_blocks" "table" }}
-Transformation placeholder: {{ index .dep "{{transformation}}" "hourly_stats" "database" }}.{{ index .dep "{{transformation}}" "hourly_stats" "table" }}
+		handler: &mockTemplateHandler{
+			dependencies: []string{"ethereum.beacon_blocks", "analytics.hourly_stats"},
+		},
+		value: `Resolved access: {{ index .dep "ethereum" "beacon_blocks" "database" }}.{{ index .dep "ethereum" "beacon_blocks" "table" }}
 Transformation resolved: {{ index .dep "analytics" "hourly_stats" "database" }}.{{ index .dep "analytics" "hourly_stats" "table" }}`,
 	}
-
-	// Substitute placeholders
-	mainTransformModel.config.SubstituteDependencyPlaceholders("ethereum", "analytics")
 
 	// Build the graph
 	transformations := []Transformation{mainTransformModel, refTransformModel}
@@ -178,10 +189,8 @@ Transformation resolved: {{ index .dep "analytics" "hourly_stats" "database" }}.
 	rendered, err := engine.RenderTransformation(mainTransformModel, 1000, 100, time.Now())
 	require.NoError(t, err)
 
-	// Verify both placeholder and resolved forms work
-	assert.Contains(t, rendered, "Placeholder access: ethereum.beacon_blocks")
+	// Verify both forms work
 	assert.Contains(t, rendered, "Resolved access: ethereum.beacon_blocks")
-	assert.Contains(t, rendered, "Transformation placeholder: analytics.hourly_stats")
 	assert.Contains(t, rendered, "Transformation resolved: analytics.hourly_stats")
 }
 
@@ -213,18 +222,13 @@ func TestRenderTransformation(t *testing.T) {
 
 	// Setup dependencies
 	dep1 := &mockTransformationWithTemplate{
-		id: "dep.model1",
+		id: "dep_db.model1",
 		config: transformation.Config{
 			Database: "dep_db",
 			Table:    "model1",
-			Interval: &transformation.IntervalConfig{
-				Max: 100,
-				Min: 0,
-			},
-			Schedules: &transformation.SchedulesConfig{
-				ForwardFill: "@every 1m",
-			},
-			Dependencies: []transformation.Dependency{},
+		},
+		handler: &mockTemplateHandler{
+			dependencies: []string{},
 		},
 	}
 
@@ -245,18 +249,13 @@ func TestRenderTransformation(t *testing.T) {
 		{
 			name: "simple template rendering",
 			model: &mockTransformationWithTemplate{
-				id: "test.model",
+				id: "test_db.test_table",
 				config: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table",
-					Interval: &transformation.IntervalConfig{
-						Max: 100,
-						Min: 0,
-					},
-					Schedules: &transformation.SchedulesConfig{
-						ForwardFill: "@every 1m",
-					},
-					Dependencies: []transformation.Dependency{},
+				},
+				handler: &mockTemplateHandler{
+					dependencies: []string{},
 				},
 				value: "SELECT * FROM {{ .self.database }}.{{ .self.table }} WHERE position >= {{ .bounds.start }} AND position < {{ .bounds.end }}",
 			},
@@ -268,20 +267,13 @@ func TestRenderTransformation(t *testing.T) {
 		{
 			name: "template with dependencies",
 			model: &mockTransformationWithTemplate{
-				id: "test.model2",
+				id: "test_db.test_table2",
 				config: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table2",
-					Interval: &transformation.IntervalConfig{
-						Max: 100,
-						Min: 0,
-					},
-					Schedules: &transformation.SchedulesConfig{
-						ForwardFill: "@every 1m",
-					},
-					Dependencies: []transformation.Dependency{
-						{IsGroup: false, SingleDep: "dep.model1"},
-					},
+				},
+				handler: &mockTemplateHandler{
+					dependencies: []string{"dep_db.model1"},
 				},
 				value: "SELECT * FROM {{ .dep.dep_db.model1.database }}.{{ .dep.dep_db.model1.table }}",
 			},
@@ -293,18 +285,13 @@ func TestRenderTransformation(t *testing.T) {
 		{
 			name: "template with sprig functions",
 			model: &mockTransformationWithTemplate{
-				id: "test.model3",
+				id: "test_db.test_table3",
 				config: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table3",
-					Interval: &transformation.IntervalConfig{
-						Max: 100,
-						Min: 0,
-					},
-					Schedules: &transformation.SchedulesConfig{
-						ForwardFill: "@every 1m",
-					},
-					Dependencies: []transformation.Dependency{},
+				},
+				handler: &mockTemplateHandler{
+					dependencies: []string{},
 				},
 				value: "SELECT '{{ .self.table | upper }}' as table_name",
 			},
@@ -316,18 +303,13 @@ func TestRenderTransformation(t *testing.T) {
 		{
 			name: "invalid template syntax",
 			model: &mockTransformationWithTemplate{
-				id: "test.model4",
+				id: "test_db.test_table4",
 				config: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table4",
-					Interval: &transformation.IntervalConfig{
-						Max: 100,
-						Min: 0,
-					},
-					Schedules: &transformation.SchedulesConfig{
-						ForwardFill: "@every 1m",
-					},
-					Dependencies: []transformation.Dependency{},
+				},
+				handler: &mockTemplateHandler{
+					dependencies: []string{},
 				},
 				value: "SELECT * FROM {{ .invalid.syntax",
 			},
@@ -440,23 +422,18 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 
 	// Setup dependencies
 	dep1 := &mockTransformationWithTemplate{
-		id: "dep.model1",
+		id: "dep_db.model1",
 		config: transformation.Config{
 			Database: "dep_db",
 			Table:    "model1",
-			Interval: &transformation.IntervalConfig{
-				Max: 100,
-				Min: 0,
-			},
-			Schedules: &transformation.SchedulesConfig{
-				ForwardFill: "@every 1m",
-			},
-			Dependencies: []transformation.Dependency{},
+		},
+		handler: &mockTemplateHandler{
+			dependencies: []string{},
 		},
 	}
 
 	ext1 := &mockExternalWithTemplate{
-		id: "ext.source1",
+		id: "ext_db.source1",
 		config: external.Config{
 			Database: "ext_db",
 			Table:    "source1",
@@ -471,21 +448,13 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 	engine := NewTemplateEngine(chConfig, dag)
 
 	model := &mockTransformationWithTemplate{
-		id: "test.model",
+		id: "test_db.test_table",
 		config: transformation.Config{
 			Database: "test_db",
 			Table:    "test_table",
-			Interval: &transformation.IntervalConfig{
-				Max: 100,
-				Min: 0,
-			},
-			Schedules: &transformation.SchedulesConfig{
-				ForwardFill: "@every 1m",
-			},
-			Dependencies: []transformation.Dependency{
-				{IsGroup: false, SingleDep: "dep.model1"},
-				{IsGroup: false, SingleDep: "ext.source1"},
-			},
+		},
+		handler: &mockTemplateHandler{
+			dependencies: []string{"dep_db.model1", "ext_db.source1"},
 		},
 		value: "SELECT * FROM test",
 	}
@@ -506,10 +475,10 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 		"BOUNDS_END=1100",
 		"CLICKHOUSE_CLUSTER=test_cluster",
 		"CLICKHOUSE_LOCAL_SUFFIX=_local",
-		"DEP_DEP_MODEL1_DATABASE=dep_db",
-		"DEP_DEP_MODEL1_TABLE=model1",
-		"DEP_EXT_SOURCE1_DATABASE=ext_db",
-		"DEP_EXT_SOURCE1_TABLE=source1",
+		"DEP_DEP_DB_MODEL1_DATABASE=dep_db",
+		"DEP_DEP_DB_MODEL1_TABLE=model1",
+		"DEP_EXT_DB_SOURCE1_DATABASE=ext_db",
+		"DEP_EXT_DB_SOURCE1_TABLE=source1",
 	}
 
 	for _, expected := range expectedVars {
@@ -535,20 +504,13 @@ func TestBuildTransformationVariables_MissingDependency(t *testing.T) {
 	engine := NewTemplateEngine(chConfig, dag)
 
 	model := &mockTransformationWithTemplate{
-		id: "test.model",
+		id: "test_db.test_table",
 		config: transformation.Config{
 			Database: "test_db",
 			Table:    "test_table",
-			Interval: &transformation.IntervalConfig{
-				Max: 100,
-				Min: 0,
-			},
-			Schedules: &transformation.SchedulesConfig{
-				ForwardFill: "@every 1m",
-			},
-			Dependencies: []transformation.Dependency{
-				{IsGroup: false, SingleDep: "missing.dep"},
-			},
+		},
+		handler: &mockTemplateHandler{
+			dependencies: []string{"missing.dep"},
 		},
 		value: "SELECT * FROM test",
 	}
@@ -570,18 +532,13 @@ func BenchmarkRenderTransformation(b *testing.B) {
 	engine := NewTemplateEngine(chConfig, dag)
 
 	model := &mockTransformationWithTemplate{
-		id: "test.model",
+		id: "test_db.test_table",
 		config: transformation.Config{
 			Database: "test_db",
 			Table:    "test_table",
-			Interval: &transformation.IntervalConfig{
-				Max: 100,
-				Min: 0,
-			},
-			Schedules: &transformation.SchedulesConfig{
-				ForwardFill: "@every 1m",
-			},
-			Dependencies: []transformation.Dependency{},
+		},
+		handler: &mockTemplateHandler{
+			dependencies: []string{},
 		},
 		value: "SELECT * FROM {{ .self.database }}.{{ .self.table }} WHERE position >= {{ .bounds.start }} AND position < {{ .bounds.end }}",
 	}
@@ -635,6 +592,9 @@ func TestTemplateRenderingWithHyphenatedDatabases(t *testing.T) {
 			Database: "analytics-db",
 			Table:    "hourly_stats",
 		},
+		handler: &mockTemplateHandler{
+			dependencies: []string{},
+		},
 		value: "INSERT INTO `{{ .self.database }}`.`{{ .self.table }}` SELECT * FROM source",
 	}
 
@@ -648,27 +608,4 @@ func TestTemplateRenderingWithHyphenatedDatabases(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, rendered, "`analytics-db`.`hourly_stats`")
-}
-
-// TestPlaceholderSubstitutionWithHyphenatedDatabases tests placeholder substitution with hyphenated database names
-func TestPlaceholderSubstitutionWithHyphenatedDatabases(t *testing.T) {
-	config := &transformation.Config{
-		Database: "target-db",
-		Table:    "processed",
-		Dependencies: []transformation.Dependency{
-			{SingleDep: "{{external}}.raw_data", IsGroup: false},
-			{SingleDep: "{{transformation}}.hourly", IsGroup: false},
-		},
-	}
-
-	// Apply substitution with hyphenated database names
-	config.SubstituteDependencyPlaceholders("source-db", "analytics-db")
-
-	// Check that placeholders were correctly replaced
-	assert.Equal(t, "source-db.raw_data", config.Dependencies[0].SingleDep)
-	assert.Equal(t, "analytics-db.hourly", config.Dependencies[1].SingleDep)
-
-	// Check that original dependencies were preserved
-	assert.Equal(t, "{{external}}.raw_data", config.OriginalDependencies[0].SingleDep)
-	assert.Equal(t, "{{transformation}}.hourly", config.OriginalDependencies[1].SingleDep)
 }

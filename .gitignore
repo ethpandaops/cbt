@@ -53,3 +53,6 @@ coverage.out
 
 # Debug bins
 *__debug_bin*
+
+# Python
+__pycache__

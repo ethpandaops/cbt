@@ -298,8 +298,16 @@ func (m *mockAdminService) GetExternalBounds(_ context.Context, _ string) (*admi
 func (m *mockAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
 	return nil
 }
-func (m *mockAdminService) GetAdminDatabase() string { return "admin_db" }
-func (m *mockAdminService) GetAdminTable() string    { return "admin_table" }
+func (m *mockAdminService) GetIncrementalAdminDatabase() string { return "admin_db" }
+func (m *mockAdminService) GetIncrementalAdminTable() string    { return "admin_table" }
+func (m *mockAdminService) GetScheduledAdminDatabase() string   { return "admin" }
+func (m *mockAdminService) GetScheduledAdminTable() string      { return "cbt_scheduled" }
+func (m *mockAdminService) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
+	return nil, nil
+}
 
 var _ admin.Service = (*mockAdminService)(nil)
 
@@ -325,27 +333,70 @@ func (m *mockModelsService) GetTransformationEnvironmentVariables(_ models.Trans
 
 var _ models.Service = (*mockModelsService)(nil)
 
+// Mock handler for testing
+type mockHandler struct {
+	tags []string
+}
+
+func (m *mockHandler) Type() transformation.Type {
+	return transformation.TypeIncremental
+}
+
+func (m *mockHandler) Config() any {
+	return &transformation.Config{
+		Type:     transformation.TypeIncremental,
+		Database: "test_db",
+		Table:    "test_table",
+	}
+}
+
+func (m *mockHandler) Validate() error {
+	return nil
+}
+
+func (m *mockHandler) ShouldTrackPosition() bool {
+	return true
+}
+
+func (m *mockHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
+	return map[string]any{}
+}
+
+func (m *mockHandler) GetAdminTable() transformation.AdminTable {
+	return transformation.AdminTable{
+		Database: "admin",
+		Table:    "cbt",
+	}
+}
+
+func (m *mockHandler) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
+	return nil
+}
+
+func (m *mockHandler) GetTags() []string {
+	return m.tags
+}
+
 type mockTransformation struct {
-	id       string
-	tags     []string
-	interval uint64
+	id      string
+	tags    []string
+	handler transformation.Handler
 }
 
 func (m *mockTransformation) GetID() string { return m.id }
 func (m *mockTransformation) GetConfig() *transformation.Config {
 	return &transformation.Config{
+		Type:     transformation.TypeIncremental,
 		Database: "test_db",
 		Table:    "test_table",
-		Interval: &transformation.IntervalConfig{
-			Max: m.interval,
-			Min: 0,
-		},
-		Schedules: &transformation.SchedulesConfig{
-			ForwardFill: "@every 1m",
-		},
-		Tags:         m.tags,
-		Dependencies: []transformation.Dependency{},
 	}
+}
+func (m *mockTransformation) GetHandler() transformation.Handler {
+	if m.handler != nil {
+		return m.handler
+	}
+	// Return a mock handler with tags
+	return &mockHandler{tags: m.tags}
 }
 func (m *mockTransformation) GetValue() string                  { return "" }
 func (m *mockTransformation) GetDependencies() []string         { return []string{} }

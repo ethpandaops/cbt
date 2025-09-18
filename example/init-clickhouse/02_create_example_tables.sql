@@ -1,6 +1,8 @@
 -- Create example databases
 CREATE DATABASE IF NOT EXISTS ethereum;
 CREATE DATABASE IF NOT EXISTS analytics;
+CREATE DATABASE IF NOT EXISTS reference;
+CREATE DATABASE IF NOT EXISTS monitoring;
 
 -- Create example beacon_blocks table (source)
 -- Each row represents a client's observation of a block
@@ -222,3 +224,54 @@ CREATE TABLE IF NOT EXISTS analytics.five_minute_report (
 ) ENGINE = ReplacingMergeTree(updated_date_time)
 ORDER BY (five_minute_window)
 PARTITION BY toYYYYMM(five_minute_window);
+
+-- SCHEDULED TRANSFORMATION TABLES
+
+-- Exchange rates reference data (scheduled transformation)
+CREATE TABLE IF NOT EXISTS reference.exchange_rates (
+    updated_at DateTime DEFAULT now(),
+    base_currency String,
+    target_currency String,
+    rate Float64,
+    refresh_timestamp UInt64
+) ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY (base_currency, target_currency);
+
+-- System health monitoring (scheduled transformation)
+CREATE TABLE IF NOT EXISTS monitoring.system_health_check (
+    check_time DateTime,
+    component String,
+    service String,
+    status String,
+    uptime_seconds UInt64,
+    memory_usage String,
+    timestamp UInt64
+) ENGINE = MergeTree()
+ORDER BY (check_time, component, service)
+PARTITION BY toYYYYMM(check_time);
+
+-- INCREMENTAL TRANSFORMATION DEPENDING ON SCHEDULED DATA
+
+-- Raw transactions source table
+CREATE TABLE IF NOT EXISTS ethereum.raw_transactions (
+    transaction_id String,
+    timestamp DateTime,
+    amount Decimal(18, 8),
+    currency String,
+    position UInt64
+) ENGINE = MergeTree()
+ORDER BY (timestamp, transaction_id)
+PARTITION BY toYYYYMM(timestamp);
+
+-- Transactions normalized with exchange rates (incremental depending on scheduled)
+CREATE TABLE IF NOT EXISTS analytics.transactions_normalized (
+    transaction_id String,
+    timestamp DateTime,
+    amount Decimal(18, 8),
+    currency String,
+    amount_usd Decimal(18, 8),
+    _position UInt64,
+    _interval UInt64
+) ENGINE = MergeTree()
+ORDER BY (timestamp, transaction_id, _position)
+PARTITION BY toYYYYMM(timestamp);
