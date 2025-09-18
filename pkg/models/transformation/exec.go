@@ -62,3 +62,14 @@ func (c *Exec) GetValue() string {
 func (c *Exec) SetDefaultDatabase(defaultDB string) {
 	c.SetDefaults(defaultDB)
 }
+
+// GetID returns the unique identifier
+func (c *Exec) GetID() string {
+	return c.Config.GetID()
+}
+
+// GetHandler returns the type-specific handler (nil for exec types)
+func (c *Exec) GetHandler() Handler {
+	// Exec types don't have handlers currently
+	return nil
+}

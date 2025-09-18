@@ -284,17 +284,13 @@ func TestHandleScheduledBackfill(t *testing.T) {
 					&mockTransformation{
 						id: "test.model",
 						conf: transformation.Config{
+							Type:     transformation.TypeIncremental,
 							Database: "test_db",
 							Table:    "model",
-							Interval: &transformation.IntervalConfig{
-								Max: 100,
-								Min: 0,
-							},
-							Schedules: &transformation.SchedulesConfig{
-								ForwardFill: "@every 1m",
-								Backfill:    "*/5 * * * *",
-							},
-							Dependencies: []transformation.Dependency{},
+						},
+						handler: &mockHandler{
+							backfillEnabled:  true,
+							backfillSchedule: "*/5 * * * *",
 						},
 					},
 				}
@@ -506,16 +502,88 @@ func (m *mockCoordinator) ProcessBoundsOrchestration(_ context.Context) {
 
 var _ coordinator.Service = (*mockCoordinator)(nil)
 
+// Mock handler for testing
+type mockHandler struct {
+	schedule           string
+	forwardFillEnabled bool
+	forwardSchedule    string
+	backfillEnabled    bool
+	backfillSchedule   string
+}
+
+func (m *mockHandler) Type() transformation.Type {
+	return transformation.TypeIncremental
+}
+
+func (m *mockHandler) Config() any {
+	return &transformation.Config{
+		Type:     transformation.TypeIncremental,
+		Database: "test",
+		Table:    "test",
+	}
+}
+
+func (m *mockHandler) Validate() error {
+	return nil
+}
+
+func (m *mockHandler) ShouldTrackPosition() bool {
+	return true
+}
+
+func (m *mockHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
+	return map[string]any{}
+}
+
+func (m *mockHandler) GetAdminTable() transformation.AdminTable {
+	return transformation.AdminTable{
+		Database: "admin",
+		Table:    "cbt",
+	}
+}
+
+func (m *mockHandler) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
+	return nil
+}
+
+func (m *mockHandler) GetSchedule() string {
+	return m.schedule
+}
+
+func (m *mockHandler) IsForwardFillEnabled() bool {
+	return m.forwardFillEnabled
+}
+
+func (m *mockHandler) GetForwardSchedule() string {
+	return m.forwardSchedule
+}
+
+func (m *mockHandler) IsBackfillEnabled() bool {
+	return m.backfillEnabled
+}
+
+func (m *mockHandler) GetBackfillSchedule() string {
+	return m.backfillSchedule
+}
+
 type mockTransformation struct {
-	id   string
-	conf transformation.Config
-	deps []string
-	sql  string
-	typ  string
+	id      string
+	conf    transformation.Config
+	handler transformation.Handler
+	deps    []string
+	sql     string
+	typ     string
 }
 
 func (m *mockTransformation) GetID() string                     { return m.id }
 func (m *mockTransformation) GetConfig() *transformation.Config { return &m.conf }
+func (m *mockTransformation) GetHandler() transformation.Handler {
+	if m.handler != nil {
+		return m.handler
+	}
+	// Return a default mock handler for backward compatibility
+	return &mockHandler{}
+}
 func (m *mockTransformation) GetValue() string                  { return "" }
 func (m *mockTransformation) GetDependencies() []string         { return m.deps }
 func (m *mockTransformation) GetSQL() string                    { return m.sql }

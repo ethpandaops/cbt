@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/models"
@@ -246,12 +247,102 @@ func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string
 	return 0, nil
 }
 
-func (m *mockAdminService) GetAdminDatabase() string {
+func (m *mockAdminService) GetIncrementalAdminDatabase() string {
 	return "admin"
 }
 
-func (m *mockAdminService) GetAdminTable() string {
+func (m *mockAdminService) GetIncrementalAdminTable() string {
 	return "cbt"
+}
+
+func (m *mockAdminService) GetScheduledAdminDatabase() string {
+	return "admin"
+}
+
+func (m *mockAdminService) GetScheduledAdminTable() string {
+	return "cbt_scheduled"
+}
+
+func (m *mockAdminService) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
+	return nil, nil
+}
+
+// Mock handler for testing
+type mockHandler struct {
+	interval               uint64
+	minInterval            uint64
+	forwardFillEnabled     bool
+	backfillEnabled        bool
+	allowsPartialIntervals bool
+	dependencies           []string
+	limits                 *struct{ Min, Max uint64 }
+}
+
+func (m *mockHandler) Type() transformation.Type {
+	return transformation.TypeIncremental
+}
+
+func (m *mockHandler) Config() any {
+	return &transformation.Config{
+		Type:     transformation.TypeIncremental,
+		Database: "test",
+		Table:    "test",
+	}
+}
+
+func (m *mockHandler) Validate() error {
+	return nil
+}
+
+func (m *mockHandler) ShouldTrackPosition() bool {
+	return true
+}
+
+func (m *mockHandler) GetMaxInterval() uint64 {
+	return m.interval
+}
+
+func (m *mockHandler) GetMinInterval() uint64 {
+	return m.minInterval
+}
+
+func (m *mockHandler) AllowsPartialIntervals() bool {
+	return m.allowsPartialIntervals
+}
+
+func (m *mockHandler) IsForwardFillEnabled() bool {
+	return m.forwardFillEnabled
+}
+
+func (m *mockHandler) IsBackfillEnabled() bool {
+	return m.backfillEnabled
+}
+
+func (m *mockHandler) GetFlattenedDependencies() []string {
+	return m.dependencies
+}
+
+func (m *mockHandler) GetLimits() *struct{ Min, Max uint64 } {
+	return m.limits
+}
+
+func (m *mockHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
+	return map[string]any{}
+}
+
+func (m *mockHandler) GetAdminTable() transformation.AdminTable {
+	return transformation.AdminTable{
+		Database: "admin",
+		Table:    "cbt",
+	}
+}
+
+func (m *mockHandler) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
+	return nil
 }
 
 // Mock transformation for testing
@@ -259,6 +350,7 @@ type mockTransformation struct {
 	id       string
 	interval uint64
 	config   *transformation.Config // Allow custom config for testing
+	handler  transformation.Handler // Mock handler for testing
 }
 
 func (m *mockTransformation) GetID() string { return m.id }
@@ -266,18 +358,23 @@ func (m *mockTransformation) GetConfig() *transformation.Config {
 	if m.config != nil {
 		return m.config
 	}
-	// Default config for backward compatibility
+	// Default config for new architecture
 	return &transformation.Config{
+		Type:     transformation.TypeIncremental,
 		Database: "test_db",
 		Table:    "test_table",
-		Interval: &transformation.IntervalConfig{
-			Max: m.interval,
-			Min: 0,
-		},
-		Schedules: &transformation.SchedulesConfig{
-			ForwardFill: "@every 1m",
-		},
-		Dependencies: []transformation.Dependency{},
+	}
+}
+func (m *mockTransformation) GetHandler() transformation.Handler {
+	if m.handler != nil {
+		return m.handler
+	}
+	// Return a default mock handler
+	return &mockHandler{
+		interval:               m.interval,
+		forwardFillEnabled:     true,
+		allowsPartialIntervals: false,
+		dependencies:           []string{},
 	}
 }
 func (m *mockTransformation) GetValue() string                  { return "" }
@@ -387,25 +484,19 @@ func TestAdjustIntervalForDependencies(t *testing.T) {
 			}
 
 			// Setup mock transformation
-			minInterval := tt.interval
-			if tt.allowPartial {
-				minInterval = tt.minPartial
-			}
 			trans := &mockTransformation{
 				id: "test.model",
 				config: &transformation.Config{
+					Type:     transformation.TypeIncremental,
 					Database: "test",
 					Table:    "model",
-					Interval: &transformation.IntervalConfig{
-						Max: tt.interval,
-						Min: minInterval,
-					},
-					Schedules: &transformation.SchedulesConfig{
-						ForwardFill: "@every 1m",
-					},
-					Dependencies: []transformation.Dependency{
-						{IsGroup: false, SingleDep: "dep1"},
-					},
+				},
+				handler: &mockHandler{
+					interval:               tt.interval,
+					minInterval:            tt.minPartial,
+					allowsPartialIntervals: tt.allowPartial,
+					forwardFillEnabled:     true,
+					dependencies:           []string{"dep1"},
 				},
 			}
 
@@ -426,142 +517,68 @@ func TestAdjustIntervalForDependencies(t *testing.T) {
 	}
 }
 
-// Test IntervalConfig validation
-func TestIntervalConfigValidation(t *testing.T) {
-	tests := []struct {
-		name    string
-		config  transformation.IntervalConfig
-		wantErr bool
-		errMsg  string
-	}{
-		{
-			name: "valid_with_partial_intervals",
-			config: transformation.IntervalConfig{
-				Max: 3600,
-				Min: 900,
-			},
-			wantErr: false,
-		},
-		{
-			name: "valid_without_partial_intervals",
-			config: transformation.IntervalConfig{
-				Max: 3600,
-				Min: 3600,
-			},
-			wantErr: false,
-		},
-		{
-			name: "min_exceeds_max",
-			config: transformation.IntervalConfig{
-				Max: 3600,
-				Min: 7200,
-			},
-			wantErr: true,
-			errMsg:  "interval.min cannot exceed interval.max",
-		},
-		{
-			name: "zero_max_interval",
-			config: transformation.IntervalConfig{
-				Max: 0,
-				Min: 0,
-			},
-			wantErr: true,
-			errMsg:  "interval.max is required",
-		},
-	}
+// Test IntervalConfig validation is now handled by incremental handler
+// This test has been removed as IntervalConfig is now internal to the incremental package
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.Validate()
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errMsg)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-// Test AllowsPartialIntervals helper function
+// Test AllowsPartialIntervals through handler
 func TestAllowsPartialIntervals(t *testing.T) {
 	tests := []struct {
 		name     string
-		config   *transformation.Config
+		handler  *mockHandler
 		expected bool
 	}{
 		{
 			name: "partial_intervals_enabled",
-			config: &transformation.Config{
-				Interval: &transformation.IntervalConfig{
-					Max: 3600,
-					Min: 900,
-				},
+			handler: &mockHandler{
+				interval:               3600,
+				allowsPartialIntervals: true,
 			},
 			expected: true,
 		},
 		{
 			name: "partial_intervals_disabled",
-			config: &transformation.Config{
-				Interval: &transformation.IntervalConfig{
-					Max: 3600,
-					Min: 3600,
-				},
+			handler: &mockHandler{
+				interval:               3600,
+				allowsPartialIntervals: false,
 			},
-			expected: false,
-		},
-		{
-			name:     "no_interval_config",
-			config:   &transformation.Config{},
 			expected: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.config.AllowsPartialIntervals()
+			result := tt.handler.AllowsPartialIntervals()
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-// Test GetMinInterval helper function
-func TestGetMinInterval(t *testing.T) {
+// Test GetMaxInterval through handler
+func TestGetMaxInterval(t *testing.T) {
 	tests := []struct {
 		name     string
-		config   *transformation.Config
+		handler  *mockHandler
 		expected uint64
 	}{
 		{
-			name: "with_min_interval",
-			config: &transformation.Config{
-				Interval: &transformation.IntervalConfig{
-					Max: 3600,
-					Min: 500,
-				},
+			name: "with_interval",
+			handler: &mockHandler{
+				interval: 3600,
 			},
-			expected: 500,
+			expected: 3600,
 		},
 		{
-			name: "without_min_interval",
-			config: &transformation.Config{
-				Interval: &transformation.IntervalConfig{
-					Max: 3600,
-					Min: 0,
-				},
+			name: "without_interval",
+			handler: &mockHandler{
+				interval: 0,
 			},
-			expected: 0,
-		},
-		{
-			name:     "no_interval_config",
-			config:   &transformation.Config{},
 			expected: 0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.config.GetMinInterval()
+			result := tt.handler.GetMaxInterval()
 			assert.Equal(t, tt.expected, result)
 		})
 	}

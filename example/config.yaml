@@ -22,9 +22,14 @@ clickhouse:
   insertTimeout: 5m    # Increased from 60s for bulk operations
   debug: false
   keepAlive: 30s
-  # Admin table uses defaults (admin.cbt)
-  # admin_database: admin
-  # admin_table: cbt
+  # Admin tables configuration for each transformation type
+  admin:
+    incremental:
+      database: admin
+      table: cbt_incremental
+    scheduled:
+      database: admin
+      table: cbt_scheduled
 
 # Redis configuration (used by coordinator, worker, and rerun command)
 redis:

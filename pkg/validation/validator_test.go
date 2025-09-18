@@ -628,16 +628,111 @@ func (m *mockAdmin) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) e
 	return nil
 }
 
-func (m *mockAdmin) GetAdminDatabase() string {
+func (m *mockAdmin) GetIncrementalAdminDatabase() string {
 	return "admin_db"
 }
 
-func (m *mockAdmin) GetAdminTable() string {
+func (m *mockAdmin) GetIncrementalAdminTable() string {
 	return "admin_table"
+}
+
+func (m *mockAdmin) GetScheduledAdminDatabase() string {
+	return "admin"
+}
+
+func (m *mockAdmin) GetScheduledAdminTable() string {
+	return "cbt_scheduled"
+}
+
+func (m *mockAdmin) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (m *mockAdmin) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
+	return nil, nil
+}
+
+// mockLimitsConfig is a test implementation of limits
+type mockLimitsConfig struct {
+	Min uint64
+	Max uint64
+}
+
+// Mock handler for tests
+type mockHandler struct {
+	interval       uint64
+	dependencies   []string
+	orDependencies []transformation.Dependency
+	limits         *mockLimitsConfig
+}
+
+func (h *mockHandler) GetMaxInterval() uint64 {
+	if h.interval == 0 {
+		return 100 // Default interval
+	}
+	return h.interval
+}
+
+func (h *mockHandler) GetFlattenedDependencies() []string {
+	if len(h.orDependencies) > 0 {
+		var result []string
+		for _, dep := range h.orDependencies {
+			result = append(result, dep.GetAllDependencies()...)
+		}
+		return result
+	}
+	return h.dependencies
+}
+
+func (h *mockHandler) GetDependencies() []transformation.Dependency {
+	if len(h.orDependencies) > 0 {
+		return h.orDependencies
+	}
+	// Convert string dependencies to Dependency structs
+	deps := make([]transformation.Dependency, len(h.dependencies))
+	for i, dep := range h.dependencies {
+		deps[i] = transformation.Dependency{
+			IsGroup:   false,
+			SingleDep: dep,
+		}
+	}
+	return deps
+}
+
+func (h *mockHandler) GetLimits() *struct {
+	Min uint64
+	Max uint64
+} {
+	if h.limits == nil {
+		return nil
+	}
+	return &struct {
+		Min uint64
+		Max uint64
+	}{
+		Min: h.limits.Min,
+		Max: h.limits.Max,
+	}
+}
+
+// Other handler methods (not used in validation tests)
+func (h *mockHandler) Type() transformation.Type { return "incremental" }
+func (h *mockHandler) Config() any               { return nil }
+func (h *mockHandler) Validate() error           { return nil }
+func (h *mockHandler) ShouldTrackPosition() bool { return true }
+func (h *mockHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
+	return nil
+}
+func (h *mockHandler) GetAdminTable() transformation.AdminTable {
+	return transformation.AdminTable{}
+}
+func (h *mockHandler) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
+	return nil
 }
 
 type mockTransformation struct {
 	id             string
+	handler        transformation.Handler
 	interval       uint64
 	dependencies   []string
 	orDependencies []transformation.Dependency // Support for OR groups
@@ -645,43 +740,25 @@ type mockTransformation struct {
 
 func (m *mockTransformation) GetID() string { return m.id }
 func (m *mockTransformation) GetConfig() *transformation.Config {
-	if m.interval == 0 {
-		m.interval = 100 // Default interval
-	}
-
-	// Use orDependencies if provided, otherwise convert string dependencies
-	var deps []transformation.Dependency
-	if len(m.orDependencies) > 0 {
-		deps = m.orDependencies
-	} else {
-		// Convert string dependencies to Dependency structs
-		deps = make([]transformation.Dependency, len(m.dependencies))
-		for i, dep := range m.dependencies {
-			deps[i] = transformation.Dependency{
-				IsGroup:   false,
-				SingleDep: dep,
-			}
-		}
-	}
-
 	return &transformation.Config{
 		Database: "test_db",
 		Table:    "test_table",
-		Interval: &transformation.IntervalConfig{
-			Max: m.interval,
-			Min: 0,
-		},
-		Schedules: &transformation.SchedulesConfig{
-			ForwardFill: "@every 1m",
-		},
-		Dependencies: deps,
 	}
 }
-func (m *mockTransformation) GetValue() string                  { return "" }
-func (m *mockTransformation) GetDependencies() []string         { return []string{} }
-func (m *mockTransformation) GetSQL() string                    { return "" }
-func (m *mockTransformation) GetType() string                   { return "transformation" }
-func (m *mockTransformation) GetEnvironmentVariables() []string { return []string{} }
+func (m *mockTransformation) GetHandler() transformation.Handler {
+	if m.handler != nil {
+		return m.handler
+	}
+	// Create default handler from the mock's properties
+	return &mockHandler{
+		interval:       m.interval,
+		dependencies:   m.dependencies,
+		orDependencies: m.orDependencies,
+	}
+}
+func (m *mockTransformation) GetValue() string { return "" }
+func (m *mockTransformation) GetSQL() string   { return "" }
+func (m *mockTransformation) GetType() string  { return "transformation" }
 func (m *mockTransformation) SetDefaultDatabase(_ string) {
 	// No-op for mock
 }
@@ -922,9 +999,19 @@ func logPositionDebugInfo(ctx context.Context, t *testing.T, validator *dependen
 	if !ok {
 		return
 	}
-	config := trans.GetConfig()
-	t.Logf("Model dependencies count: %d", len(config.Dependencies))
-	for i, dep := range config.Dependencies {
+	handler := trans.GetHandler()
+	if handler == nil {
+		return
+	}
+	depProvider, ok := handler.(interface {
+		GetDependencies() []transformation.Dependency
+	})
+	if !ok {
+		return
+	}
+	deps := depProvider.GetDependencies()
+	t.Logf("Model dependencies count: %d", len(deps))
+	for i, dep := range deps {
 		if dep.IsGroup {
 			t.Logf("  Dep[%d] (group): %v", i, dep.GroupDeps)
 		} else {

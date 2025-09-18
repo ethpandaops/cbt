@@ -21,12 +21,10 @@ const TransformationTypeSQL = "sql"
 
 // SQL represents a transformation SQL model with YAML frontmatter
 type SQL struct {
-	Config  `yaml:",inline"`
-	Content string `yaml:"-"`
+	BaseConfig Config  `yaml:",inline"` // Base configuration
+	Handler    Handler // Type-specific handler
+	Content    string  `yaml:"-"` // SQL content
 }
-
-// SQLParser parses SQL transformation models
-type SQLParser struct{}
 
 // NewTransformationSQL creates a new transformation SQL model from content
 func NewTransformationSQL(content []byte) (*SQL, error) {
@@ -35,15 +33,29 @@ func NewTransformationSQL(content []byte) (*SQL, error) {
 		return nil, ErrInvalidFrontmatter
 	}
 
-	var config *SQL
-	// Parse YAML frontmatter (skip "---\n" prefix)
-	if err := yaml.Unmarshal(parts[0][4:], &config); err != nil {
-		return nil, fmt.Errorf("failed to parse frontmatter: %w", err)
+	// First, parse just the base config to determine the type
+	var baseConfig Config
+	yamlContent := parts[0][4:] // Skip "---\n"
+	if err := yaml.Unmarshal(yamlContent, &baseConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse base config: %w", err)
 	}
 
-	config.Content = string(parts[1])
+	// Create the appropriate handler based on the type using the factory
+	adminTable := AdminTable{
+		Database: "admin", // This will be set properly by the service
+		Table:    "",      // This will be set properly by the service
+	}
 
-	return config, nil
+	handler, err := CreateHandler(baseConfig.Type, yamlContent, adminTable)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create handler for type %s: %w", baseConfig.Type, err)
+	}
+
+	return &SQL{
+		BaseConfig: baseConfig,
+		Handler:    handler,
+		Content:    string(parts[1]),
+	}, nil
 }
 
 // Validate checks if the transformation SQL model is valid
@@ -52,7 +64,16 @@ func (c *SQL) Validate() error {
 		return ErrSQLContentRequired
 	}
 
-	return c.Config.Validate()
+	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+
+	// Validate type-specific configuration
+	if c.Handler != nil {
+		return c.Handler.Validate()
+	}
+
+	return nil
 }
 
 // GetType returns the transformation model type
@@ -60,9 +81,9 @@ func (c *SQL) GetType() string {
 	return TransformationTypeSQL
 }
 
-// GetConfig returns the transformation model configuration
+// GetConfig returns the base transformation model configuration
 func (c *SQL) GetConfig() *Config {
-	return &c.Config
+	return &c.BaseConfig
 }
 
 // GetValue returns the SQL content
@@ -72,5 +93,15 @@ func (c *SQL) GetValue() string {
 
 // SetDefaultDatabase applies the default database if not already set
 func (c *SQL) SetDefaultDatabase(defaultDB string) {
-	c.SetDefaults(defaultDB)
+	c.BaseConfig.SetDefaults(defaultDB)
+}
+
+// GetHandler returns the type-specific handler
+func (c *SQL) GetHandler() Handler {
+	return c.Handler
+}
+
+// GetID returns the unique identifier
+func (c *SQL) GetID() string {
+	return c.BaseConfig.GetID()
 }

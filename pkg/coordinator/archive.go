@@ -2,13 +2,11 @@ package coordinator
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/observability"
 	r "github.com/ethpandaops/cbt/pkg/redis"
-	"github.com/ethpandaops/cbt/pkg/tasks"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -134,8 +132,8 @@ func (h *archiveHandler) processArchivedTasks() {
 
 // processArchivedTask processes a single archived task
 func (h *archiveHandler) processArchivedTask(queueName string, taskInfo *asynq.TaskInfo) {
-	// Log the archived task details
-	logFields := logrus.Fields{
+	// Log the archived task details (async-related info only)
+	h.log.WithFields(logrus.Fields{
 		"queue":          queueName,
 		"task_id":        taskInfo.ID,
 		"task_type":      taskInfo.Type,
@@ -144,17 +142,7 @@ func (h *archiveHandler) processArchivedTask(queueName string, taskInfo *asynq.T
 		"last_error":     taskInfo.LastErr,
 		"last_failed_at": taskInfo.LastFailedAt,
 		"next_process":   taskInfo.NextProcessAt,
-	}
-
-	// Try to parse payload if it's a known format (optional enrichment)
-	var payload tasks.TaskPayload
-	if err := json.Unmarshal(taskInfo.Payload, &payload); err == nil && payload.ModelID != "" {
-		logFields["model_id"] = payload.ModelID
-		logFields["position"] = payload.Position
-		logFields["interval"] = payload.Interval
-	}
-
-	h.log.WithFields(logFields).Warn("Deleting archived task")
+	}).Warn("Deleting archived task")
 
 	// Delete the archived task
 	if err := h.inspector.DeleteTask(queueName, taskInfo.ID); err != nil {
@@ -165,12 +153,8 @@ func (h *archiveHandler) processArchivedTask(queueName string, taskInfo *asynq.T
 		}).Error("Failed to delete archived task")
 		observability.RecordError("archive-handler", "delete_error")
 	} else {
-		// Record metrics with available information
-		modelID := "unknown"
-		if payload.ModelID != "" {
-			modelID = payload.ModelID
-		}
-		observability.RecordArchivedTaskDeleted(queueName, modelID)
+		// Record metrics
+		observability.RecordArchivedTaskDeleted(queueName, taskInfo.Type)
 	}
 }
 

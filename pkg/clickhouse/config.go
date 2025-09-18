@@ -11,6 +11,23 @@ var (
 	ErrURLRequired = errors.New("URL is required")
 )
 
+// Default values
+const (
+	defaultAdminDatabase = "admin"
+)
+
+// AdminTableConfig represents the configuration for a type-specific admin table
+type AdminTableConfig struct {
+	Database string `yaml:"database"`
+	Table    string `yaml:"table"`
+}
+
+// AdminConfig contains configurations for different transformation type admin tables
+type AdminConfig struct {
+	Incremental AdminTableConfig `yaml:"incremental"`
+	Scheduled   AdminTableConfig `yaml:"scheduled"`
+}
+
 // Config contains ClickHouse connection and cluster settings
 type Config struct {
 	URL           string        `yaml:"url" validate:"required,url"`
@@ -20,8 +37,7 @@ type Config struct {
 	InsertTimeout time.Duration `yaml:"insertTimeout"`
 	Debug         bool          `yaml:"debug"`
 	KeepAlive     time.Duration `yaml:"keepAlive"`
-	AdminDatabase string        `yaml:"adminDatabase"`
-	AdminTable    string        `yaml:"adminTable"`
+	Admin         AdminConfig   `yaml:"admin"`
 }
 
 // Validate checks if the configuration is valid
@@ -47,11 +63,20 @@ func (c *Config) SetDefaults() {
 		c.KeepAlive = 30 * time.Second
 	}
 
-	if c.AdminDatabase == "" {
-		c.AdminDatabase = "admin"
+	// Set defaults for admin config
+	if c.Admin.Incremental.Database == "" {
+		c.Admin.Incremental.Database = defaultAdminDatabase
 	}
 
-	if c.AdminTable == "" {
-		c.AdminTable = "cbt"
+	if c.Admin.Incremental.Table == "" {
+		c.Admin.Incremental.Table = "cbt_incremental"
+	}
+
+	if c.Admin.Scheduled.Database == "" {
+		c.Admin.Scheduled.Database = defaultAdminDatabase
+	}
+
+	if c.Admin.Scheduled.Table == "" {
+		c.Admin.Scheduled.Table = "cbt_scheduled"
 	}
 }

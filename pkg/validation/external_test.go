@@ -93,12 +93,28 @@ func (m *testAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsC
 	return nil
 }
 
-func (m *testAdminService) GetAdminDatabase() string {
+func (m *testAdminService) GetIncrementalAdminDatabase() string {
 	return "admin"
 }
 
-func (m *testAdminService) GetAdminTable() string {
+func (m *testAdminService) GetIncrementalAdminTable() string {
 	return "cbt"
+}
+
+func (m *testAdminService) GetScheduledAdminDatabase() string {
+	return "admin"
+}
+
+func (m *testAdminService) GetScheduledAdminTable() string {
+	return "cbt_scheduled"
+}
+
+func (m *testAdminService) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (m *testAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
+	return nil, nil
 }
 
 // Simple mock models service

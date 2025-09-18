@@ -1,5 +1,6 @@
 ---
 # Second level transformation - depends on another transformation
+type: incremental
 table: two_minute_aggregation
 interval:
   max: 120  # 2 minutes

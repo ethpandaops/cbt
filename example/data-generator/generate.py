@@ -118,6 +118,24 @@ def generate_validator_entity_records(slot_time, validator_entities):
     
     return records
 
+def generate_raw_transactions(slot_time, count=5):
+    """Generate raw transaction records for a time period"""
+    records = []
+    base_position = int(slot_time.timestamp())
+    currencies = ['ETH', 'USDC', 'DAI', 'WBTC', 'USDT', 'EUR', 'GBP', 'JPY']
+    
+    for i in range(count):
+        transaction_id = f"tx_{base_position}_{i}_{random.randint(1000, 9999)}"
+        records.append({
+            'transaction_id': transaction_id,
+            'timestamp': slot_time + timedelta(seconds=random.randint(0, 11)),
+            'amount': round(random.uniform(0.001, 1000.0), 8),
+            'currency': random.choice(currencies),
+            'position': base_position + i
+        })
+    
+    return records
+
 def backfill_historical_data(client, validator_entities, hours_back=2):
     """Generate and insert historical data for the past N hours"""
     print(f"\n=== Starting backfill for {hours_back} hours of historical data ===")
@@ -142,6 +160,7 @@ def backfill_historical_data(client, validator_entities, hours_back=2):
     # Batch inserts for better performance
     beacon_blocks_batch = []
     validator_entity_batch = []
+    raw_transactions_batch = []
     batch_size = 100
     
     while slot_time < current_time:
@@ -184,6 +203,20 @@ def backfill_historical_data(client, validator_entities, hours_back=2):
                     entities_generated += len(validator_entity_batch)
                     validator_entity_batch = []
         
+        # Generate raw transactions (90% chance to generate)
+        if random.random() > 0.10:
+            raw_tx_records = generate_raw_transactions(slot_time, count=random.randint(3, 10))
+            for rec in raw_tx_records:
+                raw_transactions_batch.append([rec[col] for col in rec.keys()])
+                if len(raw_transactions_batch) >= batch_size:
+                    # Insert batch
+                    client.insert(
+                        'ethereum.raw_transactions',
+                        raw_transactions_batch,
+                        column_names=list(raw_tx_records[0].keys())
+                    )
+                    raw_transactions_batch = []
+        
         # Occasionally change validator entities during backfill
         maybe_change_validator_entity(validator_entities, slot_time)
         
@@ -213,6 +246,13 @@ def backfill_historical_data(client, validator_entities, hours_back=2):
                          'slot', 'validator_index', 'entity_name']
         )
         entities_generated += len(validator_entity_batch)
+    
+    if raw_transactions_batch:
+        client.insert(
+            'ethereum.raw_transactions',
+            raw_transactions_batch,
+            column_names=['transaction_id', 'timestamp', 'amount', 'currency', 'position']
+        )
     
     print(f"\n=== Backfill complete ===")
     print(f"  Slots processed: {slots_generated}")
@@ -295,11 +335,20 @@ def main():
                         entity_data = [[rec[col] for col in entity_column_names] for rec in backfill_entity_records]
                         client.insert('ethereum.validator_entity', entity_data, column_names=entity_column_names)
                     
+                    # Generate raw transactions for backfill (95% chance)
+                    if random.random() > 0.05:
+                        backfill_tx_records = generate_raw_transactions(backfill_slot_time, count=random.randint(3, 10))
+                        if backfill_tx_records:
+                            tx_column_names = list(backfill_tx_records[0].keys())
+                            tx_data = [[rec[col] for col in tx_column_names] for rec in backfill_tx_records]
+                            client.insert('ethereum.raw_transactions', tx_data, column_names=tx_column_names)
+                    
                     print(f"  🔙 BACKFILL: Slot {backfill_slot} (val:{backfill_validator_index}/{validator_entities[backfill_validator_index]})")
             
-            # Independent skipping for beacon_blocks and validator_entity
+            # Independent skipping for beacon_blocks, validator_entity, and transactions
             skip_beacon_block = random.random() < 0.15  # 15% chance to skip beacon block
             skip_validator_entity = random.random() < 0.10  # 10% chance to skip validator entity
+            skip_transactions = random.random() < 0.05  # 5% chance to skip transactions
             
             slot = int(slot_time.timestamp()) // 12
             
@@ -359,6 +408,22 @@ def main():
                 )
                 if skip_beacon_block:  # Only log entity insertion if beacon_block was skipped
                     print(f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] Slot {slot}: validator_entity records inserted")
+            
+            # Generate and insert raw transactions
+            if not skip_transactions:
+                transaction_count = random.randint(2, 15)  # 2-15 transactions per slot
+                transaction_records = generate_raw_transactions(slot_time, transaction_count)
+                if transaction_records:
+                    transaction_column_names = list(transaction_records[0].keys())
+                    transaction_data = [[rec[col] for col in transaction_column_names] for rec in transaction_records]
+                    
+                    client.insert(
+                        'ethereum.raw_transactions',
+                        transaction_data,
+                        column_names=transaction_column_names
+                    )
+                    # Log if verbose output desired
+                    # print(f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] Slot {slot}: {len(transaction_data)} raw transactions inserted")
                 
             # Add to slot history only if we generated beacon_blocks
             if observations:

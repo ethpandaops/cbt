@@ -100,100 +100,58 @@ func (s *service) parseModels() error {
 		return fmt.Errorf("failed to discover models: %w", err)
 	}
 
-	if len(transformationFiles) > 0 {
-		for _, file := range transformationFiles {
-			transformationModel, parseErr := NewTransformation(file.Content, file.FilePath)
-			if parseErr != nil {
-				return parseErr
-			}
-
-			// Apply default database if not specified
-			transformationModel.SetDefaultDatabase(s.config.Transformation.DefaultDatabase)
-
-			// Substitute dependency placeholders with actual default databases
-			transformationModel.GetConfig().SubstituteDependencyPlaceholders(
-				s.config.External.DefaultDatabase,
-				s.config.Transformation.DefaultDatabase,
-			)
-
-			// Validate that database is set after applying defaults
-			if validationErr := transformationModel.GetConfig().Validate(); validationErr != nil {
-				return fmt.Errorf("model %s validation failed after applying defaults: %w", file.FilePath, validationErr)
-			}
-
-			s.transformationModels = append(s.transformationModels, transformationModel)
+	for _, file := range transformationFiles {
+		model, err := s.processTransformationFile(file)
+		if err != nil {
+			return err
 		}
+		s.transformationModels = append(s.transformationModels, model)
 	}
 
-	// Apply overrides after all models are loaded
-	s.applyOverrides()
+	// TODO: Overrides temporarily disabled during transformation type refactor
+	// s.applyOverrides()
 
 	return nil
 }
 
-func (s *service) applyOverrides() {
-	if len(s.config.Overrides) == 0 {
+// processTransformationFile processes a single transformation file
+func (s *service) processTransformationFile(file *ModelFile) (Transformation, error) {
+	transformationModel, err := NewTransformation(file.Content, file.FilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply default database if not specified
+	transformationModel.SetDefaultDatabase(s.config.Transformation.DefaultDatabase)
+
+	// Substitute dependency placeholders through handler if it supports it
+	s.substitutePlaceholders(transformationModel)
+
+	// Validate that database is set after applying defaults
+	if err := transformationModel.GetConfig().Validate(); err != nil {
+		return nil, fmt.Errorf("model %s validation failed after applying defaults: %w", file.FilePath, err)
+	}
+
+	return transformationModel, nil
+}
+
+// substitutePlaceholders handles placeholder substitution in dependencies
+func (s *service) substitutePlaceholders(model Transformation) {
+	handler := model.GetHandler()
+	if handler == nil {
 		return
 	}
 
-	// Track which overrides were applied
-	appliedOverrides := make(map[string]bool)
-
-	// Filter transformations based on overrides - pre-allocate with capacity
-	filteredTransformations := make([]Transformation, 0, len(s.transformationModels))
-	for _, model := range s.transformationModels {
-		config := model.GetConfig()
-		modelID := config.GetID()
-
-		// Try to find override using either full ID or table-only format
-		override, overrideKey := s.findOverride(modelID, config.Table)
-
-		if override != nil {
-			appliedOverrides[overrideKey] = true
-
-			// Check if model is disabled
-			if override.IsDisabled() {
-				s.log.WithField("model", modelID).Info("Model disabled by override")
-				continue // Skip this model
-			}
-
-			// Apply configuration overrides
-			override.ApplyToTransformation(config)
-			s.log.WithField("model", modelID).Debug("Applied configuration override")
-		}
-
-		filteredTransformations = append(filteredTransformations, model)
+	type placeholderSubstituter interface {
+		SubstituteDependencyPlaceholders(externalDefaultDB, transformationDefaultDB string)
 	}
 
-	// Warn about overrides that didn't match any models
-	for modelID := range s.config.Overrides {
-		if !appliedOverrides[modelID] {
-			s.log.WithField("model", modelID).Warn("Override specified for non-existent model")
-		}
+	if subProvider, ok := handler.(placeholderSubstituter); ok {
+		subProvider.SubstituteDependencyPlaceholders(
+			s.config.External.DefaultDatabase,
+			s.config.Transformation.DefaultDatabase,
+		)
 	}
-
-	s.transformationModels = filteredTransformations
-}
-
-// findOverride looks up an override using both full ID and table-only formats
-func (s *service) findOverride(fullID, tableName string) (override *ModelOverride, overrideKey string) {
-	// First, try with the full model ID (database.table)
-	if override, exists := s.config.Overrides[fullID]; exists {
-		return override, fullID
-	}
-
-	// If the model uses the default database, also try with just the table name
-	// This allows more intuitive overrides when using default databases
-	if s.config.Transformation.DefaultDatabase != "" {
-		// Check if this model is using the default database
-		if fullID == fmt.Sprintf("%s.%s", s.config.Transformation.DefaultDatabase, tableName) {
-			if override, exists := s.config.Overrides[tableName]; exists {
-				return override, tableName
-			}
-		}
-	}
-
-	return nil, ""
 }
 
 func (s *service) buildDAG() error {

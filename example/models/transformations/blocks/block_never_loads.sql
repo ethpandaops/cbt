@@ -1,5 +1,6 @@
 ---
 database: analytics
+type: incremental
 table: block_never_loads
 interval:
   max: 3600

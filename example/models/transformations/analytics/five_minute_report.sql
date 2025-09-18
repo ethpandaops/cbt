@@ -1,5 +1,6 @@
 ---
 # Third level transformation - depends on two minute aggregation
+type: incremental
 table: five_minute_report
 interval:
   max: 300  # 5 minutes
