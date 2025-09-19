@@ -15,7 +15,7 @@ type TaskPayload struct {
 
 // UniqueID returns a unique identifier for this task
 func (p TaskPayload) UniqueID() string {
-	return fmt.Sprintf("%s:%d:%d", p.ModelID, p.Position, p.Interval)
+	return fmt.Sprintf("%s:%d", p.ModelID, p.Position)
 }
 
 // QueueName returns the queue name for this task payload

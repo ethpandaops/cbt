@@ -21,7 +21,7 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 				Position: 100,
 				Interval: 50,
 			},
-			expected: "model.test:100:50",
+			expected: "model.test:100",
 		},
 		{
 			name: "zero values",
@@ -30,7 +30,7 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 				Position: 0,
 				Interval: 0,
 			},
-			expected: "model.zero:0:0",
+			expected: "model.zero:0",
 		},
 		{
 			name: "large values",
@@ -39,7 +39,7 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 				Position: 18446744073709551615,
 				Interval: 18446744073709551615,
 			},
-			expected: "model.large:18446744073709551615:18446744073709551615",
+			expected: "model.large:18446744073709551615",
 		},
 		{
 			name: "with special characters in model ID",
@@ -48,7 +48,7 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 				Position: 500,
 				Interval: 100,
 			},
-			expected: "model.test-123_v2:500:100",
+			expected: "model.test-123_v2:500",
 		},
 	}
 
@@ -142,10 +142,10 @@ func TestTaskPayload_UniqueID_Consistency(t *testing.T) {
 	payload2.Position = 200
 	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
 
-	// Different interval should produce different unique ID
+	// Different interval should NOT affect unique ID anymore
 	payload2.Position = 100
 	payload2.Interval = 100
-	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
+	assert.Equal(t, payload1.UniqueID(), payload2.UniqueID())
 
 	// Different model ID should produce different unique ID
 	payload2.Interval = 50
