@@ -514,7 +514,7 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 	if a.cluster != "" {
 		// Cluster mode: use local suffix and ON CLUSTER
 		deleteQuery = fmt.Sprintf(`
-			DELETE FROM `+"`%s`.`%s`%s"+` ON CLUSTER '%s'
+			DELETE FROM `+"`%s`.`%s%s`"+` ON CLUSTER '%s'
 			WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position < %d
 			  AND NOT (position = %d AND interval = %d)

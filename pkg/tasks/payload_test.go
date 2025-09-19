@@ -15,31 +15,31 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "standard unique ID",
+			name: "without direction (empty)",
 			payload: TaskPayload{
 				ModelID:  "model.test",
 				Position: 100,
 				Interval: 50,
 			},
-			expected: "model.test:100",
+			expected: "model.test:",
 		},
 		{
-			name: "zero values",
+			name: "zero values without direction",
 			payload: TaskPayload{
 				ModelID:  "model.zero",
 				Position: 0,
 				Interval: 0,
 			},
-			expected: "model.zero:0",
+			expected: "model.zero:",
 		},
 		{
-			name: "large values",
+			name: "large values without direction",
 			payload: TaskPayload{
 				ModelID:  "model.large",
 				Position: 18446744073709551615,
 				Interval: 18446744073709551615,
 			},
-			expected: "model.large:18446744073709551615",
+			expected: "model.large:",
 		},
 		{
 			name: "with special characters in model ID",
@@ -48,7 +48,27 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 				Position: 500,
 				Interval: 100,
 			},
-			expected: "model.test-123_v2:500",
+			expected: "model.test-123_v2:",
+		},
+		{
+			name: "with direction forward",
+			payload: TaskPayload{
+				ModelID:   "model.test",
+				Position:  100,
+				Interval:  50,
+				Direction: DirectionForward,
+			},
+			expected: "model.test:forward",
+		},
+		{
+			name: "with direction back",
+			payload: TaskPayload{
+				ModelID:   "model.test",
+				Position:  200,
+				Interval:  50,
+				Direction: DirectionBack,
+			},
+			expected: "model.test:back",
 		},
 	}
 
@@ -138,19 +158,36 @@ func TestTaskPayload_UniqueID_Consistency(t *testing.T) {
 	// Same payloads should produce same unique ID
 	assert.Equal(t, payload1.UniqueID(), payload2.UniqueID())
 
-	// Different position should produce different unique ID
+	// Without direction: position and interval don't affect unique ID
 	payload2.Position = 200
-	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
+	assert.Equal(t, payload1.UniqueID(), payload2.UniqueID()) // Still same!
 
-	// Different interval should NOT affect unique ID anymore
-	payload2.Position = 100
+	// Different interval also doesn't affect unique ID
 	payload2.Interval = 100
 	assert.Equal(t, payload1.UniqueID(), payload2.UniqueID())
 
 	// Different model ID should produce different unique ID
-	payload2.Interval = 50
 	payload2.ModelID = "model.different"
 	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
+
+	// With direction: position doesn't matter
+	payload3 := TaskPayload{
+		ModelID:   "model.test",
+		Position:  100,
+		Interval:  50,
+		Direction: DirectionForward,
+	}
+	payload4 := TaskPayload{
+		ModelID:   "model.test",
+		Position:  200, // Different position
+		Interval:  100, // Different interval
+		Direction: DirectionForward,
+	}
+	assert.Equal(t, payload3.UniqueID(), payload4.UniqueID())
+
+	// Different directions produce different IDs
+	payload4.Direction = DirectionBack
+	assert.NotEqual(t, payload3.UniqueID(), payload4.UniqueID())
 }
 
 // Benchmark UniqueID generation

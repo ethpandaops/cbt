@@ -254,7 +254,7 @@ func (s *service) processForward(trans models.Transformation) {
 		interval = adjustedInterval
 	}
 
-	s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval)
+	s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval, string(DirectionForward))
 }
 
 // adjustIntervalForDependencies adjusts the interval based on dependency availability
@@ -312,12 +312,13 @@ func (s *service) processBack(trans models.Transformation) {
 	s.checkBackfillOpportunities(ctx, trans)
 }
 
-func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64) {
+func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64, direction string) {
 	// Create task payload
 	payload := tasks.TaskPayload{
 		ModelID:    trans.GetID(),
 		Position:   position,
 		Interval:   interval,
+		Direction:  direction,
 		EnqueuedAt: time.Now(),
 	}
 
@@ -547,7 +548,7 @@ func (s *service) processSingleGap(ctx context.Context, trans models.Transformat
 		"gap_size":       gapSize,
 	}).Info("Enqueueing backfill task for gap (processing from end backward)")
 
-	s.checkAndEnqueuePositionWithTrigger(ctx, trans, pos, intervalToUse)
+	s.checkAndEnqueuePositionWithTrigger(ctx, trans, pos, intervalToUse, string(DirectionBack))
 	return true
 }
 
@@ -766,7 +767,7 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		}
 
 		// Check if this completion unblocks the dependent
-		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, config.GetMaxInterval())
+		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, config.GetMaxInterval(), string(DirectionForward))
 	}
 }
 
