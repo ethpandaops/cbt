@@ -6,6 +6,7 @@ import (
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestModelOverride_IsDisabled(t *testing.T) {
@@ -340,6 +341,75 @@ func TestOverrideIntegration(t *testing.T) {
 	disabledOverride := config.Overrides["analytics.disabled_model"]
 	require.NotNil(t, disabledOverride)
 	assert.True(t, disabledOverride.IsDisabled())
+}
+
+func TestOverride_DisableScheduleWithEmptyString(t *testing.T) {
+	// Test that setting a schedule to empty string properly disables it
+	t.Run("disable backfill with empty string", func(t *testing.T) {
+		yamlContent := `
+test_model:
+  config:
+    schedules:
+      backfill: ""
+`
+		var overrides map[string]*ModelOverride
+		err := yaml.Unmarshal([]byte(yamlContent), &overrides)
+		assert.NoError(t, err)
+
+		override := overrides["test_model"]
+		assert.NotNil(t, override)
+
+		// Create a config with existing backfill schedule
+		config := &transformation.Config{
+			Database: "test_db",
+			Table:    "test_table",
+			Schedules: &transformation.SchedulesConfig{
+				ForwardFill: "@every 1m",
+				Backfill:    "@every 5m", // Has existing backfill
+			},
+		}
+
+		// Apply override
+		override.ApplyToTransformation(config)
+
+		// Verify backfill is disabled
+		assert.Equal(t, "", config.Schedules.Backfill, "Backfill should be empty string")
+		assert.False(t, config.IsBackfillEnabled(), "Backfill should be disabled")
+		assert.True(t, config.IsForwardFillEnabled(), "ForwardFill should still be enabled")
+	})
+
+	t.Run("disable forwardfill with empty string", func(t *testing.T) {
+		yamlContent := `
+test_model:
+  config:
+    schedules:
+      forwardfill: ""
+`
+		var overrides map[string]*ModelOverride
+		err := yaml.Unmarshal([]byte(yamlContent), &overrides)
+		assert.NoError(t, err)
+
+		override := overrides["test_model"]
+		assert.NotNil(t, override)
+
+		// Create a config with existing schedules
+		config := &transformation.Config{
+			Database: "test_db",
+			Table:    "test_table",
+			Schedules: &transformation.SchedulesConfig{
+				ForwardFill: "@every 1m", // Has existing forwardfill
+				Backfill:    "@every 5m",
+			},
+		}
+
+		// Apply override
+		override.ApplyToTransformation(config)
+
+		// Verify forwardfill is disabled
+		assert.Equal(t, "", config.Schedules.ForwardFill, "ForwardFill should be empty string")
+		assert.False(t, config.IsForwardFillEnabled(), "ForwardFill should be disabled")
+		assert.True(t, config.IsBackfillEnabled(), "Backfill should still be enabled")
+	})
 }
 
 func TestTableOnlyOverrides(t *testing.T) {
