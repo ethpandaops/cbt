@@ -413,7 +413,7 @@ func TestModelExecutor_UpdateBounds(t *testing.T) {
 			tt.setupMocks(mockCH, mockModels, mockAdmin)
 
 			executor := NewModelExecutor(log, mockCH, mockModels, mockAdmin)
-			err := executor.UpdateBounds(context.Background(), tt.modelID)
+			err := executor.UpdateBounds(context.Background(), tt.modelID, "full")
 
 			if tt.wantErr {
 				require.Error(t, err)

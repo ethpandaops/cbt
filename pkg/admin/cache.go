@@ -24,6 +24,10 @@ type BoundsCache struct {
 	PreviousMin uint64 `json:"previous_min"`
 	PreviousMax uint64 `json:"previous_max"`
 
+	// Initial scan tracking
+	InitialScanComplete bool       `json:"initial_scan_complete"`
+	InitialScanStarted  *time.Time `json:"initial_scan_started,omitempty"`
+
 	// Metadata
 	UpdatedAt time.Time `json:"updated_at"`
 }

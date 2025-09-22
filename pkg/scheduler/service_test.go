@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/coordinator"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
@@ -69,8 +70,9 @@ func TestNewService(t *testing.T) {
 			}
 			mockDAG := &mockDAGReader{}
 			mockCoord := &mockCoordinator{}
+			mockAdmin := newMockAdminService()
 
-			svc, err := NewService(log, tt.cfg, redisOpt, mockDAG, mockCoord)
+			svc, err := NewService(log, tt.cfg, redisOpt, mockDAG, mockCoord, mockAdmin)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -358,8 +360,9 @@ func TestServiceStopWithoutStart(t *testing.T) {
 	}
 	mockDAG := &mockDAGReader{}
 	mockCoord := &mockCoordinator{}
+	mockAdmin := newMockAdminService()
 
-	svc, err := NewService(log, cfg, redisOpt, mockDAG, mockCoord)
+	svc, err := NewService(log, cfg, redisOpt, mockDAG, mockCoord, mockAdmin)
 	require.NoError(t, err)
 
 	// Should not panic when stopping without starting
@@ -413,10 +416,11 @@ func BenchmarkNewService(b *testing.B) {
 	}
 	mockDAG := &mockDAGReader{}
 	mockCoord := &mockCoordinator{}
+	mockAdmin := newMockAdminService()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = NewService(log, cfg, redisOpt, mockDAG, mockCoord)
+		_, _ = NewService(log, cfg, redisOpt, mockDAG, mockCoord, mockAdmin)
 	}
 }
 
@@ -500,11 +504,87 @@ func (m *mockCoordinator) RunConsolidation(_ context.Context) {
 	m.consolidationCalls++
 }
 
-func (m *mockCoordinator) ProcessBoundsOrchestration(_ context.Context) {
+func (m *mockCoordinator) ProcessExternalScan(_, _ string) {
 	// Mock implementation - does nothing
 }
 
 var _ coordinator.Service = (*mockCoordinator)(nil)
+
+// mockAdminService implements admin.Service interface for testing
+type mockAdminService struct {
+	externalBounds map[string]*admin.BoundsCache
+}
+
+func newMockAdminService() *mockAdminService {
+	return &mockAdminService{
+		externalBounds: make(map[string]*admin.BoundsCache),
+	}
+}
+
+func (m *mockAdminService) GetLastProcessedEndPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetLastProcessedPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetFirstPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) RecordCompletion(_ context.Context, _ string, _, _ uint64) error {
+	return nil
+}
+
+func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64) (bool, error) {
+	return false, nil
+}
+
+func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) Consolidate(_ context.Context, _, _ uint64) error {
+	return nil
+}
+
+func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) ClearCompletions(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAdminService) GetExternalBounds(_ context.Context, modelID string) (*admin.BoundsCache, error) {
+	if bounds, ok := m.externalBounds[modelID]; ok {
+		return bounds, nil
+	}
+	return nil, nil
+}
+
+func (m *mockAdminService) SetExternalBounds(_ context.Context, bounds *admin.BoundsCache) error {
+	if m.externalBounds == nil {
+		m.externalBounds = make(map[string]*admin.BoundsCache)
+	}
+	m.externalBounds[bounds.ModelID] = bounds
+	return nil
+}
+
+func (m *mockAdminService) GetAdminDatabase() string {
+	return "admin"
+}
+
+func (m *mockAdminService) GetAdminTable() string {
+	return "cbt"
+}
+
+var _ admin.Service = (*mockAdminService)(nil)
 
 type mockTransformation struct {
 	id   string
@@ -603,7 +683,8 @@ func TestEmptyScheduleHandling(t *testing.T) {
 			}
 
 			// Create service
-			svc, err := NewService(logger, cfg, redisOpt, mockDAG, mockCoordinator)
+			mockAdmin := newMockAdminService()
+			svc, err := NewService(logger, cfg, redisOpt, mockDAG, mockCoordinator, mockAdmin)
 			require.NoError(t, err)
 
 			s := svc.(*service)
@@ -636,7 +717,8 @@ func TestRegisterScheduledTaskWithEmptySchedule(t *testing.T) {
 		Concurrency: 10,
 	}
 
-	svc, err := NewService(logger, cfg, redisOpt, mockDAG, mockCoordinator)
+	mockAdmin := newMockAdminService()
+	svc, err := NewService(logger, cfg, redisOpt, mockDAG, mockCoordinator, mockAdmin)
 	require.NoError(t, err)
 
 	s := svc.(*service)
