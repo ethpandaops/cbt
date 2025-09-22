@@ -2,13 +2,15 @@ package scheduler
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/coordinator"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/observability"
@@ -23,8 +25,8 @@ const (
 	TransformationTaskPrefix = "transformation:"
 	// ConsolidationTaskType is the task type for consolidation
 	ConsolidationTaskType = "consolidation"
-	// BoundsOrchestratorTaskType is the task type for bounds orchestration
-	BoundsOrchestratorTaskType = "bounds:orchestrator"
+	// ExternalTaskPrefix is the prefix for external model tasks
+	ExternalTaskPrefix = "external:"
 	// QueueName is the queue name for scheduler tasks
 	QueueName = "scheduler"
 )
@@ -41,6 +43,8 @@ const (
 var (
 	// ErrScheduleRegistrationFailed is returned when one or more scheduled tasks fail to register
 	ErrScheduleRegistrationFailed = errors.New("failed to register scheduled tasks")
+	// ErrInvalidExternalTaskType is returned when the external task type format is invalid
+	ErrInvalidExternalTaskType = errors.New("invalid external task type format")
 )
 
 // Service defines the public interface for the scheduler
@@ -72,6 +76,7 @@ type service struct {
 	redisOpt    *redis.Options
 	dag         models.DAGReader
 	coordinator coordinator.Service
+	admin       admin.Service
 
 	scheduler *asynq.Scheduler
 	server    *asynq.Server
@@ -80,7 +85,7 @@ type service struct {
 }
 
 // NewService creates a new scheduler service
-func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, dag models.DAGReader, coord coordinator.Service) (Service, error) {
+func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, dag models.DAGReader, coord coordinator.Service, adminService admin.Service) (Service, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -112,6 +117,7 @@ func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, da
 		redisOpt:    redisOpt,
 		dag:         dag,
 		coordinator: coord,
+		admin:       adminService,
 
 		scheduler: scheduler,
 		server:    server,
@@ -120,7 +126,7 @@ func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, da
 }
 
 // Start initializes and starts the scheduler service
-func (s *service) Start(_ context.Context) error {
+func (s *service) Start(ctx context.Context) error {
 	// Track scheduler goroutine
 	s.wg.Add(1)
 	go func() {
@@ -134,6 +140,11 @@ func (s *service) Start(_ context.Context) error {
 	if err := s.reconcileSchedules(); err != nil {
 		return fmt.Errorf("failed to reconcile schedules: %w", err)
 	}
+
+	// Check for external models without cache and trigger initial scans
+	s.log.Info("About to trigger initial external scans")
+	s.triggerInitialExternalScans(ctx)
+	s.log.Info("Completed initial external scan check")
 
 	// Start server in background
 	s.wg.Add(1)
@@ -199,6 +210,7 @@ func (s *service) reconcileSchedules() error {
 		"registered":    stats.registered,
 		"updated":       stats.updated,
 		"skipped":       stats.skipped,
+		"removed":       stats.removed,
 		"errors":        len(errs),
 	}).Info("Schedule reconciliation complete")
 
@@ -214,6 +226,7 @@ type reconcileStats struct {
 	registered int
 	updated    int
 	skipped    int
+	removed    int
 }
 
 // getExistingScheduledTasks retrieves existing scheduled tasks from Asynq
@@ -230,10 +243,10 @@ func (s *service) getExistingScheduledTasks() map[string]*asynq.SchedulerEntry {
 
 	for _, entry := range entries {
 		taskType := entry.Task.Type()
-		// Only track our tasks (transformation, consolidation, or bounds orchestration)
+		// Only track our tasks (transformation, consolidation, or external)
 		if strings.HasPrefix(taskType, TransformationTaskPrefix) ||
 			taskType == ConsolidationTaskType ||
-			taskType == BoundsOrchestratorTaskType {
+			strings.HasPrefix(taskType, ExternalTaskPrefix) {
 			existingTasks[taskType] = entry
 			s.log.WithFields(logrus.Fields{
 				"task_type": taskType,
@@ -248,11 +261,19 @@ func (s *service) getExistingScheduledTasks() map[string]*asynq.SchedulerEntry {
 // buildDesiredTasks builds the map of desired scheduled tasks
 func (s *service) buildDesiredTasks(mux *asynq.ServeMux) map[string]string {
 	transformations := s.dag.GetTransformationNodes()
-	desiredTasks := make(map[string]string, len(transformations)*2) // taskType -> schedule (forward + backfill)
+	externalModels := s.dag.GetExternalNodes()
+	desiredTasks := make(map[string]string, len(transformations)*2+len(externalModels)*2) // taskType -> schedule
 
 	// Register transformation tasks
 	for _, transformation := range transformations {
 		s.registerTransformationTasks(transformation, mux, desiredTasks)
+	}
+
+	// Register external model tasks
+	for _, node := range externalModels {
+		if model, ok := node.Model.(models.External); ok {
+			s.registerExternalTasks(model, mux, desiredTasks)
+		}
 	}
 
 	// Register system tasks
@@ -306,7 +327,43 @@ func (s *service) registerTransformationTasks(transformation models.Transformati
 	}
 }
 
-// registerSystemTasks registers consolidation and bounds orchestrator tasks
+// registerExternalTasks registers tasks for a single external model
+func (s *service) registerExternalTasks(model models.External, mux *asynq.ServeMux, desiredTasks map[string]string) {
+	config := model.GetConfig()
+	modelID := model.GetID()
+
+	// Skip if cache config not defined
+	if config.Cache == nil {
+		s.log.WithField("model_id", modelID).Debug("Skipping external model without cache config")
+		return
+	}
+
+	// Incremental scan task
+	if config.Cache.IncrementalScanInterval > 0 {
+		incrementalTask := fmt.Sprintf("%s%s:incremental", ExternalTaskPrefix, modelID)
+		schedule := fmt.Sprintf("@every %s", config.Cache.IncrementalScanInterval.String())
+		desiredTasks[incrementalTask] = schedule
+		mux.HandleFunc(incrementalTask, s.HandleExternalIncremental)
+		s.log.WithFields(logrus.Fields{
+			"model_id": modelID,
+			"schedule": schedule,
+		}).Debug("Registering external incremental scan task")
+	}
+
+	// Full scan task
+	if config.Cache.FullScanInterval > 0 {
+		fullTask := fmt.Sprintf("%s%s:full", ExternalTaskPrefix, modelID)
+		schedule := fmt.Sprintf("@every %s", config.Cache.FullScanInterval.String())
+		desiredTasks[fullTask] = schedule
+		mux.HandleFunc(fullTask, s.HandleExternalFull)
+		s.log.WithFields(logrus.Fields{
+			"model_id": modelID,
+			"schedule": schedule,
+		}).Debug("Registering external full scan task")
+	}
+}
+
+// registerSystemTasks registers consolidation tasks
 func (s *service) registerSystemTasks(mux *asynq.ServeMux, desiredTasks map[string]string) {
 	// Register consolidation task (only if configured)
 	consolidationSchedule := s.cfg.Consolidation
@@ -317,10 +374,6 @@ func (s *service) registerSystemTasks(mux *asynq.ServeMux, desiredTasks map[stri
 	} else {
 		s.log.Debug("Consolidation task disabled (empty schedule)")
 	}
-
-	// Register bounds orchestrator task - runs every second
-	mux.HandleFunc(BoundsOrchestratorTaskType, s.HandleBoundsOrchestrator)
-	desiredTasks[BoundsOrchestratorTaskType] = "@every 1s"
 }
 
 // reconcileTasks reconciles desired tasks with existing ones
@@ -328,6 +381,7 @@ func (s *service) reconcileTasks(desiredTasks map[string]string, existingTasks m
 	var errs []error
 	stats := reconcileStats{}
 
+	// First, handle desired tasks (add/update)
 	for taskType, schedule := range desiredTasks {
 		existingEntry := existingTasks[taskType]
 
@@ -345,6 +399,9 @@ func (s *service) reconcileTasks(desiredTasks map[string]string, existingTasks m
 			stats.skipped++
 		}
 	}
+
+	// Second, remove obsolete tasks (exist but not desired)
+	stats.removed = s.removeObsoleteTasks(desiredTasks, existingTasks)
 
 	return stats, errs
 }
@@ -402,15 +459,24 @@ func (s *service) registerScheduledTask(taskType, schedule string) error {
 	// Create the task
 	task := asynq.NewTask(taskType, nil)
 
+	// Calculate appropriate unique window based on schedule
+	uniqueWindow := calculateUniqueWindow(schedule)
+
 	// Register with scheduler
 	entryID, err := s.scheduler.Register(schedule, task,
-		asynq.Queue(QueueName),      // Use dedicated scheduler queue
-		asynq.Unique(1*time.Minute), // Prevent duplicate triggers
+		asynq.Queue(QueueName),     // Use dedicated scheduler queue
+		asynq.Unique(uniqueWindow), // Prevent duplicate triggers
 	)
 
 	if err != nil {
 		return fmt.Errorf("failed to register %s with schedule %s: %w", taskType, schedule, err)
 	}
+
+	s.log.WithFields(logrus.Fields{
+		"task_type":     taskType,
+		"schedule":      schedule,
+		"unique_window": uniqueWindow.String(),
+	}).Debug("Registered scheduled task with calculated unique window")
 
 	// Check if this is the consolidation task (special case)
 	if taskType == ConsolidationTaskType {
@@ -496,7 +562,8 @@ func (s *service) runPeriodicCleanup() {
 
 	for {
 		// Random interval between 1-2 minutes
-		interval := time.Duration(60+rand.Intn(60)) * time.Second // #nosec G404 - using weak RNG for non-security purpose
+		intervalBig, _ := rand.Int(rand.Reader, big.NewInt(60))
+		interval := time.Duration(60+intervalBig.Int64()) * time.Second
 		timer := time.NewTimer(interval)
 
 		select {
@@ -513,11 +580,11 @@ func (s *service) runPeriodicCleanup() {
 			// Group by task type to find duplicates
 			taskGroups := make(map[string][]*asynq.SchedulerEntry, 10) // Add capacity hint
 			for _, entry := range entries {
-				// Only process our tasks (transformation, consolidation, or bounds orchestration)
+				// Only process our tasks (transformation, consolidation, or external)
 				taskType := entry.Task.Type()
 				if strings.HasPrefix(taskType, TransformationTaskPrefix) ||
 					taskType == ConsolidationTaskType ||
-					taskType == BoundsOrchestratorTaskType {
+					strings.HasPrefix(taskType, ExternalTaskPrefix) {
 					taskGroups[taskType] = append(taskGroups[taskType], entry)
 				}
 			}
@@ -535,19 +602,163 @@ func (s *service) runPeriodicCleanup() {
 	}
 }
 
-// HandleBoundsOrchestrator processes the bounds orchestrator task
-// This task runs every second and checks if external models need bounds updates
-func (s *service) HandleBoundsOrchestrator(ctx context.Context, _ *asynq.Task) error {
-	s.log.Debug("Running bounds orchestrator check")
+// HandleExternalIncremental processes incremental scan for external model
+func (s *service) HandleExternalIncremental(_ context.Context, t *asynq.Task) error {
+	// Extract model ID from task type: external:{model_id}:incremental
+	taskType := t.Type()
+	parts := strings.Split(taskType, ":")
+	if len(parts) != 3 {
+		return fmt.Errorf("%w: %s", ErrInvalidExternalTaskType, taskType)
+	}
+	modelID := parts[1]
 
-	// Delegate to coordinator to handle bounds orchestration
-	if boundsOrchestrator, ok := s.coordinator.(interface{ ProcessBoundsOrchestration(context.Context) }); ok {
-		boundsOrchestrator.ProcessBoundsOrchestration(ctx)
-	} else {
-		s.log.Debug("Coordinator doesn't support bounds orchestration")
+	s.log.WithField("model_id", modelID).Debug("Running incremental scan for external model")
+
+	// Process the incremental scan
+	s.coordinator.ProcessExternalScan(modelID, "incremental")
+	return nil
+}
+
+// HandleExternalFull processes full scan for external model
+func (s *service) HandleExternalFull(_ context.Context, t *asynq.Task) error {
+	// Extract model ID from task type: external:{model_id}:full
+	taskType := t.Type()
+	parts := strings.Split(taskType, ":")
+	if len(parts) != 3 {
+		return fmt.Errorf("%w: %s", ErrInvalidExternalTaskType, taskType)
+	}
+	modelID := parts[1]
+
+	s.log.WithField("model_id", modelID).Debug("Running full scan for external model")
+
+	// Process the full scan
+	s.coordinator.ProcessExternalScan(modelID, "full")
+	return nil
+}
+
+// removeObsoleteTasks removes scheduled tasks that exist but are no longer desired
+func (s *service) removeObsoleteTasks(desiredTasks map[string]string, existingTasks map[string]*asynq.SchedulerEntry) int {
+	removed := 0
+
+	for taskType, entry := range existingTasks {
+		// Check if this task is one we manage
+		isOurTask := strings.HasPrefix(taskType, TransformationTaskPrefix) ||
+			strings.HasPrefix(taskType, ExternalTaskPrefix) ||
+			taskType == ConsolidationTaskType
+
+		if !isOurTask {
+			// Skip tasks we don't manage
+			continue
+		}
+
+		// Check if task is still desired
+		if _, exists := desiredTasks[taskType]; !exists {
+			// Task exists but is no longer desired - remove it
+			s.log.WithFields(logrus.Fields{
+				"task_type": taskType,
+				"entry_id":  entry.ID,
+			}).Info("Removing obsolete scheduled task")
+
+			if err := s.scheduler.Unregister(entry.ID); err != nil {
+				s.log.WithError(err).WithField("task_type", taskType).Error("Failed to unregister obsolete task")
+			} else {
+				removed++
+			}
+		}
 	}
 
-	return nil
+	return removed
+}
+
+// calculateUniqueWindow calculates an appropriate unique window based on the schedule
+func calculateUniqueWindow(schedule string) time.Duration {
+	// Default for cron expressions or unparseable schedules
+	const defaultWindow = 30 * time.Second
+
+	// Check if it's an @every format
+	if !strings.HasPrefix(schedule, "@every ") {
+		return defaultWindow
+	}
+
+	// Parse the duration
+	durationStr := strings.TrimPrefix(schedule, "@every ")
+	interval, err := time.ParseDuration(durationStr)
+	if err != nil {
+		return defaultWindow
+	}
+
+	// Calculate 80% of interval as unique window
+	uniqueWindow := time.Duration(float64(interval) * 0.8)
+
+	// Apply bounds: minimum 1 second, maximum 5 minutes
+	if uniqueWindow < time.Second {
+		return time.Second
+	}
+	if uniqueWindow > 5*time.Minute {
+		return 5 * time.Minute
+	}
+
+	return uniqueWindow
+}
+
+// triggerInitialExternalScans checks for external models without cache and triggers initial scans
+func (s *service) triggerInitialExternalScans(ctx context.Context) {
+	externalNodes := s.dag.GetExternalNodes()
+	if len(externalNodes) == 0 {
+		s.log.Info("No external models found for initial scan check")
+		return
+	}
+
+	s.log.WithField("count", len(externalNodes)).Info("Checking external models for initial scans")
+
+	// Check each external model for cache
+	for _, node := range externalNodes {
+		model, ok := node.Model.(models.External)
+		if !ok {
+			s.log.WithField("node", node).Debug("Node is not an external model")
+			continue
+		}
+
+		modelID := model.GetID()
+		config := model.GetConfig()
+
+		// Skip if cache config not defined
+		if config.Cache == nil {
+			s.log.WithField("model_id", modelID).Debug("Skipping model without cache config")
+			continue
+		}
+
+		// Check if cache exists using admin service
+		if s.admin != nil {
+			// Try to get bounds - if nil or initial scan incomplete, trigger initial scan
+			bounds, err := s.admin.GetExternalBounds(ctx, modelID)
+			s.log.WithFields(logrus.Fields{
+				"model_id":              modelID,
+				"bounds_nil":            bounds == nil,
+				"initial_scan_complete": bounds != nil && bounds.InitialScanComplete,
+				"error":                 err,
+			}).Debug("Checked external model bounds")
+
+			if bounds == nil || !bounds.InitialScanComplete {
+				// Add jitter to prevent thundering herd (0-10 seconds)
+				jitterBig, _ := rand.Int(rand.Reader, big.NewInt(10))
+				jitter := time.Duration(jitterBig.Int64()) * time.Second
+
+				s.log.WithFields(logrus.Fields{
+					"model_id": modelID,
+					"jitter":   jitter,
+				}).Info("Triggering initial full scan for external model")
+
+				// Sleep with jitter
+				time.Sleep(jitter)
+
+				// Trigger full scan immediately
+				s.coordinator.ProcessExternalScan(modelID, "full")
+			}
+		} else {
+			s.log.Debug("Admin service is nil, cannot check external bounds")
+		}
+	}
 }
 
 // HandleScheduledBackfill processes scheduled backfill scans

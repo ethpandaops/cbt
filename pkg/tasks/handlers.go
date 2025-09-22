@@ -25,6 +25,8 @@ var (
 	ErrDependenciesNotSatisfied = errors.New("dependencies not satisfied")
 	// ErrModelIDNotFound is returned when model_id is not found in payload
 	ErrModelIDNotFound = errors.New("model_id not found in payload")
+	// ErrScanTypeNotFound is returned when scan_type is not found in payload
+	ErrScanTypeNotFound = errors.New("scan_type not found in payload")
 	// ErrCacheManagerUnavailable is returned when cache manager is not available
 	ErrCacheManagerUnavailable = errors.New("cache manager not available")
 )
@@ -61,7 +63,7 @@ type TaskContext struct {
 type Executor interface {
 	Execute(ctx context.Context, taskCtx interface{}) error
 	Validate(ctx context.Context, taskCtx interface{}) error
-	UpdateBounds(ctx context.Context, modelID string) error
+	UpdateBounds(ctx context.Context, modelID, scanType string) error
 }
 
 // NewTaskHandler creates a new task handler
@@ -192,43 +194,59 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 	return nil
 }
 
-// HandleBoundsCache handles bounds cache update tasks for external models
-func (h *TaskHandler) HandleBoundsCache(ctx context.Context, t *asynq.Task) error {
+// HandleExternalScan handles external model scan tasks (both incremental and full)
+func (h *TaskHandler) HandleExternalScan(ctx context.Context, t *asynq.Task) error {
 	var payload map[string]string
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-		observability.RecordError("bounds-handler", "unmarshal_error")
-		return fmt.Errorf("failed to unmarshal bounds payload: %w", err)
+		observability.RecordError("external-scan-handler", "unmarshal_error")
+		return fmt.Errorf("failed to unmarshal external scan payload: %w", err)
 	}
 
 	modelID, ok := payload["model_id"]
 	if !ok {
-		observability.RecordError("bounds-handler", "missing_model_id")
+		observability.RecordError("external-scan-handler", "missing_model_id")
 		return ErrModelIDNotFound
 	}
 
-	startTime := time.Now()
+	scanType, ok := payload["scan_type"]
+	if !ok {
+		observability.RecordError("external-scan-handler", "missing_scan_type")
+		return ErrScanTypeNotFound
+	}
 
+	startTime := time.Now()
 	workerID := getWorkerID()
 
-	h.log.WithField("model_id", modelID).Debug("Calling modelExecutor.UpdateBounds")
+	h.log.WithFields(logrus.Fields{
+		"model_id":  modelID,
+		"scan_type": scanType,
+	}).Debug("Processing external scan")
 
-	if err := h.modelExecutor.UpdateBounds(ctx, modelID); err != nil {
-		h.log.WithError(err).WithField("model_id", modelID).Error("Model update bounds failed")
+	// Call UpdateBounds with scan type context
+	if err := h.modelExecutor.UpdateBounds(ctx, modelID, scanType); err != nil {
+		h.log.WithError(err).WithFields(logrus.Fields{
+			"model_id":  modelID,
+			"scan_type": scanType,
+		}).Error("External scan failed")
 		observability.RecordTaskComplete(modelID, workerID, "failed", time.Since(startTime).Seconds())
-		observability.RecordError("task-handler", "execution_error")
+		observability.RecordError("external-scan-handler", "execution_error")
 
 		return fmt.Errorf("execution error: %w", err)
 	}
 
-	h.log.WithField("model_id", modelID).Debug("Model execution completed")
+	h.log.WithFields(logrus.Fields{
+		"model_id":  modelID,
+		"scan_type": scanType,
+	}).Debug("External scan completed")
 
 	// Record successful completion
 	observability.RecordTaskComplete(modelID, workerID, "success", time.Since(startTime).Seconds())
 
 	h.log.WithFields(logrus.Fields{
-		"model_id": modelID,
-		"duration": time.Since(startTime),
-	}).Info("Task completed successfully")
+		"model_id":  modelID,
+		"scan_type": scanType,
+		"duration":  time.Since(startTime),
+	}).Info("External scan task completed successfully")
 
 	return nil
 }
@@ -237,6 +255,7 @@ func (h *TaskHandler) HandleBoundsCache(ctx context.Context, t *asynq.Task) erro
 func (h *TaskHandler) Routes() map[string]asynq.HandlerFunc {
 	return map[string]asynq.HandlerFunc{
 		TypeModelTransformation: h.HandleTransformation,
-		"bounds:cache":          h.HandleBoundsCache,
+		"external:incremental":  h.HandleExternalScan,
+		"external:full":         h.HandleExternalScan,
 	}
 }

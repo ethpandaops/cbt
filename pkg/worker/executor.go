@@ -12,7 +12,6 @@ import (
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
-	"github.com/ethpandaops/cbt/pkg/models/external"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/ethpandaops/cbt/pkg/tasks"
@@ -26,6 +25,13 @@ var (
 	ErrInvalidTransformationType = errors.New("invalid transformation type")
 	ErrTableDoesNotExist         = errors.New("table does not exist")
 	ErrCacheManagerUnavailable   = errors.New("cache manager not available")
+)
+
+const (
+	// ScanTypeIncremental is the incremental scan type
+	ScanTypeIncremental = "incremental"
+	// ScanTypeFull is the full scan type
+	ScanTypeFull = "full"
 )
 
 // ModelExecutor implements the execution of model transformations
@@ -47,7 +53,7 @@ func NewModelExecutor(log logrus.FieldLogger, chClient clickhouse.ClientInterfac
 }
 
 // UpdateBounds updates the external model bounds cache
-func (e *ModelExecutor) UpdateBounds(ctx context.Context, modelID string) error {
+func (e *ModelExecutor) UpdateBounds(ctx context.Context, modelID, scanType string) error {
 	// Get the external model from DAG
 	externalModel, err := e.models.GetDAG().GetExternalNode(modelID)
 	if err != nil {
@@ -56,17 +62,84 @@ func (e *ModelExecutor) UpdateBounds(ctx context.Context, modelID string) error 
 		return fmt.Errorf("failed to get external model %s: %w", modelID, err)
 	}
 
-	// Get current cache entry to determine scan type
+	// Get current cache entry
 	cache, err := e.admin.GetExternalBounds(ctx, modelID)
 	if err != nil {
 		e.log.WithError(err).WithField("model_id", modelID).Warn("Failed to get cache bounds")
 	}
 
-	config := externalModel.GetConfig()
 	now := time.Now()
 
-	// Determine scan type
-	isIncrementalScan, isFullScan := e.determineScanType(modelID, cache, config, now)
+	// Validate scan preconditions
+	if shouldSkipScan(e.log, modelID, scanType, cache, now) {
+		return nil
+	}
+
+	// Build cache state for template rendering
+	cacheState := buildCacheState(scanType, cache)
+
+	e.log.WithFields(logrus.Fields{
+		"model_id":            modelID,
+		"scan_type":           scanType,
+		"is_incremental_scan": cacheState["is_incremental_scan"],
+		"is_full_scan":        cacheState["is_full_scan"],
+		"cache_state":         cacheState,
+	}).Debug("Processing external scan")
+
+	// Query bounds with cache state
+	minBound, maxBound, err := e.queryExternalBounds(ctx, modelID, externalModel, cacheState)
+	if err != nil {
+		return fmt.Errorf("failed to query external bounds for %s: %w", modelID, err)
+	}
+
+	// Handle no new data case for incremental scans
+	isIncrementalScan := scanType == ScanTypeIncremental
+	isFullScan := scanType == ScanTypeFull
+
+	if isIncrementalScan && minBound == 0 && maxBound == 0 && cache != nil {
+		// No new data found, keep existing bounds
+		e.log.WithField("model_id", modelID).Debug("No new data found in incremental scan, keeping existing bounds")
+		minBound = cache.Min
+		maxBound = cache.Max
+	}
+
+	// Store raw bounds in cache without applying lag
+	// Lag will be applied consistently by the validator when reading bounds
+	if err := e.updateBoundsCache(ctx, modelID, minBound, maxBound, cache, isIncrementalScan, isFullScan, now); err != nil {
+		return fmt.Errorf("failed to update bounds cache for %s: %w", modelID, err)
+	}
+
+	// Record the bounds in metrics
+	observability.RecordModelBounds(modelID, minBound, maxBound)
+
+	return nil
+}
+
+// shouldSkipScan checks if the scan should be skipped based on current state
+func shouldSkipScan(log logrus.FieldLogger, modelID, scanType string, cache *admin.BoundsCache, now time.Time) bool {
+	// Check if this is initial scan
+	if scanType == ScanTypeIncremental && cache == nil {
+		log.WithField("model_id", modelID).Warn("No cache for incremental scan, skipping until full scan completes")
+		return true
+	}
+
+	// Check if initial scan is complete for incremental scans
+	if scanType == ScanTypeIncremental && cache != nil && !cache.InitialScanComplete {
+		// Check if initial scan is stuck (more than 30 minutes old)
+		if cache.InitialScanStarted != nil && now.Sub(*cache.InitialScanStarted) > 30*time.Minute {
+			log.WithField("model_id", modelID).Warn("Initial scan appears stuck, will retry on next full scan")
+		}
+		return true
+	}
+
+	return false
+}
+
+// buildCacheState builds the cache state for template rendering
+func buildCacheState(scanType string, cache *admin.BoundsCache) map[string]interface{} {
+	// Set scan type flags
+	isIncrementalScan := scanType == ScanTypeIncremental
+	isFullScan := scanType == ScanTypeFull
 
 	// Build cache state for template rendering
 	cacheState := map[string]interface{}{
@@ -80,60 +153,7 @@ func (e *ModelExecutor) UpdateBounds(ctx context.Context, modelID string) error 
 		cacheState["previous_max"] = cache.PreviousMax
 	}
 
-	e.log.WithFields(logrus.Fields{
-		"model_id":            modelID,
-		"is_incremental_scan": isIncrementalScan,
-		"is_full_scan":        isFullScan,
-		"cache_state":         cacheState,
-	}).Debug("Determined scan type and cache state")
-
-	// Query bounds with cache state
-	minBound, maxBound, err := e.queryExternalBounds(ctx, modelID, externalModel, cacheState)
-	if err != nil {
-		return fmt.Errorf("failed to query external bounds for %s: %w", modelID, err)
-	}
-
-	// Handle no new data case for incremental scans
-	if isIncrementalScan && minBound == 0 && maxBound == 0 && cache != nil {
-		// No new data found, keep existing bounds
-		e.log.WithField("model_id", modelID).Debug("No new data found in incremental scan, keeping existing bounds")
-		minBound = cache.Min
-		maxBound = cache.Max
-	}
-
-	// Store raw bounds in cache without applying lag
-	// Lag will be applied consistently by the validator when reading bounds
-	if err := e.updateBoundsCache(ctx, modelID, minBound, maxBound, cache, isIncrementalScan, now); err != nil {
-		return fmt.Errorf("failed to update bounds cache for %s: %w", modelID, err)
-	}
-
-	// Record the bounds in metrics
-	observability.RecordModelBounds(modelID, minBound, maxBound)
-
-	return nil
-}
-
-// determineScanType determines whether to perform an incremental or full scan
-func (e *ModelExecutor) determineScanType(modelID string, cache *admin.BoundsCache, config external.Config, now time.Time) (isIncrementalScan, isFullScan bool) {
-	switch {
-	case cache == nil:
-		// No cache - do full scan
-		isFullScan = true
-		e.log.WithField("model_id", modelID).Debug("No cache entry, performing initial full scan")
-	case config.Cache != nil && now.Sub(cache.LastFullScan) > config.Cache.FullScanInterval:
-		// Time for full scan
-		isFullScan = true
-		e.log.WithFields(logrus.Fields{
-			"model_id":       modelID,
-			"last_full_scan": cache.LastFullScan,
-			"interval":       config.Cache.FullScanInterval,
-		}).Debug("Performing periodic full scan")
-	default:
-		// Incremental scan
-		isIncrementalScan = true
-		e.log.WithField("model_id", modelID).Debug("Performing incremental scan")
-	}
-	return isIncrementalScan, isFullScan
+	return cacheState
 }
 
 // queryExternalBounds executes the query to get bounds for an external model
@@ -181,26 +201,19 @@ func (e *ModelExecutor) queryExternalBounds(ctx context.Context, modelID string,
 }
 
 // updateBoundsCache updates the bounds cache with new values
-func (e *ModelExecutor) updateBoundsCache(ctx context.Context, modelID string, minBound, maxBound uint64, existingCache *admin.BoundsCache, isIncrementalScan bool, now time.Time) error {
+func (e *ModelExecutor) updateBoundsCache(ctx context.Context, modelID string, minBound, maxBound uint64, existingCache *admin.BoundsCache, isIncrementalScan, isFullScan bool, now time.Time) error {
 	newCache := &admin.BoundsCache{
-		ModelID:     modelID,
-		Min:         minBound,
-		Max:         maxBound,
-		PreviousMin: minBound,
-		PreviousMax: maxBound,
-		UpdatedAt:   now,
+		ModelID:             modelID,
+		Min:                 minBound,
+		Max:                 maxBound,
+		PreviousMin:         minBound,
+		PreviousMax:         maxBound,
+		UpdatedAt:           now,
+		InitialScanComplete: true, // Set to true after any successful scan
 	}
 
-	if isIncrementalScan {
-		newCache.LastIncrementalScan = now
-		// Keep the previous full scan time
-		if existingCache != nil {
-			newCache.LastFullScan = existingCache.LastFullScan
-		}
-	} else {
-		newCache.LastFullScan = now
-		newCache.LastIncrementalScan = now
-	}
+	// Update cache timestamps based on scan type
+	updateCacheTimestamps(newCache, existingCache, isIncrementalScan, isFullScan, now)
 
 	if err := e.admin.SetExternalBounds(ctx, newCache); err != nil {
 		e.log.WithError(err).WithField("model_id", modelID).Error("Failed to update cache")
@@ -209,6 +222,29 @@ func (e *ModelExecutor) updateBoundsCache(ctx context.Context, modelID string, m
 	}
 
 	return nil
+}
+
+// updateCacheTimestamps updates the cache timestamps based on scan type
+func updateCacheTimestamps(newCache, existingCache *admin.BoundsCache, isIncrementalScan, isFullScan bool, now time.Time) {
+	switch {
+	case isIncrementalScan:
+		newCache.LastIncrementalScan = now
+		// Keep the previous full scan time and initial scan info
+		if existingCache != nil {
+			newCache.LastFullScan = existingCache.LastFullScan
+			newCache.InitialScanStarted = existingCache.InitialScanStarted
+		}
+	case isFullScan:
+		newCache.LastFullScan = now
+		newCache.LastIncrementalScan = now
+		// Set initial scan started time if this is the first scan
+		if existingCache == nil {
+			newCache.InitialScanStarted = &now
+			newCache.InitialScanComplete = false // Will be set to true when scan completes
+		} else if existingCache.InitialScanStarted != nil {
+			newCache.InitialScanStarted = existingCache.InitialScanStarted
+		}
+	}
 }
 
 // Execute runs the model transformation

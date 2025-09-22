@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -38,8 +37,8 @@ type Service interface {
 	// Process handles transformation processing in the specified direction
 	Process(transformation models.Transformation, direction Direction)
 
-	// ProcessBoundsOrchestration handles bounds orchestration for external models
-	ProcessBoundsOrchestration(ctx context.Context)
+	// ProcessExternalScan handles external model scan processing
+	ProcessExternalScan(modelID, scanType string)
 }
 
 // Direction represents the processing direction for tasks
@@ -51,8 +50,10 @@ const (
 	// DirectionBack processes tasks in backward direction
 	DirectionBack Direction = "back"
 
-	// BoundsCacheTaskType is the task type for external bounds cache updates
-	BoundsCacheTaskType = "bounds:cache"
+	// ExternalIncrementalTaskType is the task type for external incremental scan
+	ExternalIncrementalTaskType = "external:incremental"
+	// ExternalFullTaskType is the task type for external full scan
+	ExternalFullTaskType = "external:full"
 )
 
 // taskOperation represents an operation on the processed tasks tracker
@@ -795,91 +796,37 @@ func (s *service) RunConsolidation(ctx context.Context) {
 	}
 }
 
-// ProcessBoundsOrchestration checks all external models and enqueues bounds update tasks as needed
-func (s *service) ProcessBoundsOrchestration(ctx context.Context) {
-	// Get all external models from DAG
-	externalNodes := s.dag.GetExternalNodes()
-
-	if len(externalNodes) == 0 {
-		s.log.Debug("No external models to check for bounds updates")
-		return
-	}
-
-	now := time.Now()
-
-	for _, node := range externalNodes {
-		model, ok := node.Model.(models.External)
-		if !ok {
-			s.log.WithField("node_type", node.NodeType).Error("Invalid external node type")
-			continue
-		}
-		modelID := model.GetID()
-		config := model.GetConfig()
-
-		// Skip if cache config not defined
-		if config.Cache == nil {
-			s.log.WithField("model_id", modelID).Debug("Skipping model without cache config")
-			continue
-		}
-
-		// Get current cache entry
-		cache, err := s.admin.GetExternalBounds(ctx, modelID)
-		if err != nil {
-			s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get cache bounds")
-			continue
-		}
-
-		// Determine if update is needed
-		needsUpdate := false
-
-		if cache == nil {
-			// No cache entry - needs initial full scan
-			s.log.WithField("model_id", modelID).Debug("No cache entry, needs initial bounds")
-			needsUpdate = true
-		} else {
-			// Check if incremental or full scan is due
-			if now.Sub(cache.LastFullScan) > config.Cache.FullScanInterval {
-				s.log.WithFields(logrus.Fields{
-					"model_id":       modelID,
-					"last_full_scan": cache.LastFullScan,
-					"interval":       config.Cache.FullScanInterval,
-				}).Debug("Full scan interval exceeded")
-				needsUpdate = true
-			} else if now.Sub(cache.LastIncrementalScan) > config.Cache.IncrementalScanInterval {
-				s.log.WithFields(logrus.Fields{
-					"model_id":              modelID,
-					"last_incremental_scan": cache.LastIncrementalScan,
-					"interval":              config.Cache.IncrementalScanInterval,
-				}).Debug("Incremental scan interval exceeded")
-				needsUpdate = true
-			}
-		}
-
-		if needsUpdate {
-			// Enqueue bounds update task
-			s.enqueueBoundsUpdate(ctx, modelID)
-		}
-	}
-}
-
-// enqueueBoundsUpdate enqueues a bounds cache update task for an external model
-func (s *service) enqueueBoundsUpdate(_ context.Context, modelID string) {
+// ProcessExternalScan handles processing external model scans
+// This is called by scheduled tasks for each external model
+func (s *service) ProcessExternalScan(modelID, scanType string) {
 	// Create unique task ID
-	taskID := fmt.Sprintf("bounds:cache:%s", modelID)
+	taskID := fmt.Sprintf("external:%s:%s", modelID, scanType)
 
 	// Create task payload
 	payload := map[string]string{
-		"model_id": modelID,
+		"model_id":  modelID,
+		"scan_type": scanType,
 	}
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to marshal bounds task payload")
+		s.log.WithError(err).WithFields(logrus.Fields{
+			"model_id":  modelID,
+			"scan_type": scanType,
+		}).Error("Failed to marshal external scan task payload")
 		return
 	}
 
+	// Use the appropriate task type based on scan type
+	var taskType string
+	if scanType == "incremental" {
+		taskType = ExternalIncrementalTaskType
+	} else {
+		taskType = ExternalFullTaskType
+	}
+
 	// Create task with unique ID to prevent duplicates
-	task := asynq.NewTask(BoundsCacheTaskType, payloadBytes,
+	task := asynq.NewTask(taskType, payloadBytes,
 		asynq.TaskID(taskID),
 		asynq.Queue(modelID),
 		asynq.MaxRetry(0),
@@ -888,16 +835,26 @@ func (s *service) enqueueBoundsUpdate(_ context.Context, modelID string) {
 
 	// Enqueue the task
 	if _, err := s.queueManager.Enqueue(task); err != nil {
-		if strings.Contains(err.Error(), "task ID conflicts with another task") || strings.Contains(err.Error(), "task already exists") {
-			s.log.WithField("model_id", modelID).Warn("Bounds update task already exists")
+		// Check if task already exists (not an error, just skip)
+		if err.Error() == "task ID already exists" {
+			s.log.WithFields(logrus.Fields{
+				"model_id":  modelID,
+				"scan_type": scanType,
+			}).Debug("External scan task already exists, skipping")
 		} else {
-			s.log.WithError(err).WithField("model_id", modelID).Error("Failed to enqueue bounds update task")
+			s.log.WithError(err).WithFields(logrus.Fields{
+				"model_id":  modelID,
+				"scan_type": scanType,
+			}).Error("Failed to enqueue external scan task")
 		}
-
 		return
 	}
 
-	s.log.WithField("model_id", modelID).Debug("Enqueued bounds update task")
+	s.log.WithFields(logrus.Fields{
+		"model_id":  modelID,
+		"scan_type": scanType,
+		"task_id":   taskID,
+	}).Debug("Enqueued external scan task")
 }
 
 // Ensure service implements the interface
