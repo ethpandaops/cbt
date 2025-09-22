@@ -29,6 +29,15 @@ const (
 	QueueName = "scheduler"
 )
 
+// taskReconcileResult represents the result of reconciling a scheduled task
+type taskReconcileResult int
+
+const (
+	taskReconcileSkipped taskReconcileResult = iota
+	taskReconcileRegistered
+	taskReconcileUpdated
+)
+
 var (
 	// ErrScheduleRegistrationFailed is returned when one or more scheduled tasks fail to register
 	ErrScheduleRegistrationFailed = errors.New("failed to register scheduled tasks")
@@ -170,74 +179,28 @@ func (s *service) Stop() error {
 func (s *service) reconcileSchedules() error {
 	s.log.Info("Reconciling scheduled tasks with current configuration")
 
+	// Get existing scheduled tasks
+	existingTasks := s.getExistingScheduledTasks()
+
 	// Setup handlers for scheduled tasks
 	mux := asynq.NewServeMux()
 
-	// Since Asynq Scheduler doesn't provide a way to list existing entries,
-	// we'll use a simple approach: register all tasks on startup.
-	// The scheduler handles deduplication internally using task IDs.
-
 	// Build desired state from current configuration
-	transformations := s.dag.GetTransformationNodes()
-	desiredTasks := make(map[string]string, len(transformations)*2) // taskType -> schedule (forward + backfill)
-
-	for _, transformation := range transformations {
-		config := transformation.GetConfig()
-		modelID := transformation.GetID()
-
-		// Forward fill task (only if configured)
-		if config.IsForwardFillEnabled() {
-			forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
-			desiredTasks[forwardTask] = config.GetForwardSchedule()
-			// Register handler for this specific task type
-			mux.HandleFunc(forwardTask, s.HandleScheduledForward)
-			s.log.WithFields(logrus.Fields{
-				"model_id": modelID,
-				"schedule": config.GetForwardSchedule(),
-			}).Debug("Registering forward fill task")
-		}
-
-		// Backfill task (only if configured)
-		if config.IsBackfillEnabled() {
-			backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
-			desiredTasks[backfillTask] = config.GetBackfillSchedule()
-			// Register handler for this specific task type
-			mux.HandleFunc(backfillTask, s.HandleScheduledBackfill)
-			s.log.WithFields(logrus.Fields{
-				"model_id": modelID,
-				"schedule": config.GetBackfillSchedule(),
-			}).Debug("Registering backfill task")
-		}
-
-		// Warn if no tasks were registered for this transformation
-		if !config.IsForwardFillEnabled() && !config.IsBackfillEnabled() {
-			s.log.WithField("model_id", modelID).Warn("Transformation has no scheduled tasks (neither forward fill nor backfill configured)")
-		}
-	}
-
-	// Register consolidation task
-	mux.HandleFunc(ConsolidationTaskType, s.HandleConsolidation)
-	// Use configured consolidation schedule, or default if not set
-	consolidationSchedule := s.cfg.Consolidation
-	desiredTasks[ConsolidationTaskType] = consolidationSchedule
-
-	// Register bounds orchestrator task - runs every second
-	mux.HandleFunc(BoundsOrchestratorTaskType, s.HandleBoundsOrchestrator)
-	desiredTasks[BoundsOrchestratorTaskType] = "@every 1s"
+	desiredTasks := s.buildDesiredTasks(mux)
 
 	// Store the mux for later use
 	s.mux = mux
 
-	// Register all tasks
-	var errs []error
-	for taskType, schedule := range desiredTasks {
-		if err := s.registerScheduledTask(taskType, schedule); err != nil {
-			s.log.WithError(err).WithField("task_type", taskType).Error("Failed to register scheduled task")
-			errs = append(errs, fmt.Errorf("failed to register %s: %w", taskType, err))
-		}
-	}
+	// Reconcile tasks
+	stats, errs := s.reconcileTasks(desiredTasks, existingTasks)
 
-	s.log.WithField("task_count", len(desiredTasks)).Info("Schedule reconciliation complete")
+	s.log.WithFields(logrus.Fields{
+		"total_desired": len(desiredTasks),
+		"registered":    stats.registered,
+		"updated":       stats.updated,
+		"skipped":       stats.skipped,
+		"errors":        len(errs),
+	}).Info("Schedule reconciliation complete")
 
 	if len(errs) > 0 {
 		return fmt.Errorf("%w: %d tasks failed", ErrScheduleRegistrationFailed, len(errs))
@@ -246,8 +209,196 @@ func (s *service) reconcileSchedules() error {
 	return nil
 }
 
+// reconcileStats holds statistics for reconciliation results
+type reconcileStats struct {
+	registered int
+	updated    int
+	skipped    int
+}
+
+// getExistingScheduledTasks retrieves existing scheduled tasks from Asynq
+func (s *service) getExistingScheduledTasks() map[string]*asynq.SchedulerEntry {
+	// IMPORTANT: We must check for existing tasks to prevent multiple instances
+	// from disrupting each other. When a new instance starts, it should NOT
+	// delete and re-register existing scheduled tasks unless the schedule changed.
+	existingTasks := make(map[string]*asynq.SchedulerEntry)
+	entries, err := s.inspector.SchedulerEntries()
+	if err != nil {
+		s.log.WithError(err).Warn("Failed to get existing scheduled entries, will register all tasks")
+		return existingTasks
+	}
+
+	for _, entry := range entries {
+		taskType := entry.Task.Type()
+		// Only track our tasks (transformation, consolidation, or bounds orchestration)
+		if strings.HasPrefix(taskType, TransformationTaskPrefix) ||
+			taskType == ConsolidationTaskType ||
+			taskType == BoundsOrchestratorTaskType {
+			existingTasks[taskType] = entry
+			s.log.WithFields(logrus.Fields{
+				"task_type": taskType,
+				"schedule":  entry.Spec,
+			}).Debug("Found existing scheduled task")
+		}
+	}
+	s.log.WithField("existing_count", len(existingTasks)).Info("Found existing scheduled tasks")
+	return existingTasks
+}
+
+// buildDesiredTasks builds the map of desired scheduled tasks
+func (s *service) buildDesiredTasks(mux *asynq.ServeMux) map[string]string {
+	transformations := s.dag.GetTransformationNodes()
+	desiredTasks := make(map[string]string, len(transformations)*2) // taskType -> schedule (forward + backfill)
+
+	// Register transformation tasks
+	for _, transformation := range transformations {
+		s.registerTransformationTasks(transformation, mux, desiredTasks)
+	}
+
+	// Register system tasks
+	s.registerSystemTasks(mux, desiredTasks)
+
+	return desiredTasks
+}
+
+// registerTransformationTasks registers tasks for a single transformation
+func (s *service) registerTransformationTasks(transformation models.Transformation, mux *asynq.ServeMux, desiredTasks map[string]string) {
+	config := transformation.GetConfig()
+	modelID := transformation.GetID()
+
+	// Forward fill task (only if configured)
+	if config.IsForwardFillEnabled() {
+		forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
+		desiredTasks[forwardTask] = config.GetForwardSchedule()
+		mux.HandleFunc(forwardTask, s.HandleScheduledForward)
+		s.log.WithFields(logrus.Fields{
+			"model_id": modelID,
+			"schedule": config.GetForwardSchedule(),
+		}).Debug("Registering forward fill task")
+	} else {
+		s.log.WithFields(logrus.Fields{
+			"model_id": modelID,
+			"schedule": config.GetForwardSchedule(),
+			"reason":   "empty or missing schedule",
+		}).Debug("Forward fill disabled for transformation")
+	}
+
+	// Backfill task (only if configured)
+	if config.IsBackfillEnabled() {
+		backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
+		desiredTasks[backfillTask] = config.GetBackfillSchedule()
+		mux.HandleFunc(backfillTask, s.HandleScheduledBackfill)
+		s.log.WithFields(logrus.Fields{
+			"model_id": modelID,
+			"schedule": config.GetBackfillSchedule(),
+		}).Debug("Registering backfill task")
+	} else {
+		s.log.WithFields(logrus.Fields{
+			"model_id": modelID,
+			"schedule": config.GetBackfillSchedule(),
+			"reason":   "empty or missing schedule",
+		}).Debug("Backfill disabled for transformation")
+	}
+
+	// Warn if no tasks were registered for this transformation
+	if !config.IsForwardFillEnabled() && !config.IsBackfillEnabled() {
+		s.log.WithField("model_id", modelID).Warn("Transformation has no scheduled tasks (both forward fill and backfill are disabled)")
+	}
+}
+
+// registerSystemTasks registers consolidation and bounds orchestrator tasks
+func (s *service) registerSystemTasks(mux *asynq.ServeMux, desiredTasks map[string]string) {
+	// Register consolidation task (only if configured)
+	consolidationSchedule := s.cfg.Consolidation
+	if consolidationSchedule != "" {
+		mux.HandleFunc(ConsolidationTaskType, s.HandleConsolidation)
+		desiredTasks[ConsolidationTaskType] = consolidationSchedule
+		s.log.WithField("schedule", consolidationSchedule).Debug("Registering consolidation task")
+	} else {
+		s.log.Debug("Consolidation task disabled (empty schedule)")
+	}
+
+	// Register bounds orchestrator task - runs every second
+	mux.HandleFunc(BoundsOrchestratorTaskType, s.HandleBoundsOrchestrator)
+	desiredTasks[BoundsOrchestratorTaskType] = "@every 1s"
+}
+
+// reconcileTasks reconciles desired tasks with existing ones
+func (s *service) reconcileTasks(desiredTasks map[string]string, existingTasks map[string]*asynq.SchedulerEntry) (reconcileStats, []error) {
+	var errs []error
+	stats := reconcileStats{}
+
+	for taskType, schedule := range desiredTasks {
+		existingEntry := existingTasks[taskType]
+
+		result, err := s.reconcileTask(taskType, schedule, existingEntry)
+		if err != nil {
+			errs = append(errs, err)
+		}
+
+		switch result {
+		case taskReconcileRegistered:
+			stats.registered++
+		case taskReconcileUpdated:
+			stats.updated++
+		case taskReconcileSkipped:
+			stats.skipped++
+		}
+	}
+
+	return stats, errs
+}
+
+// reconcileTask handles reconciling a single task - registering, updating, or skipping as needed
+func (s *service) reconcileTask(taskType, schedule string, existingEntry *asynq.SchedulerEntry) (taskReconcileResult, error) {
+	// New task if no existing entry
+	if existingEntry == nil {
+		if err := s.registerScheduledTask(taskType, schedule); err != nil {
+			s.log.WithError(err).WithField("task_type", taskType).Error("Failed to register scheduled task")
+			return taskReconcileSkipped, fmt.Errorf("failed to register %s: %w", taskType, err)
+		}
+		return taskReconcileRegistered, nil
+	}
+
+	// Task exists - check if schedule changed
+	if existingEntry.Spec == schedule {
+		// Schedule unchanged - skip to avoid disruption
+		s.log.WithFields(logrus.Fields{
+			"task_type": taskType,
+			"schedule":  schedule,
+		}).Debug("Skipping unchanged scheduled task")
+		return taskReconcileSkipped, nil
+	}
+
+	// Schedule changed - need to update
+	s.log.WithFields(logrus.Fields{
+		"task_type":    taskType,
+		"old_schedule": existingEntry.Spec,
+		"new_schedule": schedule,
+	}).Info("Schedule changed, updating task")
+
+	// Unregister old task
+	if err := s.scheduler.Unregister(existingEntry.ID); err != nil {
+		s.log.WithError(err).WithField("task_type", taskType).Error("Failed to unregister old scheduled task")
+	}
+
+	// Register with new schedule
+	if err := s.registerScheduledTask(taskType, schedule); err != nil {
+		s.log.WithError(err).WithField("task_type", taskType).Error("Failed to register updated scheduled task")
+		return taskReconcileSkipped, fmt.Errorf("failed to update %s: %w", taskType, err)
+	}
+
+	return taskReconcileUpdated, nil
+}
+
 // registerScheduledTask registers a new scheduled task
 func (s *service) registerScheduledTask(taskType, schedule string) error {
+	// Safety check: don't register tasks with empty schedules
+	if schedule == "" {
+		s.log.WithField("task_type", taskType).Debug("Skipping registration of task with empty schedule")
+		return nil
+	}
+
 	// Create the task
 	task := asynq.NewTask(taskType, nil)
 
