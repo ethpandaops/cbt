@@ -830,7 +830,7 @@ func (s *service) ProcessExternalScan(modelID, scanType string) {
 		asynq.TaskID(taskID),
 		asynq.Queue(modelID),
 		asynq.MaxRetry(0),
-		asynq.Timeout(5*time.Minute),
+		asynq.Timeout(30*time.Minute),
 	)
 
 	// Enqueue the task
