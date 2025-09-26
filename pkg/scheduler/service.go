@@ -114,6 +114,9 @@ func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, da
 	// Create leader elector
 	elector := NewLeaderElector(log, redisOpt)
 
+	// Initialize ServeMux for task handlers (needed before server starts)
+	mux := asynq.NewServeMux()
+
 	return &service{
 		log:  log.WithField("service", "scheduler"), // Add service-specific field per ethPandaOps
 		cfg:  cfg,
@@ -126,6 +129,7 @@ func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, da
 
 		scheduler: scheduler,
 		server:    server,
+		mux:       mux,
 		inspector: inspector,
 		elector:   elector,
 	}, nil
@@ -245,11 +249,7 @@ func (s *service) handleLeaderElection(ctx context.Context) {
 			}()
 			schedulerRunning = true
 
-			// Setup handlers first
-			mux := asynq.NewServeMux()
-			s.mux = mux
-
-			// Reconcile schedules as new leader
+			// Reconcile schedules as new leader (handlers already registered in s.mux)
 			if err := s.reconcileSchedules(); err != nil {
 				s.log.WithError(err).Error("Failed to reconcile schedules as leader")
 				continue
@@ -274,14 +274,8 @@ func (s *service) reconcileSchedules() error {
 	// Get existing scheduled tasks
 	existingTasks := s.getExistingScheduledTasks()
 
-	// Setup handlers for scheduled tasks
-	mux := asynq.NewServeMux()
-
-	// Build desired state from current configuration
-	desiredTasks := s.buildDesiredTasks(mux)
-
-	// Store the mux for later use
-	s.mux = mux
+	// Build desired state from current configuration (reusing existing mux)
+	desiredTasks := s.buildDesiredTasks(s.mux)
 
 	// Reconcile tasks
 	stats, errs := s.reconcileTasks(desiredTasks, existingTasks)
