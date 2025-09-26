@@ -137,6 +137,12 @@ func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, da
 
 // Start initializes and starts the scheduler service
 func (s *service) Start(ctx context.Context) error {
+	// Register all task handlers on this instance before starting
+	// This ensures any instance can process scheduled tasks from the queue,
+	// not just the leader. The leader is responsible for scheduling the tasks,
+	// but all instances must be able to execute them when picked up from Redis.
+	s.registerAllHandlers()
+
 	// Start leader election
 	if err := s.elector.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start leader election: %w", err)
@@ -274,8 +280,8 @@ func (s *service) reconcileSchedules() error {
 	// Get existing scheduled tasks
 	existingTasks := s.getExistingScheduledTasks()
 
-	// Build desired state from current configuration (reusing existing mux)
-	desiredTasks := s.buildDesiredTasks(s.mux)
+	// Build desired state from current configuration
+	desiredTasks := s.buildDesiredTasks()
 
 	// Reconcile tasks
 	stats, errs := s.reconcileTasks(desiredTasks, existingTasks)
@@ -333,121 +339,141 @@ func (s *service) getExistingScheduledTasks() map[string]*asynq.SchedulerEntry {
 	return existingTasks
 }
 
-// buildDesiredTasks builds the map of desired scheduled tasks
-func (s *service) buildDesiredTasks(mux *asynq.ServeMux) map[string]string {
+// registerAllHandlers registers all task handlers on the mux (called once at startup)
+func (s *service) registerAllHandlers() {
+	transformations := s.dag.GetTransformationNodes()
+	externalModels := s.dag.GetExternalNodes()
+
+	// Register transformation task handlers
+	for _, transformation := range transformations {
+		s.registerTransformationHandlers(transformation)
+	}
+
+	// Register external model task handlers
+	for _, node := range externalModels {
+		if model, ok := node.Model.(models.External); ok {
+			s.registerExternalHandlers(model)
+		}
+	}
+
+	// Register system task handlers
+	s.registerSystemHandlers()
+}
+
+// buildDesiredTasks builds the map of desired scheduled tasks (without registering handlers)
+func (s *service) buildDesiredTasks() map[string]string {
 	transformations := s.dag.GetTransformationNodes()
 	externalModels := s.dag.GetExternalNodes()
 	desiredTasks := make(map[string]string, len(transformations)*2+len(externalModels)*2) // taskType -> schedule
 
-	// Register transformation tasks
+	// Build transformation task schedules
 	for _, transformation := range transformations {
-		s.registerTransformationTasks(transformation, mux, desiredTasks)
+		s.buildTransformationTasks(transformation, desiredTasks)
 	}
 
-	// Register external model tasks
+	// Build external model task schedules
 	for _, node := range externalModels {
 		if model, ok := node.Model.(models.External); ok {
-			s.registerExternalTasks(model, mux, desiredTasks)
+			s.buildExternalTasks(model, desiredTasks)
 		}
 	}
 
-	// Register system tasks
-	s.registerSystemTasks(mux, desiredTasks)
+	// Build system task schedules
+	s.buildSystemTasks(desiredTasks)
 
 	return desiredTasks
 }
 
-// registerTransformationTasks registers tasks for a single transformation
-func (s *service) registerTransformationTasks(transformation models.Transformation, mux *asynq.ServeMux, desiredTasks map[string]string) {
+// registerTransformationHandlers registers task handlers for a single transformation
+func (s *service) registerTransformationHandlers(transformation models.Transformation) {
 	config := transformation.GetConfig()
 	modelID := transformation.GetID()
 
-	// Forward fill task (only if configured)
 	if config.IsForwardFillEnabled() {
 		forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
-		desiredTasks[forwardTask] = config.GetForwardSchedule()
-		mux.HandleFunc(forwardTask, s.HandleScheduledForward)
-		s.log.WithFields(logrus.Fields{
-			"model_id": modelID,
-			"schedule": config.GetForwardSchedule(),
-		}).Debug("Registering forward fill task")
-	} else {
-		s.log.WithFields(logrus.Fields{
-			"model_id": modelID,
-			"schedule": config.GetForwardSchedule(),
-			"reason":   "empty or missing schedule",
-		}).Debug("Forward fill disabled for transformation")
+		s.mux.HandleFunc(forwardTask, s.HandleScheduledForward)
+		s.log.WithField("model_id", modelID).Debug("Registered forward fill handler")
 	}
 
-	// Backfill task (only if configured)
 	if config.IsBackfillEnabled() {
 		backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
-		desiredTasks[backfillTask] = config.GetBackfillSchedule()
-		mux.HandleFunc(backfillTask, s.HandleScheduledBackfill)
-		s.log.WithFields(logrus.Fields{
-			"model_id": modelID,
-			"schedule": config.GetBackfillSchedule(),
-		}).Debug("Registering backfill task")
-	} else {
-		s.log.WithFields(logrus.Fields{
-			"model_id": modelID,
-			"schedule": config.GetBackfillSchedule(),
-			"reason":   "empty or missing schedule",
-		}).Debug("Backfill disabled for transformation")
-	}
-
-	// Warn if no tasks were registered for this transformation
-	if !config.IsForwardFillEnabled() && !config.IsBackfillEnabled() {
-		s.log.WithField("model_id", modelID).Warn("Transformation has no scheduled tasks (both forward fill and backfill are disabled)")
+		s.mux.HandleFunc(backfillTask, s.HandleScheduledBackfill)
+		s.log.WithField("model_id", modelID).Debug("Registered backfill handler")
 	}
 }
 
-// registerExternalTasks registers tasks for a single external model
-func (s *service) registerExternalTasks(model models.External, mux *asynq.ServeMux, desiredTasks map[string]string) {
+// buildTransformationTasks builds desired task schedules for a single transformation
+func (s *service) buildTransformationTasks(transformation models.Transformation, desiredTasks map[string]string) {
+	config := transformation.GetConfig()
+	modelID := transformation.GetID()
+
+	if config.IsForwardFillEnabled() {
+		forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
+		desiredTasks[forwardTask] = config.GetForwardSchedule()
+	}
+
+	if config.IsBackfillEnabled() {
+		backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
+		desiredTasks[backfillTask] = config.GetBackfillSchedule()
+	}
+}
+
+// registerExternalHandlers registers task handlers for a single external model
+func (s *service) registerExternalHandlers(model models.External) {
 	config := model.GetConfig()
 	modelID := model.GetID()
 
-	// Skip if cache config not defined
 	if config.Cache == nil {
-		s.log.WithField("model_id", modelID).Debug("Skipping external model without cache config")
 		return
 	}
 
-	// Incremental scan task
+	if config.Cache.IncrementalScanInterval > 0 {
+		incrementalTask := fmt.Sprintf("%s%s:incremental", ExternalTaskPrefix, modelID)
+		s.mux.HandleFunc(incrementalTask, s.HandleExternalIncremental)
+		s.log.WithField("model_id", modelID).Debug("Registered external incremental handler")
+	}
+
+	if config.Cache.FullScanInterval > 0 {
+		fullTask := fmt.Sprintf("%s%s:full", ExternalTaskPrefix, modelID)
+		s.mux.HandleFunc(fullTask, s.HandleExternalFull)
+		s.log.WithField("model_id", modelID).Debug("Registered external full scan handler")
+	}
+}
+
+// buildExternalTasks builds desired task schedules for a single external model
+func (s *service) buildExternalTasks(model models.External, desiredTasks map[string]string) {
+	config := model.GetConfig()
+	modelID := model.GetID()
+
+	if config.Cache == nil {
+		return
+	}
+
 	if config.Cache.IncrementalScanInterval > 0 {
 		incrementalTask := fmt.Sprintf("%s%s:incremental", ExternalTaskPrefix, modelID)
 		schedule := fmt.Sprintf("@every %s", config.Cache.IncrementalScanInterval.String())
 		desiredTasks[incrementalTask] = schedule
-		mux.HandleFunc(incrementalTask, s.HandleExternalIncremental)
-		s.log.WithFields(logrus.Fields{
-			"model_id": modelID,
-			"schedule": schedule,
-		}).Debug("Registering external incremental scan task")
 	}
 
-	// Full scan task
 	if config.Cache.FullScanInterval > 0 {
 		fullTask := fmt.Sprintf("%s%s:full", ExternalTaskPrefix, modelID)
 		schedule := fmt.Sprintf("@every %s", config.Cache.FullScanInterval.String())
 		desiredTasks[fullTask] = schedule
-		mux.HandleFunc(fullTask, s.HandleExternalFull)
-		s.log.WithFields(logrus.Fields{
-			"model_id": modelID,
-			"schedule": schedule,
-		}).Debug("Registering external full scan task")
 	}
 }
 
-// registerSystemTasks registers consolidation tasks
-func (s *service) registerSystemTasks(mux *asynq.ServeMux, desiredTasks map[string]string) {
-	// Register consolidation task (only if configured)
-	consolidationSchedule := s.cfg.Consolidation
-	if consolidationSchedule != "" {
-		mux.HandleFunc(ConsolidationTaskType, s.HandleConsolidation)
-		desiredTasks[ConsolidationTaskType] = consolidationSchedule
-		s.log.WithField("schedule", consolidationSchedule).Debug("Registering consolidation task")
-	} else {
-		s.log.Debug("Consolidation task disabled (empty schedule)")
+// registerSystemHandlers registers system task handlers
+func (s *service) registerSystemHandlers() {
+	if s.cfg.Consolidation != "" {
+		s.mux.HandleFunc(ConsolidationTaskType, s.HandleConsolidation)
+		s.log.Debug("Registered consolidation handler")
+	}
+}
+
+// buildSystemTasks builds desired task schedules for system tasks
+func (s *service) buildSystemTasks(desiredTasks map[string]string) {
+	if s.cfg.Consolidation != "" {
+		desiredTasks[ConsolidationTaskType] = s.cfg.Consolidation
 	}
 }
 
