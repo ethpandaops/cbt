@@ -29,9 +29,9 @@ get_leader_container() {
         return
     fi
     
-    # Search logs for the instance ID to find which container is leader
+    # Search recent logs (last 50 lines) for the instance ID to find which container is leader
     for container in $(get_containers); do
-        if docker logs "$container" 2>&1 | grep -q "instance_id=$leader_id.*Promoted to leader"; then
+        if docker logs --tail 50 "$container" 2>&1 | grep -q "instance_id=$leader_id.*Promoted to leader"; then
             echo "$container"
             return
         fi
@@ -216,8 +216,38 @@ case "${1:-status}" in
         echo ""
         ;;
         
+    verify)
+        echo -e "${GREEN}Verifying handler registration fix...${NC}\n"
+        
+        echo -e "${YELLOW}Checking for 'handler not found' errors:${NC}"
+        error_count=$(docker compose logs engine 2>&1 | grep -i "handler not found" | wc -l)
+        if [ "$error_count" -eq 0 ]; then
+            echo -e "${GREEN}  ✓ No handler errors found!${NC}"
+        else
+            echo -e "${RED}  ✗ Found $error_count handler errors${NC}"
+            echo -e "\n${YELLOW}Sample errors:${NC}"
+            docker compose logs engine 2>&1 | grep -i "handler not found" | head -5
+        fi
+        echo ""
+        
+        echo -e "${YELLOW}Verifying scheduled task execution:${NC}"
+        task_count=$(docker compose logs engine 2>&1 | grep -E "Processing scheduled (forward|backfill)" | wc -l)
+        echo -e "  Tasks processed: ${GREEN}$task_count${NC}"
+        echo ""
+        
+        echo -e "${YELLOW}Recent scheduled task executions:${NC}"
+        docker compose logs engine 2>&1 | grep -E "Processing scheduled|Model execution completed" | tail -10 | sed 's/^/  /'
+        echo ""
+        
+        echo -e "${YELLOW}Handler registration on all instances:${NC}"
+        for container in $(get_containers); do
+            handler_count=$(docker logs "$container" 2>&1 | grep "Registering" | wc -l)
+            echo -e "  ${BLUE}$container${NC}: ${GREEN}$handler_count handlers registered${NC}"
+        done
+        ;;
+        
     help|*)
-        echo "Usage: $0 {status|watch|failover|rolling-deploy|logs|redis|help}"
+        echo "Usage: $0 {status|watch|failover|rolling-deploy|logs|redis|verify|help}"
         echo ""
         echo "Commands:"
         echo "  status          - Show current leader election status"
@@ -226,6 +256,7 @@ case "${1:-status}" in
         echo "  rolling-deploy  - Simulate a rolling deployment"
         echo "  logs            - Stream leader election logs"
         echo "  redis           - Inspect Redis keys and leader lock"
+        echo "  verify          - Verify handler registration fix and task execution"
         echo "  help            - Show this help message"
         echo ""
         echo "Monitoring UIs:"
