@@ -44,7 +44,7 @@ func NewArchiveHandler(log logrus.FieldLogger, redisOpt *redis.Options) (Archive
 		log:           log.WithField("service", "archive-handler"),
 		inspector:     inspector,
 		done:          make(chan struct{}),
-		checkInterval: time.Minute * 10,
+		checkInterval: time.Second * 5,
 		batchSize:     100,
 	}, nil
 }
