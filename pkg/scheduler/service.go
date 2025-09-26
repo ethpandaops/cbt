@@ -82,6 +82,8 @@ type service struct {
 	server    *asynq.Server
 	mux       *asynq.ServeMux
 	inspector *asynq.Inspector
+
+	elector LeaderElector
 }
 
 // NewService creates a new scheduler service
@@ -109,6 +111,9 @@ func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, da
 	// Create inspector for managing tasks
 	inspector := asynq.NewInspector(asynqRedis)
 
+	// Create leader elector
+	elector := NewLeaderElector(log, redisOpt)
+
 	return &service{
 		log:  log.WithField("service", "scheduler"), // Add service-specific field per ethPandaOps
 		cfg:  cfg,
@@ -122,31 +127,22 @@ func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, da
 		scheduler: scheduler,
 		server:    server,
 		inspector: inspector,
+		elector:   elector,
 	}, nil
 }
 
 // Start initializes and starts the scheduler service
 func (s *service) Start(ctx context.Context) error {
-	// Track scheduler goroutine
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		if runErr := s.scheduler.Run(); runErr != nil {
-			s.log.WithError(runErr).Error("Scheduler stopped with error")
-		}
-	}()
-
-	// Reconcile schedules with current configuration
-	if err := s.reconcileSchedules(); err != nil {
-		return fmt.Errorf("failed to reconcile schedules: %w", err)
+	// Start leader election
+	if err := s.elector.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start leader election: %w", err)
 	}
 
-	// Check for external models without cache and trigger initial scans
-	s.log.Info("About to trigger initial external scans")
-	s.triggerInitialExternalScans(ctx)
-	s.log.Info("Completed initial external scan check")
+	// Handle leader election events
+	s.wg.Add(1)
+	go s.handleLeaderElection(ctx)
 
-	// Start server in background
+	// Start server in background (always runs for processing scheduled tasks)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -155,11 +151,11 @@ func (s *service) Start(ctx context.Context) error {
 		}
 	}()
 
-	// Start periodic cleanup of duplicate scheduled tasks
+	// Start periodic cleanup (only active when leader)
 	s.wg.Add(1)
 	go s.runPeriodicCleanup()
 
-	s.log.Info("Scheduler service started successfully")
+	s.log.Info("Scheduler service started (participating in leader election)")
 
 	return nil
 }
@@ -169,7 +165,19 @@ func (s *service) Stop() error {
 	// Signal all goroutines to stop
 	close(s.done)
 
-	// Shutdown scheduler and server
+	// Stop leader election first
+	if s.elector != nil {
+		if err := s.elector.Stop(); err != nil {
+			s.log.WithError(err).Warn("Failed to stop leader elector")
+		}
+	}
+
+	// NOTE: With leader election in place, calling Shutdown() is safe and proper.
+	// While Shutdown() does clear scheduler entries from Redis, this is acceptable because:
+	// 1. Only ONE scheduler runs (the leader), so no cross-instance pollution
+	// 2. Entries are ephemeral anyway - cleared when scheduler stops regardless
+	// 3. The promoted follower will reconcile and recreate all entries immediately
+	// 4. Shutdown() ensures proper cleanup of Redis client and cron scheduler
 	if s.scheduler != nil {
 		s.scheduler.Shutdown()
 	}
@@ -184,6 +192,79 @@ func (s *service) Stop() error {
 	s.log.Info("Scheduler service stopped successfully")
 
 	return nil
+}
+
+// handleLeaderElection manages scheduler lifecycle based on leader election events
+func (s *service) handleLeaderElection(ctx context.Context) {
+	defer s.wg.Done()
+
+	// Access the promoted/demoted channels through type assertion
+	// This is safe because we control the elector implementation
+	type channelProvider interface {
+		PromotedChan() <-chan struct{}
+		DemotedChan() <-chan struct{}
+	}
+
+	provider, ok := s.elector.(channelProvider)
+	if !ok {
+		s.log.Error("Leader elector does not provide channels")
+		return
+	}
+
+	promoted := provider.PromotedChan()
+	demoted := provider.DemotedChan()
+
+	var schedulerRunning bool
+	var schedulerDone chan struct{}
+
+	for {
+		select {
+		case <-s.done:
+			return
+
+		case <-ctx.Done():
+			return
+
+		case <-promoted:
+			if schedulerRunning {
+				s.log.Warn("Received promotion but scheduler already running")
+				continue
+			}
+
+			s.log.Info("Promoted to scheduler leader - starting scheduler")
+
+			// Start scheduler goroutine
+			schedulerDone = make(chan struct{})
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				defer close(schedulerDone)
+				if runErr := s.scheduler.Run(); runErr != nil {
+					s.log.WithError(runErr).Error("Scheduler stopped with error")
+				}
+			}()
+			schedulerRunning = true
+
+			// Setup handlers first
+			mux := asynq.NewServeMux()
+			s.mux = mux
+
+			// Reconcile schedules as new leader
+			if err := s.reconcileSchedules(); err != nil {
+				s.log.WithError(err).Error("Failed to reconcile schedules as leader")
+				continue
+			}
+
+			// Trigger initial external scans
+			s.triggerInitialExternalScans(ctx)
+
+		case <-demoted:
+			s.log.Info("Demoted from scheduler leader")
+			// Scheduler will stop naturally when s.done is closed
+			// We don't need to actively stop it here
+			schedulerRunning = false
+		}
+	}
 }
 
 // reconcileSchedules ensures scheduled tasks match current model configuration
@@ -571,6 +652,11 @@ func (s *service) runPeriodicCleanup() {
 			timer.Stop()
 			return
 		case <-timer.C:
+			// Only perform cleanup if we're the leader
+			if !s.elector.IsLeader() {
+				continue
+			}
+
 			// Get all scheduled task entries
 			entries, err := s.inspector.SchedulerEntries()
 			if err != nil {
