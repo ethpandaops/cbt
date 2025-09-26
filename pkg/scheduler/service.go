@@ -541,6 +541,7 @@ func (s *service) registerScheduledTask(taskType, schedule string) error {
 	entryID, err := s.scheduler.Register(schedule, task,
 		asynq.Queue(QueueName),     // Use dedicated scheduler queue
 		asynq.Unique(uniqueWindow), // Prevent duplicate triggers
+		asynq.MaxRetry(0),
 	)
 
 	if err != nil {
