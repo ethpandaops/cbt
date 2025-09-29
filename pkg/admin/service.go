@@ -111,7 +111,27 @@ func (a *service) RecordCompletion(ctx context.Context, modelID string, position
 		VALUES (now(), '%s', '%s', %d, %d)
 	`, a.adminDatabase, a.adminTable, parts[0], parts[1], position, interval)
 
-	return a.client.Execute(ctx, query)
+	body, err := a.client.Execute(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to insert admin record: %w", err)
+	}
+
+	// Log the raw response for debugging (helps troubleshoot issues)
+	if len(body) > 0 {
+		a.log.WithFields(logrus.Fields{
+			"model_id":      modelID,
+			"position":      position,
+			"interval":      interval,
+			"response_body": string(body),
+		}).Debug("Admin table INSERT response")
+	}
+
+	// ClickHouse HTTP INSERT queries return:
+	// - Empty body on success (most common)
+	// - "Ok." or similar text on success
+	// - Error message on failure (already handled by Execute())
+
+	return nil
 }
 
 // GetFirstPosition returns the first processed position for a model
@@ -503,7 +523,7 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 		VALUES (now(), '%s', '%s', %d, %d)
 	`, a.adminDatabase, a.adminTable, database, table, rangeResult.StartPos, consolidatedInterval)
 
-	if err := a.client.Execute(ctx, insertQuery); err != nil {
+	if _, err := a.client.Execute(ctx, insertQuery); err != nil {
 		return 0, fmt.Errorf("failed to insert consolidated row: %w", err)
 	}
 
@@ -533,7 +553,7 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 			rangeResult.StartPos, consolidatedInterval)
 	}
 
-	if err := a.client.Execute(ctx, deleteQuery); err != nil {
+	if _, err := a.client.Execute(ctx, deleteQuery); err != nil {
 		// Log error but don't fail - the consolidated row will eventually replace the old ones
 		// due to ReplacingMergeTree behavior
 		return rangeResult.RowCount, fmt.Errorf("consolidated row inserted but failed to delete old rows: %w", err)

@@ -257,7 +257,7 @@ func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, _ interface
 func (m *mockClickhouseClient) QueryMany(_ context.Context, _ string, _ interface{}) error {
 	return nil
 }
-func (m *mockClickhouseClient) Execute(_ context.Context, _ string) error { return nil }
+func (m *mockClickhouseClient) Execute(_ context.Context, _ string) ([]byte, error) { return nil, nil }
 func (m *mockClickhouseClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
 	return nil
 }

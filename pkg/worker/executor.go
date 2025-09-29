@@ -280,11 +280,6 @@ func (e *ModelExecutor) Execute(ctx context.Context, taskCtxInterface interface{
 		return fmt.Errorf("%w: %s", ErrInvalidTransformationType, taskCtx.Transformation.GetType())
 	}
 
-	// Record completion in admin table
-	if err := e.admin.RecordCompletion(ctx, taskCtx.Transformation.GetID(), taskCtx.Position, taskCtx.Interval); err != nil {
-		return fmt.Errorf("failed to record completion: %w", err)
-	}
-
 	return nil
 }
 
@@ -345,7 +340,7 @@ func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskConte
 			"sql_preview":   logSQL,
 		}).Info("Executing SQL statement")
 
-		if err := e.chClient.Execute(ctx, stmt); err != nil {
+		if _, err := e.chClient.Execute(ctx, stmt); err != nil {
 			e.log.WithFields(logrus.Fields{
 				"statement": i + 1,
 				"sql":       logSQL,

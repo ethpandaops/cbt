@@ -174,26 +174,6 @@ func TestModelExecutor_Execute(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name: "record completion fails",
-			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, a *mockExecutorAdminService) {
-				ch.tableExists = true
-				m.renderedSQL = "SELECT 1"
-				a.recordErr = errMockExecute
-			},
-			taskCtx: &tasks.TaskContext{
-				Transformation: &mockExecutorTransformation{
-					id:   "test.model",
-					typ:  transformation.TransformationTypeSQL,
-					sql:  "SELECT 1",
-					conf: transformation.Config{Database: "test", Table: "model"},
-				},
-				Position:  100,
-				Interval:  50,
-				StartTime: time.Now(),
-			},
-			wantErr: true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -503,8 +483,8 @@ func (m *mockExecutorClickhouseClient) QueryOne(_ context.Context, query string,
 func (m *mockExecutorClickhouseClient) QueryMany(_ context.Context, _ string, _ interface{}) error {
 	return nil
 }
-func (m *mockExecutorClickhouseClient) Execute(_ context.Context, _ string) error {
-	return m.executeErr
+func (m *mockExecutorClickhouseClient) Execute(_ context.Context, _ string) ([]byte, error) {
+	return nil, m.executeErr
 }
 func (m *mockExecutorClickhouseClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
 	return nil
