@@ -13,7 +13,8 @@ func EnsureDatabase(ctx context.Context, client ClientInterface, database, clust
 	} else {
 		query = fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", database)
 	}
-	return client.Execute(ctx, query)
+	_, err := client.Execute(ctx, query)
+	return err
 }
 
 // TableExists checks if a table exists in the given database

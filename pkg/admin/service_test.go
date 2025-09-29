@@ -369,8 +369,12 @@ type mockClickhouseClient struct {
 	executeError   error
 }
 
-func (m *mockClickhouseClient) Execute(_ context.Context, _ string) error {
-	return m.executeError
+func (m *mockClickhouseClient) Execute(_ context.Context, _ string) ([]byte, error) {
+	if m.executeError != nil {
+		return nil, m.executeError
+	}
+	// Return a mock response with 1 row written
+	return []byte(`{"written_rows":"1"}`), nil
 }
 
 func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, result interface{}) error {
@@ -582,9 +586,9 @@ type queryCapturingClient struct {
 	resultIndex int
 }
 
-func (m *queryCapturingClient) Execute(_ context.Context, query string) error {
+func (m *queryCapturingClient) Execute(_ context.Context, query string) ([]byte, error) {
 	m.queries = append(m.queries, query)
-	return nil
+	return []byte(`{"written_rows":"1"}`), nil
 }
 
 func (m *queryCapturingClient) QueryOne(_ context.Context, query string, result interface{}) error {

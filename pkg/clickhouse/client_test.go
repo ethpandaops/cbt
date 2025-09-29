@@ -209,7 +209,7 @@ func TestHTTPClient_Execute(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute command
-	err = client.Execute(context.Background(), "CREATE TABLE test_table (id UInt64) ENGINE = Memory")
+	_, err = client.Execute(context.Background(), "CREATE TABLE test_table (id UInt64) ENGINE = Memory")
 	require.NoError(t, err)
 }
 

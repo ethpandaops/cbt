@@ -839,12 +839,15 @@ func (s *service) triggerInitialExternalScans(ctx context.Context) {
 		if s.admin != nil {
 			// Try to get bounds - if nil or initial scan incomplete, trigger initial scan
 			bounds, err := s.admin.GetExternalBounds(ctx, modelID)
-			s.log.WithFields(logrus.Fields{
+			logFields := logrus.Fields{
 				"model_id":              modelID,
 				"bounds_nil":            bounds == nil,
 				"initial_scan_complete": bounds != nil && bounds.InitialScanComplete,
-				"error":                 err,
-			}).Debug("Checked external model bounds")
+			}
+			if err != nil {
+				logFields["error"] = err
+			}
+			s.log.WithFields(logFields).Debug("Checked external model bounds")
 
 			if bounds == nil || !bounds.InitialScanComplete {
 				// Add jitter to prevent thundering herd (0-10 seconds)
