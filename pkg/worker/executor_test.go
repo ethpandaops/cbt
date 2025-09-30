@@ -601,10 +601,11 @@ type mockExternal struct {
 	typ  string
 }
 
-func (m *mockExternal) GetID() string              { return m.id }
-func (m *mockExternal) GetConfig() external.Config { return m.conf }
-func (m *mockExternal) GetValue() string           { return m.val }
-func (m *mockExternal) GetType() string            { return m.typ }
+func (m *mockExternal) GetID() string                      { return m.id }
+func (m *mockExternal) GetConfig() external.Config         { return m.conf }
+func (m *mockExternal) GetConfigMutable() *external.Config { return &m.conf }
+func (m *mockExternal) GetValue() string                   { return m.val }
+func (m *mockExternal) GetType() string                    { return m.typ }
 func (m *mockExternal) SetDefaultDatabase(defaultDB string) {
 	if m.conf.Database == "" {
 		m.conf.Database = defaultDB

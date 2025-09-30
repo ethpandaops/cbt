@@ -945,6 +945,13 @@ func (m *mockExternal) GetConfig() external.Config {
 		Table:    "test",
 	}
 }
+func (m *mockExternal) GetConfigMutable() *external.Config {
+	config := external.Config{
+		Database: "test",
+		Table:    "test",
+	}
+	return &config
+}
 func (m *mockExternal) GetValue() string { return "" }
 func (m *mockExternal) GetType() string  { return "sql" }
 func (m *mockExternal) SetDefaultDatabase(_ string) {
