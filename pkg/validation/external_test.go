@@ -196,6 +196,10 @@ func (a *externalModelAdapter) GetConfig() external.Config {
 	return a.testModel.GetConfig()
 }
 
+func (a *externalModelAdapter) GetConfigMutable() *external.Config {
+	return &a.testModel.config
+}
+
 func (a *externalModelAdapter) GetType() string {
 	return a.testModel.GetType()
 }

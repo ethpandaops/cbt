@@ -2,7 +2,9 @@ package models
 
 import (
 	"testing"
+	"time"
 
+	"github.com/ethpandaops/cbt/pkg/models/external"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -335,8 +337,10 @@ func TestOverrideIntegration(t *testing.T) {
 	testTableOverride := config.Overrides["analytics.test_table"]
 	require.NotNil(t, testTableOverride)
 	require.NotNil(t, testTableOverride.Config)
-	require.NotNil(t, testTableOverride.Config.Interval)
-	assert.Equal(t, uint64(7200), *testTableOverride.Config.Interval.Max)
+	transOverride, ok := testTableOverride.Config.(*TransformationOverride)
+	require.True(t, ok)
+	require.NotNil(t, transOverride.Interval)
+	assert.Equal(t, uint64(7200), *transOverride.Interval.Max)
 
 	disabledOverride := config.Overrides["analytics.disabled_model"]
 	require.NotNil(t, disabledOverride)
@@ -358,6 +362,10 @@ test_model:
 
 		override := overrides["test_model"]
 		assert.NotNil(t, override)
+
+		// Resolve the config
+		err = override.ResolveConfig(ModelTypeTransformation)
+		require.NoError(t, err)
 
 		// Create a config with existing backfill schedule
 		config := &transformation.Config{
@@ -392,6 +400,10 @@ test_model:
 		override := overrides["test_model"]
 		assert.NotNil(t, override)
 
+		// Resolve the config
+		err = override.ResolveConfig(ModelTypeTransformation)
+		require.NoError(t, err)
+
 		// Create a config with existing schedules
 		config := &transformation.Config{
 			Database: "test_db",
@@ -410,6 +422,148 @@ test_model:
 		assert.False(t, config.IsForwardFillEnabled(), "ForwardFill should be disabled")
 		assert.True(t, config.IsBackfillEnabled(), "Backfill should still be enabled")
 	})
+}
+
+func TestExternalModelOverride_ApplyToExternal(t *testing.T) {
+	tests := []struct {
+		name           string
+		override       *ModelOverride
+		initialConfig  *external.Config
+		expectedConfig *external.Config
+	}{
+		{
+			name: "override lag only",
+			override: &ModelOverride{
+				Config: &ExternalOverride{
+					Lag: uint64Ptr(60),
+				},
+			},
+			initialConfig: &external.Config{
+				Database: "mainnet",
+				Table:    "beacon_block",
+				Lag:      12,
+				Cache: &external.CacheConfig{
+					IncrementalScanInterval: 5 * time.Second,
+					FullScanInterval:        24 * time.Hour,
+				},
+			},
+			expectedConfig: &external.Config{
+				Database: "mainnet",
+				Table:    "beacon_block",
+				Lag:      60,
+				Cache: &external.CacheConfig{
+					IncrementalScanInterval: 5 * time.Second,
+					FullScanInterval:        24 * time.Hour,
+				},
+			},
+		},
+		{
+			name: "override cache intervals",
+			override: &ModelOverride{
+				Config: &ExternalOverride{
+					Cache: &CacheOverride{
+						IncrementalScanInterval: durationPtr(10 * time.Second),
+						FullScanInterval:        durationPtr(48 * time.Hour),
+					},
+				},
+			},
+			initialConfig: &external.Config{
+				Database: "mainnet",
+				Table:    "beacon_block",
+				Lag:      12,
+				Cache: &external.CacheConfig{
+					IncrementalScanInterval: 5 * time.Second,
+					FullScanInterval:        24 * time.Hour,
+				},
+			},
+			expectedConfig: &external.Config{
+				Database: "mainnet",
+				Table:    "beacon_block",
+				Lag:      12,
+				Cache: &external.CacheConfig{
+					IncrementalScanInterval: 10 * time.Second,
+					FullScanInterval:        48 * time.Hour,
+				},
+			},
+		},
+		{
+			name: "override both lag and cache",
+			override: &ModelOverride{
+				Config: &ExternalOverride{
+					Lag: uint64Ptr(100),
+					Cache: &CacheOverride{
+						IncrementalScanInterval: durationPtr(15 * time.Second),
+						FullScanInterval:        durationPtr(72 * time.Hour),
+					},
+				},
+			},
+			initialConfig: &external.Config{
+				Database: "mainnet",
+				Table:    "beacon_block",
+				Lag:      12,
+				Cache: &external.CacheConfig{
+					IncrementalScanInterval: 5 * time.Second,
+					FullScanInterval:        24 * time.Hour,
+				},
+			},
+			expectedConfig: &external.Config{
+				Database: "mainnet",
+				Table:    "beacon_block",
+				Lag:      100,
+				Cache: &external.CacheConfig{
+					IncrementalScanInterval: 15 * time.Second,
+					FullScanInterval:        72 * time.Hour,
+				},
+			},
+		},
+		{
+			name: "override incremental scan interval only",
+			override: &ModelOverride{
+				Config: &ExternalOverride{
+					Cache: &CacheOverride{
+						IncrementalScanInterval: durationPtr(20 * time.Second),
+					},
+				},
+			},
+			initialConfig: &external.Config{
+				Database: "mainnet",
+				Table:    "beacon_block",
+				Lag:      12,
+				Cache: &external.CacheConfig{
+					IncrementalScanInterval: 5 * time.Second,
+					FullScanInterval:        24 * time.Hour,
+				},
+			},
+			expectedConfig: &external.Config{
+				Database: "mainnet",
+				Table:    "beacon_block",
+				Lag:      12,
+				Cache: &external.CacheConfig{
+					IncrementalScanInterval: 20 * time.Second,
+					FullScanInterval:        24 * time.Hour,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Make a copy of the initial config
+			configCopy := *tt.initialConfig
+			if tt.initialConfig.Cache != nil {
+				cacheCopy := *tt.initialConfig.Cache
+				configCopy.Cache = &cacheCopy
+			}
+
+			// Apply override
+			tt.override.ApplyToExternal(&configCopy)
+
+			// Verify
+			assert.Equal(t, tt.expectedConfig.Lag, configCopy.Lag)
+			assert.Equal(t, tt.expectedConfig.Cache.IncrementalScanInterval, configCopy.Cache.IncrementalScanInterval)
+			assert.Equal(t, tt.expectedConfig.Cache.FullScanInterval, configCopy.Cache.FullScanInterval)
+		})
+	}
 }
 
 func TestTableOnlyOverrides(t *testing.T) {
@@ -506,7 +660,7 @@ func TestTableOnlyOverrides(t *testing.T) {
 			}
 
 			// Test the findOverride method
-			override, overrideKey := s.findOverride(tt.modelFullID, tt.modelTable)
+			override, overrideKey := s.findOverride(tt.modelFullID, tt.modelTable, ModelTypeTransformation)
 
 			if tt.expectOverrideFound {
 				assert.NotNil(t, override, "Expected to find override")
@@ -536,4 +690,8 @@ func uint64Ptr(u uint64) *uint64 {
 
 func stringPtr(s string) *string {
 	return &s
+}
+
+func durationPtr(d time.Duration) *time.Duration {
+	return &d
 }

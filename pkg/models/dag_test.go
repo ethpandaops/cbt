@@ -47,6 +47,7 @@ type mockExternal struct {
 
 func (m *mockExternal) GetID() string                       { return m.id }
 func (m *mockExternal) GetConfig() external.Config          { return m.config }
+func (m *mockExternal) GetConfigMutable() *external.Config  { return &m.config }
 func (m *mockExternal) GetType() string                     { return m.typ }
 func (m *mockExternal) GetSQL() string                      { return "" }
 func (m *mockExternal) GetValue() string                    { return "" }
