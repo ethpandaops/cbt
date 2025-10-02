@@ -8,7 +8,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// processForward handles forward fill processing for transformations
+// processForward handles forward fill processing for transformations with gap-aware capabilities
 func (s *service) processForward(trans models.Transformation) {
 	handler := trans.GetHandler()
 
@@ -31,13 +31,8 @@ func (s *service) processForward(trans models.Transformation) {
 		return
 	}
 
-	// Get and adjust interval based on limits and dependencies
-	interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, nextPos, maxLimit)
-	if shouldReturn {
-		return
-	}
-
-	s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval)
+	// Use gap-aware forward processing for enhanced dependency handling
+	s.processForwardWithGapSkipping(ctx, trans, nextPos)
 }
 
 // isForwardFillEnabled checks if forward fill is enabled for the handler
@@ -109,93 +104,69 @@ func (s *service) isPositionBeyondLimit(modelID string, position, maxLimit uint6
 	return false
 }
 
-// calculateProcessingInterval determines the interval to use for processing
-func (s *service) calculateProcessingInterval(ctx context.Context, trans models.Transformation, handler transformation.Handler, nextPos, maxLimit uint64) (uint64, bool) {
-	type intervalProvider interface {
-		GetMaxInterval() uint64
-		AllowsPartialIntervals() bool
+// processForwardWithGapSkipping performs forward fill processing with the ability to skip
+// over gaps in transformation dependencies. When a gap is detected, it jumps to the next
+// position where all dependencies have data available, allowing forward fill to continue
+// rather than stopping at the first gap.
+func (s *service) processForwardWithGapSkipping(
+	ctx context.Context,
+	trans models.Transformation,
+	startPos uint64,
+) {
+	var (
+		handler    = trans.GetHandler()
+		modelID    = trans.GetID()
+		currentPos = startPos
+	)
+
+	// Get max limit and interval from handler
+	maxLimit := s.getMaxLimit(handler)
+
+	// Get max interval
+	var maxInterval uint64
+	if intervalProvider, ok := handler.(interface{ GetMaxInterval() uint64 }); ok {
+		maxInterval = intervalProvider.GetMaxInterval()
 	}
 
-	var interval uint64
-	var allowsPartial bool
-	if provider, ok := handler.(intervalProvider); ok {
-		interval = provider.GetMaxInterval()
-		allowsPartial = provider.AllowsPartialIntervals()
-	}
-
-	// Adjust interval if it would exceed max limit
-	if maxLimit > 0 && nextPos+interval > maxLimit {
-		originalInterval := interval
-		interval = maxLimit - nextPos
-		s.log.WithFields(logrus.Fields{
-			"model_id":          trans.GetID(),
-			"position":          nextPos,
-			"original_interval": originalInterval,
-			"adjusted_interval": interval,
-			"limits_max":        maxLimit,
-		}).Debug("Adjusted interval to respect max limit")
-	}
-
-	// Check for partial interval processing based on dependency availability
-	if allowsPartial {
-		adjustedInterval, shouldReturn := s.adjustIntervalForDependencies(ctx, trans, nextPos, interval)
-		if shouldReturn {
-			return 0, true
+	// Process forward until we reach configured limits or run out of dependency data
+	for maxLimit == 0 || currentPos < maxLimit {
+		// Calculate processing interval, adjusting if it would exceed configured limits
+		interval := maxInterval
+		if maxLimit > 0 {
+			if currentPos+interval > maxLimit {
+				interval = maxLimit - currentPos
+			}
 		}
-		interval = adjustedInterval
+
+		// Check if dependencies have data for this range
+		result, err := s.validator.ValidateDependencies(ctx, modelID, currentPos, interval)
+		if err != nil {
+			s.log.WithError(err).WithField("model_id", modelID).Error("Critical validation error")
+			return
+		}
+
+		switch {
+		case result.CanProcess:
+			// All dependencies have data for this range - enqueue for processing
+			s.checkAndEnqueuePositionWithTrigger(ctx, trans, currentPos, interval)
+			currentPos += interval
+
+		case result.NextValidPos > currentPos:
+			// Gap detected in dependencies - skip to the next position with data
+			s.log.WithFields(logrus.Fields{
+				"model_id":  modelID,
+				"gap_start": currentPos,
+				"gap_end":   result.NextValidPos,
+			}).Info("Skipping gap in transformation dependencies")
+			currentPos = result.NextValidPos
+
+		default:
+			// No more valid positions found (reached end of dependency data)
+			s.log.WithFields(logrus.Fields{
+				"model_id":      modelID,
+				"last_position": currentPos,
+			}).Debug("No more valid positions found - reached end of dependency data")
+			return
+		}
 	}
-
-	return interval, false
-}
-
-// adjustIntervalForDependencies adjusts the interval based on dependency availability
-// Returns the adjusted interval and whether processing should stop
-func (s *service) adjustIntervalForDependencies(ctx context.Context, trans models.Transformation, nextPos, interval uint64) (uint64, bool) {
-	// Get the valid range based on dependencies
-	_, maxValid, err := s.validator.GetValidRange(ctx, trans.GetID())
-	if err != nil || maxValid == 0 || nextPos >= maxValid {
-		// Can't determine valid range or position already beyond range
-		return interval, false
-	}
-
-	// Check if dependencies limit our interval
-	availableInterval := maxValid - nextPos
-	if availableInterval >= interval {
-		// Full interval is available
-		return interval, false
-	}
-
-	// Dependencies don't have enough data for full interval
-	type minIntervalProvider interface {
-		GetMinInterval() uint64
-	}
-	var minInterval uint64
-	if provider, ok := trans.GetHandler().(minIntervalProvider); ok {
-		minInterval = provider.GetMinInterval()
-	}
-
-	// Check if the available interval meets minimum requirements
-	if availableInterval < minInterval {
-		// Available interval is too small
-		s.log.WithFields(logrus.Fields{
-			"model_id":           trans.GetID(),
-			"position":           nextPos,
-			"available_interval": availableInterval,
-			"min_interval":       minInterval,
-		}).Debug("Available interval below minimum interval, waiting for more data")
-		return interval, true // Signal to return/stop processing
-	}
-
-	// Use partial interval
-	originalInterval := interval
-	s.log.WithFields(logrus.Fields{
-		"model_id":          trans.GetID(),
-		"position":          nextPos,
-		"original_interval": originalInterval,
-		"adjusted_interval": availableInterval,
-		"dependency_limit":  maxValid,
-		"reason":            "dependency_availability",
-	}).Info("Using partial interval due to dependency limits")
-
-	return availableInterval, false
 }
