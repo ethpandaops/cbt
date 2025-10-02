@@ -44,10 +44,10 @@ type dependencyValidator struct {
 	dag             models.DAGReader
 }
 
-// Result contains the result of dependency validation
+// Result represents the outcome of dependency validation for a given position and interval.
 type Result struct {
-	CanProcess bool
-	Errors     []error
+	CanProcess   bool   // Whether the requested range can be processed (all dependencies have data)
+	NextValidPos uint64 // If CanProcess is false, suggests next position to try (0 means no valid position exists)
 }
 
 // Validation-specific errors
@@ -82,50 +82,105 @@ func NewDependencyValidator(
 	}
 }
 
-// ValidateDependencies checks if all dependencies are satisfied for a model at a given position
+// ValidateDependencies checks if all dependencies have data available for the requested range.
+// Returns a Result indicating whether processing can proceed, and if not, suggests the next
+// position where data might be available for gap-aware forward fill operations.
 func (v *dependencyValidator) ValidateDependencies(ctx context.Context, modelID string, position, interval uint64) (Result, error) {
-	// Get the valid range for this model
-	minValid, maxValid, err := v.GetValidRange(ctx, modelID)
+	// Verify the model exists and is a transformation (only transformations have dependencies)
+	node, err := v.dag.GetNode(modelID)
 	if err != nil {
-		return Result{
-			CanProcess: false,
-			Errors:     []error{err},
-		}, nil
+		v.log.WithError(err).WithField("model_id", modelID).Debug("Model not found in DAG")
+		return Result{CanProcess: false}, nil // Model not found, cannot process
 	}
 
-	// Check if the requested position falls within the valid range
-	requestedEnd := position + interval
-	canProcess := position >= minValid && requestedEnd <= maxValid
+	if node.NodeType != models.NodeTypeTransformation {
+		v.log.WithFields(logrus.Fields{
+			"model_id":  modelID,
+			"node_type": node.NodeType,
+		}).Debug("Not a transformation model, skipping validation")
+		return Result{CanProcess: false}, nil
+	}
+
+	model, ok := node.Model.(models.Transformation)
+	if !ok {
+		v.log.WithField("model_id", modelID).Warn("Failed to cast model to Transformation interface")
+		return Result{CanProcess: false}, nil
+	}
+
+	// Collect min/max bounds from all dependencies (external and transformation)
+	bounds, err := v.collectDependencyBoundsWithOR(ctx, model)
+	if err != nil {
+		v.log.WithError(err).WithField("model_id", modelID).Debug("Failed to collect dependency bounds")
+		return Result{CanProcess: false}, nil // Dependencies unavailable
+	}
+
+	// If there are no dependencies at all, the model has no data source
+	if len(bounds.externalMins) == 0 && len(bounds.transformationMins) == 0 {
+		v.log.WithField("model_id", modelID).Debug("Model has no dependencies, cannot process")
+		return Result{CanProcess: false}, nil
+	}
+
+	endPos := position + interval
+	canProcess := v.validateRangeAgainstBounds(bounds, position, endPos)
 
 	if !canProcess {
+		// The requested range extends beyond available dependency data
+		// Find the next position where all dependencies have data
+		nextValid := v.findNextValidPosition(ctx, bounds, position)
 		v.log.WithFields(logrus.Fields{
-			"model_id":      modelID,
-			"position":      position,
-			"interval":      interval,
-			"requested_end": requestedEnd,
-			"valid_min":     minValid,
-			"valid_max":     maxValid,
-		}).Debug("Position outside valid range")
-
+			"model_id":       modelID,
+			"position":       position,
+			"interval":       interval,
+			"end_position":   endPos,
+			"next_valid_pos": nextValid,
+		}).Debug("Range extends beyond dependency bounds")
 		return Result{
-			CanProcess: false,
-			Errors: []error{fmt.Errorf("%w: position %d with interval %d is outside valid range [%d, %d]",
-				ErrRangeNotAvailable, position, interval, minValid, maxValid)},
+			CanProcess:   false,
+			NextValidPos: nextValid,
 		}, nil
 	}
 
-	v.log.WithFields(logrus.Fields{
-		"model_id":    modelID,
-		"position":    position,
-		"interval":    interval,
-		"can_process": canProcess,
-		"valid_min":   minValid,
-		"valid_max":   maxValid,
-	}).Debug("Dependency validation complete")
+	// Even though the range is within bounds, transformation dependencies might have gaps
+	// Check for gaps in transformation dependencies within the requested range
+	maxGapEnd := uint64(0)
+	hasGaps := false
 
-	return Result{
-		CanProcess: canProcess,
-	}, nil
+	for _, dep := range bounds.transformationDeps {
+		// Only check gaps in transformation dependencies (external models handle their own forward fill)
+		gaps, err := v.admin.FindGaps(ctx, dep.ModelID, position, endPos, 1000)
+		if err != nil {
+			// If we can't determine gaps, proceed optimistically rather than blocking
+			v.log.WithError(err).WithField("model_id", dep.ModelID).Debug("Failed to find gaps")
+			continue
+		}
+
+		// Find the furthest gap end that affects our range
+		for _, gap := range gaps {
+			hasGaps = true
+			if gap.EndPos > maxGapEnd {
+				maxGapEnd = gap.EndPos
+			}
+		}
+	}
+
+	if hasGaps {
+		// Cannot process this range due to gaps in dependencies
+		// Suggest jumping to the end of the furthest gap
+		v.log.WithFields(logrus.Fields{
+			"model_id":       modelID,
+			"position":       position,
+			"interval":       interval,
+			"end_position":   endPos,
+			"gap_end":        maxGapEnd,
+			"next_valid_pos": maxGapEnd,
+		}).Info("Gap detected in transformation dependencies, skipping to next valid position")
+		return Result{
+			CanProcess:   false,
+			NextValidPos: maxGapEnd,
+		}, nil
+	}
+
+	return Result{CanProcess: true}, nil
 }
 
 // findMin returns the minimum value from a slice of uint64
@@ -277,12 +332,21 @@ func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 	return initialPos, nil
 }
 
+// dependencyBound holds information about a single dependency
+type dependencyBound struct {
+	ModelID    string
+	MinPos     uint64
+	MaxPos     uint64
+	IsExternal bool
+}
+
 // dependencyBounds holds min/max bounds for dependencies
 type dependencyBounds struct {
 	externalMins       []uint64
 	externalMaxs       []uint64
 	transformationMins []uint64
 	transformationMaxs []uint64
+	transformationDeps []dependencyBound // Track deps with IDs for gap checking
 }
 
 // collectExternalBounds collects bounds for an external dependency
@@ -328,6 +392,7 @@ func (v *dependencyValidator) collectDependencyBoundsWithOR(ctx context.Context,
 		externalMaxs:       []uint64{},
 		transformationMins: []uint64{},
 		transformationMaxs: []uint64{},
+		transformationDeps: []dependencyBound{}, // Initialize
 	}
 
 	transformConfig := model.GetConfig()
@@ -408,6 +473,12 @@ func (v *dependencyValidator) processORGroup(ctx context.Context, dep transforma
 	case models.NodeTypeTransformation:
 		bounds.transformationMins = append(bounds.transformationMins, bestMin)
 		bounds.transformationMaxs = append(bounds.transformationMaxs, bestMax)
+		bounds.transformationDeps = append(bounds.transformationDeps, dependencyBound{
+			ModelID:    bestDepID,
+			MinPos:     bestMin,
+			MaxPos:     bestMax,
+			IsExternal: false,
+		})
 	}
 
 	v.log.WithFields(logrus.Fields{
@@ -446,6 +517,12 @@ func (v *dependencyValidator) processSingleDependency(ctx context.Context, depID
 		// Include transformation bounds
 		bounds.transformationMins = append(bounds.transformationMins, minDep)
 		bounds.transformationMaxs = append(bounds.transformationMaxs, maxDep)
+		bounds.transformationDeps = append(bounds.transformationDeps, dependencyBound{
+			ModelID:    depID,
+			MinPos:     minDep,
+			MaxPos:     maxDep,
+			IsExternal: false,
+		})
 
 	default:
 		return fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)
@@ -567,6 +644,118 @@ func (v *dependencyValidator) GetValidRange(ctx context.Context, modelID string)
 	}).Debug("Calculated valid range for model")
 
 	return finalMin, finalMax, nil
+}
+
+// validateRangeAgainstBounds checks if the requested range falls within the bounds
+// of all dependencies. Returns true if the entire range is covered by dependency data.
+func (v *dependencyValidator) validateRangeAgainstBounds(bounds *dependencyBounds, position, endPos uint64) bool {
+	finalMin, finalMax := v.calculateFinalRange(bounds)
+	return position >= finalMin && endPos <= finalMax
+}
+
+// findNextValidPosition finds the next position where all transformation dependencies
+// have data available. It merges gaps from all dependencies to find the earliest
+// valid position after the given position.
+func (v *dependencyValidator) findNextValidPosition(ctx context.Context, bounds *dependencyBounds, fromPosition uint64) uint64 {
+	if len(bounds.transformationDeps) == 0 {
+		return 0
+	}
+
+	// Collect all gaps from all transformation dependencies to find unified "no-data zones"
+	allGaps := []admin.GapInfo{}
+	minMaxPos := ^uint64(0) // Track the minimum max position across all dependencies
+
+	for _, dep := range bounds.transformationDeps {
+		// If position is already beyond this dependency's max, no valid position exists
+		if fromPosition >= dep.MaxPos {
+			return 0 // No valid position beyond bounds
+		}
+
+		if dep.MaxPos < minMaxPos {
+			minMaxPos = dep.MaxPos
+		}
+
+		gaps, err := v.admin.FindGaps(ctx, dep.ModelID, fromPosition, dep.MaxPos, 1000)
+		if err != nil {
+			v.log.WithError(err).WithField("model_id", dep.ModelID).Debug("Failed to find gaps")
+			continue // Graceful degradation
+		}
+
+		allGaps = append(allGaps, gaps...)
+	}
+
+	// If no gaps, the current position is valid
+	if len(allGaps) == 0 {
+		return fromPosition
+	}
+
+	// Sort gaps by start position to enable efficient merging
+	sortGapsByStart(allGaps)
+
+	// Merge overlapping gaps from different dependencies into unified zones
+	// This gives us a complete picture of where data is unavailable
+	mergedGaps := mergeOverlappingGaps(allGaps)
+
+	// Walk through merged gaps to find the first valid position
+	currentPos := fromPosition
+	for _, gap := range mergedGaps {
+		if currentPos < gap.StartPos {
+			// Found valid position before next gap
+			return currentPos
+		}
+		if currentPos < gap.EndPos {
+			// Current position is in a gap, jump to end
+			currentPos = gap.EndPos
+		}
+	}
+
+	// Check if final position is within bounds
+	if currentPos >= minMaxPos {
+		return 0 // No valid position within bounds
+	}
+
+	return currentPos
+}
+
+// sortGapsByStart sorts gaps in ascending order by their start position.
+// Uses insertion sort which is efficient for small arrays (typical case).
+func sortGapsByStart(gaps []admin.GapInfo) {
+	for i := 1; i < len(gaps); i++ {
+		key := gaps[i]
+		j := i - 1
+		for j >= 0 && gaps[j].StartPos > key.StartPos {
+			gaps[j+1] = gaps[j]
+			j--
+		}
+		gaps[j+1] = key
+	}
+}
+
+// mergeOverlappingGaps combines overlapping or adjacent gaps into single continuous gaps.
+// For example, gaps [100-110] and [105-120] become [100-120].
+// This ensures we don't try to process positions that fall in any dependency's gap.
+func mergeOverlappingGaps(gaps []admin.GapInfo) []admin.GapInfo {
+	if len(gaps) == 0 {
+		return gaps
+	}
+
+	merged := []admin.GapInfo{gaps[0]}
+
+	for i := 1; i < len(gaps); i++ {
+		lastMerged := &merged[len(merged)-1]
+
+		// If current gap overlaps or touches the last merged gap, combine them
+		if gaps[i].StartPos <= lastMerged.EndPos {
+			if gaps[i].EndPos > lastMerged.EndPos {
+				lastMerged.EndPos = gaps[i].EndPos
+			}
+		} else {
+			// Gaps don't overlap - add as a separate gap
+			merged = append(merged, gaps[i])
+		}
+	}
+
+	return merged
 }
 
 // Ensure dependencyValidator implements Validator interface

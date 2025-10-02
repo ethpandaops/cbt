@@ -537,12 +537,14 @@ type mockAdmin struct {
 	coverage       bool
 	slowOperation  bool
 	operationDelay time.Duration
+	gaps           map[string][]admin.GapInfo // Gaps by model ID for testing
 }
 
 func newMockAdmin() *mockAdmin {
 	return &mockAdmin{
 		lastPositions:  make(map[string]uint64),
 		firstPositions: make(map[string]uint64),
+		gaps:           make(map[string][]admin.GapInfo),
 	}
 }
 
@@ -613,7 +615,18 @@ func (m *mockAdmin) GetCoverage(ctx context.Context, _ string, _, _ uint64) (boo
 	return m.coverage, nil
 }
 
-func (m *mockAdmin) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
+func (m *mockAdmin) FindGaps(_ context.Context, modelID string, startPos, endPos, _ uint64) ([]admin.GapInfo, error) {
+	if gaps, ok := m.gaps[modelID]; ok {
+		// Filter gaps that are within the requested range
+		var result []admin.GapInfo
+		for _, gap := range gaps {
+			// Include gaps that overlap with requested range
+			if gap.StartPos < endPos && gap.EndPos > startPos {
+				result = append(result, gap)
+			}
+		}
+		return result, nil
+	}
 	return []admin.GapInfo{}, nil
 }
 

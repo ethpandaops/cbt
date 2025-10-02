@@ -184,78 +184,90 @@ func (s *service) Process(trans models.Transformation, direction Direction) {
 func (s *service) processForward(trans models.Transformation) {
 	config := trans.GetConfig()
 
-	// Skip if no forward fill schedule configured
 	if !config.IsForwardFillEnabled() {
 		return
 	}
 
 	ctx := context.Background()
+	modelID := trans.GetID()
 
-	// Get the next position to process for forward fill
-	nextPos, err := s.admin.GetNextUnprocessedPosition(ctx, trans.GetID())
+	// Get starting position
+	position, err := s.admin.GetNextUnprocessedPosition(ctx, modelID)
 	if err != nil {
-		s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to get next unprocessed position")
-
+		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get position")
 		return
 	}
 
-	s.log.WithFields(logrus.Fields{
-		"model_id": trans.GetID(),
-		"next_pos": nextPos,
-	}).Debug("Got next unprocessed position for forward fill")
-
-	// If this is the first run, calculate initial position
-	if nextPos == 0 {
-		s.log.WithField("model_id", trans.GetID()).Debug("No data processed yet, calculating initial position")
-
-		initialPos, err := s.validator.GetInitialPosition(ctx, trans.GetID())
+	// Calculate initial position if needed
+	if position == 0 {
+		initialPos, err := s.validator.GetInitialPosition(ctx, modelID)
 		if err != nil {
-			s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to calculate initial position")
+			s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get initial position")
 			return
 		}
-
-		s.log.WithFields(logrus.Fields{
-			"model_id":    trans.GetID(),
-			"initial_pos": initialPos,
-		}).Debug("Calculated initial position")
-
-		nextPos = initialPos
+		position = initialPos
 	}
 
-	// Don't process beyond max limit if configured
-	if config.Limits != nil && config.Limits.Max > 0 && nextPos >= config.Limits.Max {
-		s.log.WithFields(logrus.Fields{
-			"model_id":   trans.GetID(),
-			"position":   nextPos,
-			"limits_max": config.Limits.Max,
-		}).Debug("Position is at or beyond max limit, skipping forward processing")
+	// Check limits
+	if config.Limits != nil && config.Limits.Max > 0 && position >= config.Limits.Max {
 		return
 	}
 
-	// Adjust interval if it would exceed max limit
-	interval := config.GetMaxInterval()
-	if config.Limits != nil && config.Limits.Max > 0 && nextPos+interval > config.Limits.Max {
-		// Reduce interval to stay within max limit
-		interval = config.Limits.Max - nextPos
-		s.log.WithFields(logrus.Fields{
-			"model_id":          trans.GetID(),
-			"position":          nextPos,
-			"original_interval": config.GetMaxInterval(),
-			"adjusted_interval": interval,
-			"limits_max":        config.Limits.Max,
-		}).Debug("Adjusted interval to respect max limit")
-	}
+	s.processForwardWithGapSkipping(ctx, trans, position)
+}
 
-	// Check for partial interval processing based on dependency availability
-	if config.AllowsPartialIntervals() {
-		adjustedInterval, shouldReturn := s.adjustIntervalForDependencies(ctx, trans, nextPos, interval)
-		if shouldReturn {
+// processForwardWithGapSkipping performs forward fill processing with the ability to skip
+// over gaps in transformation dependencies. When a gap is detected, it jumps to the next
+// position where all dependencies have data available, allowing forward fill to continue
+// rather than stopping at the first gap.
+func (s *service) processForwardWithGapSkipping(ctx context.Context, trans models.Transformation, startPos uint64) {
+	config := trans.GetConfig()
+	modelID := trans.GetID()
+	maxInterval := config.GetMaxInterval()
+
+	currentPos := startPos
+
+	// Process forward until we reach configured limits or run out of dependency data
+	for config.Limits == nil || config.Limits.Max == 0 || currentPos < config.Limits.Max {
+		// Calculate processing interval, adjusting if it would exceed configured limits
+		interval := maxInterval
+		if config.Limits != nil && config.Limits.Max > 0 {
+			if currentPos+interval > config.Limits.Max {
+				interval = config.Limits.Max - currentPos
+			}
+		}
+
+		// Check if dependencies have data for this range
+		result, err := s.validator.ValidateDependencies(ctx, modelID, currentPos, interval)
+		if err != nil {
+			s.log.WithError(err).WithField("model_id", modelID).Error("Critical validation error")
 			return
 		}
-		interval = adjustedInterval
-	}
 
-	s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval, string(DirectionForward))
+		switch {
+		case result.CanProcess:
+			// All dependencies have data for this range - enqueue for processing
+			s.checkAndEnqueuePositionWithTrigger(ctx, trans, currentPos, interval, "forward_fill")
+			currentPos += interval
+
+		case result.NextValidPos > currentPos:
+			// Gap detected in dependencies - skip to the next position with data
+			s.log.WithFields(logrus.Fields{
+				"model_id":  modelID,
+				"gap_start": currentPos,
+				"gap_end":   result.NextValidPos,
+			}).Info("Skipping gap in transformation dependencies")
+			currentPos = result.NextValidPos
+
+		default:
+			// No more valid positions found (reached end of dependency data)
+			s.log.WithFields(logrus.Fields{
+				"model_id":      modelID,
+				"last_position": currentPos,
+			}).Debug("No more valid positions found - reached end of dependency data")
+			return
+		}
+	}
 }
 
 // adjustIntervalForDependencies adjusts the interval based on dependency availability
@@ -321,6 +333,12 @@ func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans 
 		Interval:   interval,
 		Direction:  direction,
 		EnqueuedAt: time.Now(),
+	}
+
+	// Skip queue checks if queueManager is nil (e.g., during testing)
+	if s.queueManager == nil {
+		s.log.Debug("Queue manager not available, skipping task enqueue")
+		return
 	}
 
 	// Check if already enqueued or recently completed
