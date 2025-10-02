@@ -28,6 +28,12 @@ func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans 
 		EnqueuedAt: time.Now(),
 	}
 
+	// Skip queue checks if queueManager is nil
+	if s.queueManager == nil {
+		s.log.Debug("Queue manager not available, skipping task enqueue")
+		return
+	}
+
 	// Check if already enqueued or recently completed
 	isPending, err := s.queueManager.IsTaskPendingOrRunning(payload)
 	if err != nil {
