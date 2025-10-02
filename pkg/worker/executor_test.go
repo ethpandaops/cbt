@@ -564,8 +564,16 @@ func (m *mockExecutorAdminService) GetExternalBounds(_ context.Context, _ string
 func (m *mockExecutorAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
 	return m.setBoundsErr
 }
-func (m *mockExecutorAdminService) GetAdminDatabase() string { return "admin_db" }
-func (m *mockExecutorAdminService) GetAdminTable() string    { return "admin_table" }
+func (m *mockExecutorAdminService) GetIncrementalAdminDatabase() string { return "admin_db" }
+func (m *mockExecutorAdminService) GetIncrementalAdminTable() string    { return "admin_table" }
+func (m *mockExecutorAdminService) GetScheduledAdminDatabase() string   { return "admin" }
+func (m *mockExecutorAdminService) GetScheduledAdminTable() string      { return "cbt_scheduled" }
+func (m *mockExecutorAdminService) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+func (m *mockExecutorAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
+	return nil, nil
+}
 
 var _ admin.Service = (*mockExecutorAdminService)(nil)
 
@@ -577,13 +585,14 @@ type mockExecutorTransformation struct {
 	conf  transformation.Config
 }
 
-func (m *mockExecutorTransformation) GetID() string                     { return m.id }
-func (m *mockExecutorTransformation) GetConfig() *transformation.Config { return &m.conf }
-func (m *mockExecutorTransformation) GetValue() string                  { return m.value }
-func (m *mockExecutorTransformation) GetDependencies() []string         { return []string{} }
-func (m *mockExecutorTransformation) GetSQL() string                    { return m.sql }
-func (m *mockExecutorTransformation) GetType() string                   { return m.typ }
-func (m *mockExecutorTransformation) GetEnvironmentVariables() []string { return []string{} }
+func (m *mockExecutorTransformation) GetID() string                      { return m.id }
+func (m *mockExecutorTransformation) GetConfig() *transformation.Config  { return &m.conf }
+func (m *mockExecutorTransformation) GetHandler() transformation.Handler { return nil }
+func (m *mockExecutorTransformation) GetValue() string                   { return m.value }
+func (m *mockExecutorTransformation) GetDependencies() []string          { return []string{} }
+func (m *mockExecutorTransformation) GetSQL() string                     { return m.sql }
+func (m *mockExecutorTransformation) GetType() string                    { return m.typ }
+func (m *mockExecutorTransformation) GetEnvironmentVariables() []string  { return []string{} }
 func (m *mockExecutorTransformation) SetDefaultDatabase(defaultDB string) {
 	if m.conf.Database == "" {
 		m.conf.Database = defaultDB

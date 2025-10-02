@@ -39,7 +39,7 @@ func (q *QueueManager) EnqueueTransformation(payload TaskPayload, opts ...asynq.
 	// Default options
 	defaultOpts := []asynq.Option{
 		asynq.TaskID(payload.UniqueID()),
-		asynq.Queue(payload.ModelID), // Model-specific queue
+		asynq.Queue(payload.GetModelID()), // Model-specific queue
 		asynq.MaxRetry(3),
 		asynq.Timeout(30 * time.Minute),
 	}

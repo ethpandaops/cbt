@@ -1,6 +1,8 @@
 package models
 
 import (
+	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -10,31 +12,42 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Mock transformation for testing
-type mockTransformation struct {
-	id           string
+// Mock handler for testing
+type mockHandler struct {
 	dependencies []string
-	config       transformation.Config
 }
 
-// Helper function to create dependencies from strings
-func createDependencies(deps []string) []transformation.Dependency {
-	result := make([]transformation.Dependency, len(deps))
-	for i, dep := range deps {
-		result[i] = transformation.Dependency{
-			IsGroup:   false,
-			SingleDep: dep,
-		}
-	}
-	return result
+func (h *mockHandler) GetFlattenedDependencies() []string {
+	return h.dependencies
+}
+
+// Implement the full Handler interface (these are no-op for tests)
+func (h *mockHandler) Type() transformation.Type { return "incremental" }
+func (h *mockHandler) Config() any               { return nil }
+func (h *mockHandler) Validate() error           { return nil }
+func (h *mockHandler) ShouldTrackPosition() bool { return true }
+func (h *mockHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
+	return nil
+}
+func (h *mockHandler) GetAdminTable() transformation.AdminTable { return transformation.AdminTable{} }
+func (h *mockHandler) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
+	return nil
+}
+
+// Mock transformation for testing
+type mockTransformation struct {
+	id      string
+	config  transformation.Config
+	handler transformation.Handler
 }
 
 func (m *mockTransformation) GetID() string                       { return m.id }
-func (m *mockTransformation) GetDependencies() []string           { return m.dependencies }
 func (m *mockTransformation) GetConfig() *transformation.Config   { return &m.config }
 func (m *mockTransformation) GetSQL() string                      { return "" }
 func (m *mockTransformation) GetType() string                     { return "transformation" }
 func (m *mockTransformation) GetValue() string                    { return "" }
+func (m *mockTransformation) GetHandler() transformation.Handler  { return m.handler }
+func (m *mockTransformation) GetDependencies() []string           { return []string{} }
 func (m *mockTransformation) GetEnvironmentVariables() []string   { return []string{} }
 func (m *mockTransformation) SetDefaultDatabase(defaultDB string) { m.config.SetDefaults(defaultDB) }
 
@@ -75,18 +88,18 @@ func TestBuildGraph(t *testing.T) {
 			name: "build simple graph",
 			transformations: []Transformation{
 				&mockTransformation{
-					id:           "trans1",
-					dependencies: []string{},
-					config:       transformation.Config{Dependencies: createDependencies([]string{})},
+					id:      "db.trans1",
+					config:  transformation.Config{Database: "db", Table: "trans1"},
+					handler: &mockHandler{dependencies: []string{}},
 				},
 				&mockTransformation{
-					id:           "trans2",
-					dependencies: []string{"trans1"},
-					config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
+					id:      "db.trans2",
+					config:  transformation.Config{Database: "db", Table: "trans2"},
+					handler: &mockHandler{dependencies: []string{"db.trans1"}},
 				},
 			},
 			externals: []External{
-				&mockExternal{id: "ext1", typ: external.ExternalTypeSQL},
+				&mockExternal{id: "db.ext1", typ: external.ExternalTypeSQL},
 			},
 			wantErr:           false,
 			expectedNodeCount: 3,
@@ -95,14 +108,14 @@ func TestBuildGraph(t *testing.T) {
 			name: "build with cyclic dependency",
 			transformations: []Transformation{
 				&mockTransformation{
-					id:           "trans1",
-					dependencies: []string{"trans2"},
-					config:       transformation.Config{Dependencies: createDependencies([]string{"trans2"})},
+					id:      "db.trans1",
+					config:  transformation.Config{Database: "db", Table: "trans1"},
+					handler: &mockHandler{dependencies: []string{"db.trans2"}},
 				},
 				&mockTransformation{
-					id:           "trans2",
-					dependencies: []string{"trans1"},
-					config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
+					id:      "db.trans2",
+					config:  transformation.Config{Database: "db", Table: "trans2"},
+					handler: &mockHandler{dependencies: []string{"db.trans1"}},
 				},
 			},
 			externals: []External{},
@@ -147,8 +160,11 @@ func TestBuildGraph(t *testing.T) {
 // Test GetNode
 func TestGetNode(t *testing.T) {
 	dg := NewDependencyGraph()
-	trans := &mockTransformation{id: "trans1"}
-	ext := &mockExternal{id: "ext1", typ: external.ExternalTypeSQL}
+	trans := &mockTransformation{
+		id:     "db.trans1",
+		config: transformation.Config{Database: "db", Table: "trans1"},
+	}
+	ext := &mockExternal{id: "db.ext1", typ: external.ExternalTypeSQL}
 
 	err := dg.BuildGraph([]Transformation{trans}, []External{ext})
 	require.NoError(t, err)
@@ -161,13 +177,13 @@ func TestGetNode(t *testing.T) {
 	}{
 		{
 			name:     "get transformation node",
-			nodeID:   "trans1",
+			nodeID:   "db.trans1",
 			wantErr:  false,
 			nodeType: NodeTypeTransformation,
 		},
 		{
 			name:     "get external node",
-			nodeID:   "ext1",
+			nodeID:   "db.ext1",
 			wantErr:  false,
 			nodeType: NodeTypeExternal,
 		},
@@ -195,8 +211,11 @@ func TestGetNode(t *testing.T) {
 // Test GetTransformationNode
 func TestGetTransformationNode(t *testing.T) {
 	dg := NewDependencyGraph()
-	trans := &mockTransformation{id: "trans1"}
-	ext := &mockExternal{id: "ext1", typ: external.ExternalTypeSQL}
+	trans := &mockTransformation{
+		id:     "db.trans1",
+		config: transformation.Config{Database: "db", Table: "trans1"},
+	}
+	ext := &mockExternal{id: "db.ext1", typ: external.ExternalTypeSQL}
 
 	err := dg.BuildGraph([]Transformation{trans}, []External{ext})
 	require.NoError(t, err)
@@ -208,12 +227,12 @@ func TestGetTransformationNode(t *testing.T) {
 	}{
 		{
 			name:    "get valid transformation",
-			nodeID:  "trans1",
+			nodeID:  "db.trans1",
 			wantErr: false,
 		},
 		{
 			name:    "get external as transformation",
-			nodeID:  "ext1",
+			nodeID:  "db.ext1",
 			wantErr: true,
 		},
 		{
@@ -240,8 +259,11 @@ func TestGetTransformationNode(t *testing.T) {
 // Test GetExternalNode
 func TestGetExternalNode(t *testing.T) {
 	dg := NewDependencyGraph()
-	trans := &mockTransformation{id: "trans1"}
-	ext := &mockExternal{id: "ext1", typ: external.ExternalTypeSQL}
+	trans := &mockTransformation{
+		id:     "db.trans1",
+		config: transformation.Config{Database: "db", Table: "trans1"},
+	}
+	ext := &mockExternal{id: "db.ext1", typ: external.ExternalTypeSQL}
 
 	err := dg.BuildGraph([]Transformation{trans}, []External{ext})
 	require.NoError(t, err)
@@ -253,12 +275,12 @@ func TestGetExternalNode(t *testing.T) {
 	}{
 		{
 			name:    "get valid external",
-			nodeID:  "ext1",
+			nodeID:  "db.ext1",
 			wantErr: false,
 		},
 		{
 			name:    "get transformation as external",
-			nodeID:  "trans1",
+			nodeID:  "db.trans1",
 			wantErr: true,
 		},
 		{
@@ -287,43 +309,43 @@ func TestGetDependenciesAndDependents(t *testing.T) {
 	dg := NewDependencyGraph()
 
 	trans1 := &mockTransformation{
-		id:           "trans1",
-		dependencies: []string{},
-		config:       transformation.Config{Dependencies: createDependencies([]string{})},
+		id:      "db.trans1",
+		config:  transformation.Config{Database: "db", Table: "trans1"},
+		handler: &mockHandler{dependencies: []string{}},
 	}
 	trans2 := &mockTransformation{
-		id:           "trans2",
-		dependencies: []string{"trans1"},
-		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
+		id:      "db.trans2",
+		config:  transformation.Config{Database: "db", Table: "trans2"},
+		handler: &mockHandler{dependencies: []string{"db.trans1"}},
 	}
 	trans3 := &mockTransformation{
-		id:           "trans3",
-		dependencies: []string{"trans1", "trans2"},
-		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1", "trans2"})},
+		id:      "db.trans3",
+		config:  transformation.Config{Database: "db", Table: "trans3"},
+		handler: &mockHandler{dependencies: []string{"db.trans1", "db.trans2"}},
 	}
 
 	err := dg.BuildGraph([]Transformation{trans1, trans2, trans3}, []External{})
 	require.NoError(t, err)
 
 	// Test GetDependencies
-	deps := dg.GetDependencies("trans3")
-	assert.ElementsMatch(t, []string{"trans1", "trans2"}, deps)
+	deps := dg.GetDependencies("db.trans3")
+	assert.ElementsMatch(t, []string{"db.trans1", "db.trans2"}, deps)
 
-	deps = dg.GetDependencies("trans2")
-	assert.ElementsMatch(t, []string{"trans1"}, deps)
+	deps = dg.GetDependencies("db.trans2")
+	assert.ElementsMatch(t, []string{"db.trans1"}, deps)
 
-	deps = dg.GetDependencies("trans1")
+	deps = dg.GetDependencies("db.trans1")
 	assert.NotNil(t, deps)
 	assert.Empty(t, deps)
 
 	// Test GetDependents
-	dependents := dg.GetDependents("trans1")
-	assert.ElementsMatch(t, []string{"trans2", "trans3"}, dependents)
+	dependents := dg.GetDependents("db.trans1")
+	assert.ElementsMatch(t, []string{"db.trans2", "db.trans3"}, dependents)
 
-	dependents = dg.GetDependents("trans2")
-	assert.ElementsMatch(t, []string{"trans3"}, dependents)
+	dependents = dg.GetDependents("db.trans2")
+	assert.ElementsMatch(t, []string{"db.trans3"}, dependents)
 
-	dependents = dg.GetDependents("trans3")
+	dependents = dg.GetDependents("db.trans3")
 	assert.NotNil(t, dependents)
 	assert.Empty(t, dependents)
 
@@ -343,36 +365,36 @@ func TestGetAllDependenciesAndDependents(t *testing.T) {
 	// trans1 -> trans2 -> trans4
 	//        -> trans3 -> trans4
 	trans1 := &mockTransformation{
-		id:           "trans1",
-		dependencies: []string{},
-		config:       transformation.Config{Dependencies: createDependencies([]string{})},
+		id:      "db.trans1",
+		config:  transformation.Config{Database: "db", Table: "trans1"},
+		handler: &mockHandler{dependencies: []string{}},
 	}
 	trans2 := &mockTransformation{
-		id:           "trans2",
-		dependencies: []string{"trans1"},
-		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
+		id:      "db.trans2",
+		config:  transformation.Config{Database: "db", Table: "trans2"},
+		handler: &mockHandler{dependencies: []string{"db.trans1"}},
 	}
 	trans3 := &mockTransformation{
-		id:           "trans3",
-		dependencies: []string{"trans1"},
-		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
+		id:      "db.trans3",
+		config:  transformation.Config{Database: "db", Table: "trans3"},
+		handler: &mockHandler{dependencies: []string{"db.trans1"}},
 	}
 	trans4 := &mockTransformation{
-		id:           "trans4",
-		dependencies: []string{"trans2", "trans3"},
-		config:       transformation.Config{Dependencies: createDependencies([]string{"trans2", "trans3"})},
+		id:      "db.trans4",
+		config:  transformation.Config{Database: "db", Table: "trans4"},
+		handler: &mockHandler{dependencies: []string{"db.trans2", "db.trans3"}},
 	}
 
 	err := dg.BuildGraph([]Transformation{trans1, trans2, trans3, trans4}, []External{})
 	require.NoError(t, err)
 
 	// Test GetAllDependencies
-	allDeps := dg.GetAllDependencies("trans4")
-	assert.ElementsMatch(t, []string{"trans1", "trans2", "trans3"}, allDeps)
+	allDeps := dg.GetAllDependencies("db.trans4")
+	assert.ElementsMatch(t, []string{"db.trans1", "db.trans2", "db.trans3"}, allDeps)
 
 	// Test GetAllDependents
-	allDependents := dg.GetAllDependents("trans1")
-	assert.ElementsMatch(t, []string{"trans2", "trans3", "trans4"}, allDependents)
+	allDependents := dg.GetAllDependents("db.trans1")
+	assert.ElementsMatch(t, []string{"db.trans2", "db.trans3", "db.trans4"}, allDependents)
 
 	// Test with non-existent node
 	allDeps = dg.GetAllDependencies("non-existent")
@@ -387,13 +409,14 @@ func TestGetTransformationNodes(t *testing.T) {
 	dg := NewDependencyGraph()
 
 	trans1 := &mockTransformation{
-		id:     "trans1",
-		config: transformation.Config{Dependencies: createDependencies([]string{})},
+		id:      "db.trans1",
+		config:  transformation.Config{Database: "db", Table: "trans1"},
+		handler: &mockHandler{dependencies: []string{}},
 	}
 	trans2 := &mockTransformation{
-		id:           "trans2",
-		dependencies: []string{"trans1"},
-		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
+		id:      "db.trans2",
+		config:  transformation.Config{Database: "db", Table: "trans2"},
+		handler: &mockHandler{dependencies: []string{"db.trans1"}},
 	}
 	ext := &mockExternal{id: "ext1", typ: external.ExternalTypeSQL}
 
@@ -407,7 +430,7 @@ func TestGetTransformationNodes(t *testing.T) {
 	for i, node := range nodes {
 		nodeIDs[i] = node.GetID()
 	}
-	assert.ElementsMatch(t, []string{"trans1", "trans2"}, nodeIDs)
+	assert.ElementsMatch(t, []string{"db.trans1", "db.trans2"}, nodeIDs)
 }
 
 // Test IsPathBetween
@@ -415,22 +438,24 @@ func TestIsPathBetween(t *testing.T) {
 	dg := NewDependencyGraph()
 
 	trans1 := &mockTransformation{
-		id:     "trans1",
-		config: transformation.Config{Dependencies: createDependencies([]string{})},
+		id:      "db.trans1",
+		config:  transformation.Config{Database: "db", Table: "trans1"},
+		handler: &mockHandler{dependencies: []string{}},
 	}
 	trans2 := &mockTransformation{
-		id:           "trans2",
-		dependencies: []string{"trans1"},
-		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
+		id:      "db.trans2",
+		config:  transformation.Config{Database: "db", Table: "trans2"},
+		handler: &mockHandler{dependencies: []string{"db.trans1"}},
 	}
 	trans3 := &mockTransformation{
-		id:           "trans3",
-		dependencies: []string{"trans2"},
-		config:       transformation.Config{Dependencies: createDependencies([]string{"trans2"})},
+		id:      "db.trans3",
+		config:  transformation.Config{Database: "db", Table: "trans3"},
+		handler: &mockHandler{dependencies: []string{"db.trans2"}},
 	}
 	trans4 := &mockTransformation{
-		id:     "trans4",
-		config: transformation.Config{Dependencies: createDependencies([]string{})},
+		id:      "db.trans4",
+		config:  transformation.Config{Database: "db", Table: "trans4"},
+		handler: &mockHandler{dependencies: []string{}},
 	}
 
 	err := dg.BuildGraph([]Transformation{trans1, trans2, trans3, trans4}, []External{})
@@ -444,32 +469,32 @@ func TestIsPathBetween(t *testing.T) {
 	}{
 		{
 			name:     "direct path exists",
-			from:     "trans1",
-			to:       "trans2",
+			from:     "db.trans1",
+			to:       "db.trans2",
 			expected: true,
 		},
 		{
 			name:     "indirect path exists",
-			from:     "trans1",
-			to:       "trans3",
+			from:     "db.trans1",
+			to:       "db.trans3",
 			expected: true,
 		},
 		{
 			name:     "no path exists",
-			from:     "trans1",
-			to:       "trans4",
+			from:     "db.trans1",
+			to:       "db.trans4",
 			expected: false,
 		},
 		{
 			name:     "reverse path doesn't exist",
-			from:     "trans3",
-			to:       "trans1",
+			from:     "db.trans3",
+			to:       "db.trans1",
 			expected: false,
 		},
 		{
 			name:     "self path",
-			from:     "trans1",
-			to:       "trans1",
+			from:     "db.trans1",
+			to:       "db.trans1",
 			expected: false,
 		},
 	}
@@ -487,13 +512,14 @@ func TestConcurrentAccess(t *testing.T) {
 	dg := NewDependencyGraph()
 
 	trans1 := &mockTransformation{
-		id:     "trans1",
-		config: transformation.Config{Dependencies: createDependencies([]string{})},
+		id:      "db.trans1",
+		config:  transformation.Config{Database: "db", Table: "trans1"},
+		handler: &mockHandler{dependencies: []string{}},
 	}
 	trans2 := &mockTransformation{
-		id:           "trans2",
-		dependencies: []string{"trans1"},
-		config:       transformation.Config{Dependencies: createDependencies([]string{"trans1"})},
+		id:      "db.trans2",
+		config:  transformation.Config{Database: "db", Table: "trans2"},
+		handler: &mockHandler{dependencies: []string{"db.trans1"}},
 	}
 
 	err := dg.BuildGraph([]Transformation{trans1, trans2}, []External{})
@@ -507,10 +533,10 @@ func TestConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = dg.GetNode("trans1")
-			_ = dg.GetDependencies("trans2")
-			_ = dg.GetDependents("trans1")
-			_ = dg.IsPathBetween("trans1", "trans2")
+			_, _ = dg.GetNode("db.trans1")
+			_ = dg.GetDependencies("db.trans2")
+			_ = dg.GetDependents("db.trans1")
+			_ = dg.IsPathBetween("db.trans1", "db.trans2")
 		}()
 	}
 
@@ -528,9 +554,9 @@ func BenchmarkBuildGraph(b *testing.B) {
 			deps = append(deps, transformations[i-1].GetID())
 		}
 		transformations[i] = &mockTransformation{
-			id:           string(rune(i)),
-			dependencies: deps,
-			config:       transformation.Config{Dependencies: createDependencies(deps)},
+			id:      fmt.Sprintf("db.trans%d", i),
+			config:  transformation.Config{Database: "db", Table: fmt.Sprintf("trans%d", i)},
+			handler: &mockHandler{dependencies: deps},
 		}
 	}
 
@@ -552,9 +578,9 @@ func BenchmarkGetAllDependencies(b *testing.B) {
 			deps = append(deps, transformations[i-1].GetID())
 		}
 		transformations[i] = &mockTransformation{
-			id:           string(rune(i)),
-			dependencies: deps,
-			config:       transformation.Config{Dependencies: createDependencies(deps)},
+			id:      fmt.Sprintf("db.trans%d", i),
+			config:  transformation.Config{Database: "db", Table: fmt.Sprintf("trans%d", i)},
+			handler: &mockHandler{dependencies: deps},
 		}
 	}
 

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
+	"github.com/ethpandaops/cbt/pkg/models/transformation/incremental"
+	"github.com/ethpandaops/cbt/pkg/models/transformation/scheduled"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
@@ -57,6 +59,9 @@ func NewService(log logrus.FieldLogger, cfg *Config, _ *redis.Client, clickhouse
 
 // Start initializes the models service and builds the dependency graph
 func (s *service) Start() error {
+	// Register transformation handlers explicitly
+	s.registerHandlers()
+
 	if err := s.parseModels(); err != nil {
 		return err
 	}
@@ -73,6 +78,17 @@ func (s *service) Start() error {
 // Stop gracefully shuts down the models service
 func (s *service) Stop() error {
 	return nil
+}
+
+// registerHandlers explicitly registers all transformation handlers
+func (s *service) registerHandlers() {
+	// Register the incremental transformation handler
+	incremental.Register()
+	s.log.Debug("Registered incremental transformation handler")
+
+	// Register the scheduled transformation handler
+	scheduled.Register()
+	s.log.Debug("Registered scheduled transformation handler")
 }
 
 func (s *service) parseModels() error {
@@ -106,35 +122,58 @@ func (s *service) parseModels() error {
 		return fmt.Errorf("failed to discover models: %w", err)
 	}
 
-	if len(transformationFiles) > 0 {
-		for _, file := range transformationFiles {
-			transformationModel, parseErr := NewTransformation(file.Content, file.FilePath)
-			if parseErr != nil {
-				return parseErr
-			}
-
-			// Apply default database if not specified
-			transformationModel.SetDefaultDatabase(s.config.Transformation.DefaultDatabase)
-
-			// Substitute dependency placeholders with actual default databases
-			transformationModel.GetConfig().SubstituteDependencyPlaceholders(
-				s.config.External.DefaultDatabase,
-				s.config.Transformation.DefaultDatabase,
-			)
-
-			// Validate that database is set after applying defaults
-			if validationErr := transformationModel.GetConfig().Validate(); validationErr != nil {
-				return fmt.Errorf("model %s validation failed after applying defaults: %w", file.FilePath, validationErr)
-			}
-
-			s.transformationModels = append(s.transformationModels, transformationModel)
+	for _, file := range transformationFiles {
+		model, err := s.processTransformationFile(file)
+		if err != nil {
+			return err
 		}
+		s.transformationModels = append(s.transformationModels, model)
 	}
 
 	// Apply overrides after all models are loaded
 	s.applyOverrides()
 
 	return nil
+}
+
+// processTransformationFile processes a single transformation file
+func (s *service) processTransformationFile(file *ModelFile) (Transformation, error) {
+	transformationModel, err := NewTransformation(file.Content, file.FilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply default database if not specified
+	transformationModel.SetDefaultDatabase(s.config.Transformation.DefaultDatabase)
+
+	// Substitute dependency placeholders through handler if it supports it
+	s.substitutePlaceholders(transformationModel)
+
+	// Validate that database is set after applying defaults
+	if err := transformationModel.GetConfig().Validate(); err != nil {
+		return nil, fmt.Errorf("model %s validation failed after applying defaults: %w", file.FilePath, err)
+	}
+
+	return transformationModel, nil
+}
+
+// substitutePlaceholders handles placeholder substitution in dependencies
+func (s *service) substitutePlaceholders(model Transformation) {
+	handler := model.GetHandler()
+	if handler == nil {
+		return
+	}
+
+	type placeholderSubstituter interface {
+		SubstituteDependencyPlaceholders(externalDefaultDB, transformationDefaultDB string)
+	}
+
+	if subProvider, ok := handler.(placeholderSubstituter); ok {
+		subProvider.SubstituteDependencyPlaceholders(
+			s.config.External.DefaultDatabase,
+			s.config.Transformation.DefaultDatabase,
+		)
+	}
 }
 
 func (s *service) applyOverrides() {
@@ -267,7 +306,7 @@ func (s *service) shouldSkipModel(model interface{}, modelType ModelType, applie
 				return true
 			}
 
-			override.ApplyToTransformation(config)
+			override.ApplyToTransformation(transModel)
 			s.log.WithField("model", modelID).Debug("Applied transformation configuration override")
 		}
 	}

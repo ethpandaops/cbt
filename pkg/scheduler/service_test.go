@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/coordinator"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
+	"github.com/ethpandaops/cbt/pkg/models/transformation/incremental"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -286,17 +288,13 @@ func TestHandleScheduledBackfill(t *testing.T) {
 					&mockTransformation{
 						id: "test.model",
 						conf: transformation.Config{
+							Type:     transformation.TypeIncremental,
 							Database: "test_db",
 							Table:    "model",
-							Interval: &transformation.IntervalConfig{
-								Max: 100,
-								Min: 0,
-							},
-							Schedules: &transformation.SchedulesConfig{
-								ForwardFill: "@every 1m",
-								Backfill:    "*/5 * * * *",
-							},
-							Dependencies: []transformation.Dependency{},
+						},
+						handler: &mockHandler{
+							backfillEnabled:  true,
+							backfillSchedule: "*/5 * * * *",
 						},
 					},
 				}
@@ -510,6 +508,74 @@ func (m *mockCoordinator) ProcessExternalScan(_, _ string) {
 
 var _ coordinator.Service = (*mockCoordinator)(nil)
 
+// Mock handler for testing
+type mockHandler struct {
+	schedule           string
+	forwardFillEnabled bool
+	forwardSchedule    string
+	backfillEnabled    bool
+	backfillSchedule   string
+}
+
+func (m *mockHandler) Type() transformation.Type {
+	return transformation.TypeIncremental
+}
+
+func (m *mockHandler) Config() any {
+	return &incremental.Config{
+		Type:     transformation.TypeIncremental,
+		Database: "test",
+		Table:    "test",
+		Schedules: &incremental.SchedulesConfig{
+			ForwardFill: m.forwardSchedule,
+			Backfill:    m.backfillSchedule,
+		},
+	}
+}
+
+func (m *mockHandler) Validate() error {
+	return nil
+}
+
+func (m *mockHandler) ShouldTrackPosition() bool {
+	return true
+}
+
+func (m *mockHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
+	return map[string]any{}
+}
+
+func (m *mockHandler) GetAdminTable() transformation.AdminTable {
+	return transformation.AdminTable{
+		Database: "admin",
+		Table:    "cbt",
+	}
+}
+
+func (m *mockHandler) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
+	return nil
+}
+
+func (m *mockHandler) GetSchedule() string {
+	return m.schedule
+}
+
+func (m *mockHandler) IsForwardFillEnabled() bool {
+	return m.forwardFillEnabled
+}
+
+func (m *mockHandler) GetForwardSchedule() string {
+	return m.forwardSchedule
+}
+
+func (m *mockHandler) IsBackfillEnabled() bool {
+	return m.backfillEnabled
+}
+
+func (m *mockHandler) GetBackfillSchedule() string {
+	return m.backfillSchedule
+}
+
 // mockAdminService implements admin.Service interface for testing
 type mockAdminService struct {
 	externalBounds map[string]*admin.BoundsCache
@@ -541,6 +607,14 @@ func (m *mockAdminService) RecordCompletion(_ context.Context, _ string, _, _ ui
 	return nil
 }
 
+func (m *mockAdminService) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
+	return nil, nil
+}
+
 func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64) (bool, error) {
 	return false, nil
 }
@@ -549,16 +623,8 @@ func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64)
 	return nil, nil
 }
 
-func (m *mockAdminService) Consolidate(_ context.Context, _, _ uint64) error {
-	return nil
-}
-
 func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
 	return 0, nil
-}
-
-func (m *mockAdminService) ClearCompletions(_ context.Context, _ string) error {
-	return nil
 }
 
 func (m *mockAdminService) GetExternalBounds(_ context.Context, modelID string) (*admin.BoundsCache, error) {
@@ -576,26 +642,42 @@ func (m *mockAdminService) SetExternalBounds(_ context.Context, bounds *admin.Bo
 	return nil
 }
 
-func (m *mockAdminService) GetAdminDatabase() string {
+func (m *mockAdminService) GetIncrementalAdminDatabase() string {
 	return "admin"
 }
 
-func (m *mockAdminService) GetAdminTable() string {
-	return "cbt"
+func (m *mockAdminService) GetIncrementalAdminTable() string {
+	return "cbt_incremental"
+}
+
+func (m *mockAdminService) GetScheduledAdminDatabase() string {
+	return "admin"
+}
+
+func (m *mockAdminService) GetScheduledAdminTable() string {
+	return "cbt_scheduled"
 }
 
 var _ admin.Service = (*mockAdminService)(nil)
 
 type mockTransformation struct {
-	id   string
-	conf transformation.Config
-	deps []string
-	sql  string
-	typ  string
+	id      string
+	conf    transformation.Config
+	handler transformation.Handler
+	deps    []string
+	sql     string
+	typ     string
 }
 
 func (m *mockTransformation) GetID() string                     { return m.id }
 func (m *mockTransformation) GetConfig() *transformation.Config { return &m.conf }
+func (m *mockTransformation) GetHandler() transformation.Handler {
+	if m.handler != nil {
+		return m.handler
+	}
+	// Return a default mock handler for backward compatibility
+	return &mockHandler{}
+}
 func (m *mockTransformation) GetValue() string                  { return "" }
 func (m *mockTransformation) GetDependencies() []string         { return m.deps }
 func (m *mockTransformation) GetSQL() string                    { return m.sql }
@@ -664,10 +746,6 @@ func TestEmptyScheduleHandling(t *testing.T) {
 				conf: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table",
-					Schedules: &transformation.SchedulesConfig{
-						ForwardFill: tt.forwardFillSchedule,
-						Backfill:    tt.backfillSchedule,
-					},
 				},
 			}
 
@@ -751,10 +829,6 @@ func TestRegisterAllHandlers(t *testing.T) {
 		conf: transformation.Config{
 			Database: "test_db",
 			Table:    "test_table",
-			Schedules: &transformation.SchedulesConfig{
-				ForwardFill: "@every 1m",
-				Backfill:    "@every 5m",
-			},
 		},
 	}
 
@@ -796,12 +870,15 @@ func TestBuildDesiredTasks(t *testing.T) {
 	mockTransformation := &mockTransformation{
 		id: "test.model",
 		conf: transformation.Config{
+			Type:     transformation.TypeIncremental,
 			Database: "test_db",
 			Table:    "test_table",
-			Schedules: &transformation.SchedulesConfig{
-				ForwardFill: "@every 1m",
-				Backfill:    "@every 5m",
-			},
+		},
+		handler: &mockHandler{
+			forwardFillEnabled: true,
+			forwardSchedule:    "@every 1m",
+			backfillEnabled:    true,
+			backfillSchedule:   "@every 5m",
 		},
 	}
 
@@ -849,12 +926,15 @@ func TestHandlerRegistrationSeparation(t *testing.T) {
 	mockTransformation := &mockTransformation{
 		id: "test.model",
 		conf: transformation.Config{
+			Type:     transformation.TypeIncremental,
 			Database: "test_db",
 			Table:    "test_table",
-			Schedules: &transformation.SchedulesConfig{
-				ForwardFill: "@every 1m",
-				Backfill:    "@every 5m",
-			},
+		},
+		handler: &mockHandler{
+			forwardFillEnabled: true,
+			forwardSchedule:    "@every 1m",
+			backfillEnabled:    true,
+			backfillSchedule:   "@every 5m",
 		},
 	}
 
@@ -883,7 +963,7 @@ func TestHandlerRegistrationSeparation(t *testing.T) {
 
 	// Verify handlers are registered but tasks are not yet scheduled
 	assert.NotNil(t, s.mux, "ServeMux should be initialized")
-	assert.Equal(t, 2, len(desiredTasks), "Should have 2 tasks (forward and back)")
+	assert.Equal(t, 3, len(desiredTasks), "Should have 3 tasks (forward, back, and bounds orchestrator)")
 }
 
 // TestBuildDesiredTasksWithEmptySchedules tests that empty schedules are handled correctly
@@ -905,25 +985,25 @@ func TestBuildDesiredTasksWithEmptySchedules(t *testing.T) {
 			name:                "both schedules set",
 			forwardFillSchedule: "@every 1m",
 			backfillSchedule:    "@every 5m",
-			expectedTaskCount:   2,
+			expectedTaskCount:   3, // 2 transformation tasks + 1 bounds orchestrator
 		},
 		{
 			name:                "only forward fill set",
 			forwardFillSchedule: "@every 1m",
 			backfillSchedule:    "",
-			expectedTaskCount:   1,
+			expectedTaskCount:   2, // 1 transformation task + 1 bounds orchestrator
 		},
 		{
 			name:                "only backfill set",
 			forwardFillSchedule: "",
 			backfillSchedule:    "@every 5m",
-			expectedTaskCount:   1,
+			expectedTaskCount:   2, // 1 transformation task + 1 bounds orchestrator
 		},
 		{
 			name:                "both schedules empty",
 			forwardFillSchedule: "",
 			backfillSchedule:    "",
-			expectedTaskCount:   0,
+			expectedTaskCount:   1, // 0 transformation tasks + 1 bounds orchestrator
 		},
 	}
 
@@ -932,12 +1012,15 @@ func TestBuildDesiredTasksWithEmptySchedules(t *testing.T) {
 			mockTransformation := &mockTransformation{
 				id: "test.model",
 				conf: transformation.Config{
+					Type:     transformation.TypeIncremental,
 					Database: "test_db",
 					Table:    "test_table",
-					Schedules: &transformation.SchedulesConfig{
-						ForwardFill: tt.forwardFillSchedule,
-						Backfill:    tt.backfillSchedule,
-					},
+				},
+				handler: &mockHandler{
+					forwardFillEnabled: tt.forwardFillSchedule != "",
+					forwardSchedule:    tt.forwardFillSchedule,
+					backfillEnabled:    tt.backfillSchedule != "",
+					backfillSchedule:   tt.backfillSchedule,
 				},
 			}
 

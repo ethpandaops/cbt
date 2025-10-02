@@ -15,60 +15,67 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "without direction (empty)",
-			payload: TaskPayload{
+			name: "incremental task unique ID",
+			payload: IncrementalTaskPayload{
 				ModelID:  "model.test",
 				Position: 100,
 				Interval: 50,
 			},
-			expected: "model.test:",
+			expected: "model.test:100:50",
 		},
 		{
-			name: "zero values without direction",
-			payload: TaskPayload{
+			name: "scheduled task unique ID",
+			payload: ScheduledTaskPayload{
+				ModelID: "model.scheduled",
+			},
+			expected: "model.scheduled",
+		},
+		{
+			name: "incremental with zero values",
+			payload: IncrementalTaskPayload{
 				ModelID:  "model.zero",
 				Position: 0,
 				Interval: 0,
 			},
-			expected: "model.zero:",
+			expected: "model.zero:0:0",
 		},
 		{
-			name: "large values without direction",
-			payload: TaskPayload{
+			name: "large values",
+			payload: IncrementalTaskPayload{
 				ModelID:  "model.large",
 				Position: 18446744073709551615,
 				Interval: 18446744073709551615,
 			},
-			expected: "model.large:",
+			expected: "model.large:18446744073709551615:18446744073709551615",
 		},
 		{
 			name: "with special characters in model ID",
-			payload: TaskPayload{
+			payload: IncrementalTaskPayload{
 				ModelID:  "model.test-123_v2",
 				Position: 500,
 				Interval: 100,
 			},
-			expected: "model.test-123_v2:",
+			expected: "model.test-123_v2:500:100",
 		},
 		{
-			name: "with direction forward",
-			payload: TaskPayload{
+			name: "incremental with direction forward",
+			payload: IncrementalTaskPayload{
 				ModelID:   "model.test",
 				Position:  100,
 				Interval:  50,
 				Direction: DirectionForward,
 			},
-			expected: "model.test:forward",
+			expected: "model.test:100:50",
 		},
 		{
-			name: "with direction back",
-			payload: TaskPayload{
+			name: "incremental with direction back",
+			payload: IncrementalTaskPayload{
 				ModelID:   "model.test",
 				Position:  200,
 				Interval:  50,
 				Direction: DirectionBack,
 			},
-			expected: "model.test:back",
+			expected: "model.test:200:50",
 		},
 	}
 
@@ -88,8 +95,8 @@ func TestTaskPayload_QueueName(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "standard queue name",
-			payload: TaskPayload{
+			name: "incremental queue name",
+			payload: IncrementalTaskPayload{
 				ModelID:  "model.test",
 				Position: 100,
 				Interval: 50,
@@ -97,8 +104,16 @@ func TestTaskPayload_QueueName(t *testing.T) {
 			expected: "model.test",
 		},
 		{
+			name: "scheduled queue name",
+			payload: ScheduledTaskPayload{
+				ModelID:       "model.scheduled",
+				ExecutionTime: time.Now(),
+			},
+			expected: "model.scheduled",
+		},
+		{
 			name: "queue name with special characters",
-			payload: TaskPayload{
+			payload: IncrementalTaskPayload{
 				ModelID:  "model.test-123_v2",
 				Position: 100,
 				Interval: 50,
@@ -107,7 +122,7 @@ func TestTaskPayload_QueueName(t *testing.T) {
 		},
 		{
 			name: "empty model ID",
-			payload: TaskPayload{
+			payload: IncrementalTaskPayload{
 				ModelID:  "",
 				Position: 100,
 				Interval: 50,
@@ -124,11 +139,11 @@ func TestTaskPayload_QueueName(t *testing.T) {
 	}
 }
 
-// Test TaskPayload fields
-func TestTaskPayload_Fields(t *testing.T) {
+// Test IncrementalTaskPayload fields
+func TestIncrementalTaskPayload_Fields(t *testing.T) {
 	now := time.Now()
 
-	payload := TaskPayload{
+	payload := IncrementalTaskPayload{
 		ModelID:    "test.model",
 		Position:   12345,
 		Interval:   100,
@@ -139,17 +154,35 @@ func TestTaskPayload_Fields(t *testing.T) {
 	assert.Equal(t, uint64(12345), payload.Position)
 	assert.Equal(t, uint64(100), payload.Interval)
 	assert.Equal(t, now, payload.EnqueuedAt)
+	assert.Equal(t, TaskTypeIncremental, payload.GetType())
+}
+
+// Test ScheduledTaskPayload fields
+func TestScheduledTaskPayload_Fields(t *testing.T) {
+	now := time.Now()
+	execTime := now.Add(time.Hour)
+
+	payload := ScheduledTaskPayload{
+		ModelID:       "test.model",
+		ExecutionTime: execTime,
+		EnqueuedAt:    now,
+	}
+
+	assert.Equal(t, "test.model", payload.ModelID)
+	assert.Equal(t, execTime, payload.ExecutionTime)
+	assert.Equal(t, now, payload.EnqueuedAt)
+	assert.Equal(t, TaskTypeScheduled, payload.GetType())
 }
 
 // Test TaskPayload UniqueID consistency
 func TestTaskPayload_UniqueID_Consistency(t *testing.T) {
-	payload1 := TaskPayload{
+	payload1 := IncrementalTaskPayload{
 		ModelID:  "model.test",
 		Position: 100,
 		Interval: 50,
 	}
 
-	payload2 := TaskPayload{
+	payload2 := IncrementalTaskPayload{
 		ModelID:  "model.test",
 		Position: 100,
 		Interval: 50,
@@ -158,41 +191,42 @@ func TestTaskPayload_UniqueID_Consistency(t *testing.T) {
 	// Same payloads should produce same unique ID
 	assert.Equal(t, payload1.UniqueID(), payload2.UniqueID())
 
-	// Without direction: position and interval don't affect unique ID
+	// Different position produces different unique ID (position is part of uniqueness)
 	payload2.Position = 200
-	assert.Equal(t, payload1.UniqueID(), payload2.UniqueID()) // Still same!
+	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
 
-	// Different interval also doesn't affect unique ID
+	// Reset position, different interval produces different unique ID
+	payload2.Position = 100
 	payload2.Interval = 100
-	assert.Equal(t, payload1.UniqueID(), payload2.UniqueID())
+	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
 
 	// Different model ID should produce different unique ID
 	payload2.ModelID = "model.different"
 	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
 
-	// With direction: position doesn't matter
-	payload3 := TaskPayload{
+	// Direction doesn't affect uniqueness for incremental tasks - position and interval do
+	payload3 := IncrementalTaskPayload{
 		ModelID:   "model.test",
 		Position:  100,
 		Interval:  50,
 		Direction: DirectionForward,
 	}
-	payload4 := TaskPayload{
+	payload4 := IncrementalTaskPayload{
 		ModelID:   "model.test",
-		Position:  200, // Different position
-		Interval:  100, // Different interval
-		Direction: DirectionForward,
+		Position:  100,
+		Interval:  50,
+		Direction: DirectionBack,
 	}
 	assert.Equal(t, payload3.UniqueID(), payload4.UniqueID())
 
-	// Different directions produce different IDs
-	payload4.Direction = DirectionBack
+	// Different position/interval means different task
+	payload4.Position = 200
 	assert.NotEqual(t, payload3.UniqueID(), payload4.UniqueID())
 }
 
-// Benchmark UniqueID generation
-func BenchmarkTaskPayload_UniqueID(b *testing.B) {
-	payload := TaskPayload{
+// Benchmark UniqueID generation for incremental
+func BenchmarkIncrementalTaskPayload_UniqueID(b *testing.B) {
+	payload := IncrementalTaskPayload{
 		ModelID:  "model.benchmark",
 		Position: 1000000,
 		Interval: 100,
@@ -204,9 +238,22 @@ func BenchmarkTaskPayload_UniqueID(b *testing.B) {
 	}
 }
 
+// Benchmark UniqueID generation for scheduled
+func BenchmarkScheduledTaskPayload_UniqueID(b *testing.B) {
+	payload := ScheduledTaskPayload{
+		ModelID:       "model.benchmark",
+		ExecutionTime: time.Now(),
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = payload.UniqueID()
+	}
+}
+
 // Benchmark QueueName
 func BenchmarkTaskPayload_QueueName(b *testing.B) {
-	payload := TaskPayload{
+	payload := IncrementalTaskPayload{
 		ModelID:  "model.benchmark",
 		Position: 1000000,
 		Interval: 100,

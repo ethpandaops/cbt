@@ -26,15 +26,21 @@ func TestNewService(t *testing.T) {
 		Addr: "localhost:6379",
 	})
 
-	svc := NewService(log, mockClient, cluster, localSuffix, adminDatabase, adminTable, redisClient)
+	config := TableConfig{
+		IncrementalDatabase: adminDatabase,
+		IncrementalTable:    adminTable,
+		ScheduledDatabase:   adminDatabase,
+		ScheduledTable:      "cbt_scheduled",
+	}
+	svc := NewService(log, mockClient, cluster, localSuffix, config, redisClient)
 	assert.NotNil(t, svc)
 
 	// Verify it implements the Service interface
 	var _ = svc
 
 	// Verify admin database and table are set
-	assert.Equal(t, adminDatabase, svc.GetAdminDatabase())
-	assert.Equal(t, adminTable, svc.GetAdminTable())
+	assert.Equal(t, adminDatabase, svc.GetIncrementalAdminDatabase())
+	assert.Equal(t, adminTable, svc.GetIncrementalAdminTable())
 }
 
 // Test RecordCompletion
@@ -77,7 +83,13 @@ func TestRecordCompletion(t *testing.T) {
 			mockClient := &mockClickhouseClient{}
 			log := logrus.New()
 			log.SetLevel(logrus.WarnLevel)
-			svc := NewService(log, mockClient, "", "", "admin", "tracking", nil)
+			config := TableConfig{
+				IncrementalDatabase: "admin",
+				IncrementalTable:    "tracking",
+				ScheduledDatabase:   "admin",
+				ScheduledTable:      "cbt_scheduled",
+			}
+			svc := NewService(log, mockClient, "", "", config, nil)
 
 			ctx := context.Background()
 			err := svc.RecordCompletion(ctx, tt.modelID, tt.position, tt.interval)
@@ -134,7 +146,13 @@ func TestGetLastProcessedEndPosition(t *testing.T) {
 			}
 			log := logrus.New()
 			log.SetLevel(logrus.WarnLevel)
-			svc := NewService(log, mockClient, "", "", "admin", "tracking", nil)
+			config := TableConfig{
+				IncrementalDatabase: "admin",
+				IncrementalTable:    "tracking",
+				ScheduledDatabase:   "admin",
+				ScheduledTable:      "cbt_scheduled",
+			}
+			svc := NewService(log, mockClient, "", "", config, nil)
 
 			ctx := context.Background()
 			pos, err := svc.GetLastProcessedEndPosition(ctx, tt.modelID)
@@ -189,7 +207,13 @@ func TestPositionTrackingFunctions(t *testing.T) {
 			}
 			log := logrus.New()
 			log.SetLevel(logrus.WarnLevel)
-			svc := NewService(log, mockClient, "", "", "admin", "tracking", nil)
+			config := TableConfig{
+				IncrementalDatabase: "admin",
+				IncrementalTable:    "tracking",
+				ScheduledDatabase:   "admin",
+				ScheduledTable:      "cbt_scheduled",
+			}
+			svc := NewService(log, mockClient, "", "", config, nil)
 
 			ctx := context.Background()
 
@@ -264,7 +288,13 @@ func TestGetFirstPosition(t *testing.T) {
 			}
 			log := logrus.New()
 			log.SetLevel(logrus.WarnLevel)
-			svc := NewService(log, mockClient, "", "", "admin", "tracking", nil)
+			config := TableConfig{
+				IncrementalDatabase: "admin",
+				IncrementalTable:    "tracking",
+				ScheduledDatabase:   "admin",
+				ScheduledTable:      "cbt_scheduled",
+			}
+			svc := NewService(log, mockClient, "", "", config, nil)
 
 			ctx := context.Background()
 			pos, err := svc.GetFirstPosition(ctx, tt.modelID)
@@ -289,7 +319,13 @@ func TestFindGaps(t *testing.T) {
 	}
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel)
-	svc := NewService(log, mockClient, "", "", "admin", "tracking", nil)
+	config := TableConfig{
+		IncrementalDatabase: "admin",
+		IncrementalTable:    "tracking",
+		ScheduledDatabase:   "admin",
+		ScheduledTable:      "cbt_scheduled",
+	}
+	svc := NewService(log, mockClient, "", "", config, nil)
 
 	ctx := context.Background()
 	gaps, err := svc.FindGaps(ctx, "database.table", 0, 1000, 100)
@@ -345,7 +381,13 @@ func TestGetCoverage(t *testing.T) {
 			}
 			log := logrus.New()
 			log.SetLevel(logrus.WarnLevel)
-			svc := NewService(log, mockClient, "", "", "admin", "tracking", nil)
+			config := TableConfig{
+				IncrementalDatabase: "admin",
+				IncrementalTable:    "tracking",
+				ScheduledDatabase:   "admin",
+				ScheduledTable:      "cbt_scheduled",
+			}
+			svc := NewService(log, mockClient, "", "", config, nil)
 
 			ctx := context.Background()
 			covered, err := svc.GetCoverage(ctx, tt.modelID, tt.startPos, tt.endPos)
@@ -522,7 +564,13 @@ func TestHyphenatedDatabaseNamesInQueries(t *testing.T) {
 			log.SetLevel(logrus.WarnLevel)
 
 			// Create service with hyphenated admin database/table
-			svc := NewService(log, mockClient, "", "", tt.adminDatabase, tt.adminTable, nil)
+			config := TableConfig{
+				IncrementalDatabase: tt.adminDatabase,
+				IncrementalTable:    tt.adminTable,
+				ScheduledDatabase:   tt.adminDatabase,
+				ScheduledTable:      "cbt_scheduled",
+			}
+			svc := NewService(log, mockClient, "", "", config, nil)
 			ctx := context.Background()
 
 			// Test RecordCompletion (INSERT query)
