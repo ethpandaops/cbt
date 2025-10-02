@@ -1,6 +1,7 @@
 package incremental
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -18,7 +19,11 @@ type Handler struct {
 // NewHandler creates a new handler for incremental transformations
 func NewHandler(data []byte, adminTable transformation.AdminTable) (*Handler, error) {
 	var config Config
-	if err := yaml.Unmarshal(data, &config); err != nil {
+
+	// Use strict unmarshaling to detect invalid fields
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&config); err != nil {
 		return nil, fmt.Errorf("failed to parse incremental config: %w", err)
 	}
 
