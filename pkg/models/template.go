@@ -120,9 +120,6 @@ func (t *TemplateEngine) buildDependencyVariables(model Transformation) (map[str
 	return deps, nil
 }
 
-// Deprecated: These functions are no longer needed with the new handler architecture
-// Dependencies are now managed directly by type-specific handlers
-
 // processSingleDependencyID processes a single dependency ID
 func (t *TemplateEngine) processSingleDependencyID(depID, originalDep string, addDepEntry func(string, string, map[string]interface{})) error {
 	dep, err := t.dag.GetNode(depID)

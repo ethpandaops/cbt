@@ -123,8 +123,6 @@ type LimitsOverride struct {
 }
 
 // ApplyToTransformation applies override configuration to a transformation model
-// In the feature branch, this delegates to the handler's config since transformation.Config
-// is minimal and doesn't contain interval/schedules/limits directly
 func (m *ModelOverride) ApplyToTransformation(model Transformation) {
 	if m == nil || m.Config == nil {
 		return
@@ -138,12 +136,10 @@ func (m *ModelOverride) IsDisabled() bool {
 	return m != nil && m.Enabled != nil && !*m.Enabled
 }
 
-// TransformationOverride implements OverrideConfig for transformation models
+// applyToTransformation is a no-op for TransformationOverride
+// The actual override application is handled at a different layer through the handler system
 func (t *TransformationOverride) applyToTransformation(_ Transformation) {
-	// Transformation overrides don't apply to external models - this is a no-op
-	// The actual override application happens through the handler for transformation models
-	// Since the transformation.Config is minimal in the feature branch, we don't apply overrides here
-	// Instead, overrides are handled at a different layer
+	// No-op: overrides are applied through the handler system
 }
 
 func (t *TransformationOverride) applyToExternal(_ *external.Config) {
