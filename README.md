@@ -67,10 +67,14 @@ clickhouse:
   # localSuffix: "_local"
   
   # Admin table configuration (optional)
-  # Separate tables for incremental and scheduled transformations
-  # adminDatabase: admin
-  # adminIncrementalTable: cbt_incremental  # Default
-  # adminScheduledTable: cbt_scheduled      # Default
+  # Each transformation type requires its own admin table
+  # admin:
+  #   incremental:
+  #     database: admin          # Default: "admin"
+  #     table: cbt_incremental   # Default: "cbt_incremental"
+  #   scheduled:
+  #     database: admin          # Default: "admin"
+  #     table: cbt_scheduled     # Default: "cbt_scheduled"
   
   # Query timeout
   queryTimeout: 30s
@@ -678,28 +682,6 @@ clickhouse:
 ```
 
 This allows running multiple CBT instances on the same cluster (e.g., `dev_admin.cbt_incremental`, `prod_admin.cbt_scheduled`).
-
-### Migration from Previous Versions
-
-If upgrading from a version that used a single `admin.cbt` table, rename it to support the new dual-table architecture:
-
-```sql
--- Backup existing table (recommended)
-CREATE TABLE admin.cbt_backup AS admin.cbt;
-
--- Rename to incremental table (all existing data is for incremental transformations)
-RENAME TABLE admin.cbt TO admin.cbt_incremental;
-
--- Create new scheduled table
-CREATE TABLE IF NOT EXISTS admin.cbt_scheduled (
-    updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
-    database LowCardinality(String) COMMENT 'The database name',
-    table LowCardinality(String) COMMENT 'The table name',
-    start_date_time DateTime(3) COMMENT 'The start time of the scheduled job',
-    INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
-) ENGINE = ReplacingMergeTree(updated_date_time)
-ORDER BY (database, table);
-```
 
 ### Single-Node Setup
 
