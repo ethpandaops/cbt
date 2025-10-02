@@ -412,19 +412,24 @@ func (s *service) registerTransformationHandlers(transformation models.Transform
 	}
 
 	// Handle incremental transformations
-	if handler != nil {
-		if cfg, ok := handler.Config().(*incremental.Config); ok && cfg.Schedules != nil {
-			if cfg.Schedules.ForwardFill != "" {
-				forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
-				s.mux.HandleFunc(forwardTask, s.HandleScheduledForward)
-				s.log.WithField("model_id", modelID).Debug("Registered forward fill handler")
-			}
-			if cfg.Schedules.Backfill != "" {
-				backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
-				s.mux.HandleFunc(backfillTask, s.HandleScheduledBackfill)
-				s.log.WithField("model_id", modelID).Debug("Registered backfill handler")
-			}
-		}
+	if handler == nil {
+		return
+	}
+
+	cfg, ok := handler.Config().(*incremental.Config)
+	if !ok || cfg.Schedules == nil {
+		return
+	}
+
+	if cfg.Schedules.ForwardFill != "" {
+		forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
+		s.mux.HandleFunc(forwardTask, s.HandleScheduledForward)
+		s.log.WithField("model_id", modelID).Debug("Registered forward fill handler")
+	}
+	if cfg.Schedules.Backfill != "" {
+		backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
+		s.mux.HandleFunc(backfillTask, s.HandleScheduledBackfill)
+		s.log.WithField("model_id", modelID).Debug("Registered backfill handler")
 	}
 }
 
@@ -436,33 +441,62 @@ func (s *service) buildTransformationTasks(transformation models.Transformation,
 
 	// Handle scheduled transformations
 	if config.Type == "scheduled" {
-		if handler != nil {
-			type scheduleProvider interface {
-				GetSchedule() string
-			}
-			if provider, ok := handler.(scheduleProvider); ok {
-				schedule := provider.GetSchedule()
-				if schedule != "" {
-					scheduledTask := fmt.Sprintf("%s%s:scheduled", TransformationTaskPrefix, modelID)
-					desiredTasks[scheduledTask] = schedule
-				}
-			}
-		}
+		s.buildScheduledTransformationTasks(modelID, handler, desiredTasks)
 		return
 	}
 
 	// Handle incremental transformations
-	if handler != nil {
-		if cfg, ok := handler.Config().(*incremental.Config); ok && cfg.Schedules != nil {
-			if cfg.Schedules.ForwardFill != "" {
-				forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
-				desiredTasks[forwardTask] = cfg.Schedules.ForwardFill
-			}
-			if cfg.Schedules.Backfill != "" {
-				backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
-				desiredTasks[backfillTask] = cfg.Schedules.Backfill
-			}
-		}
+	s.buildIncrementalTransformationTasks(modelID, handler, desiredTasks)
+}
+
+// buildScheduledTransformationTasks builds tasks for scheduled transformations
+func (s *service) buildScheduledTransformationTasks(modelID string, handler interface{}, desiredTasks map[string]string) {
+	if handler == nil {
+		return
+	}
+
+	type scheduleProvider interface {
+		GetSchedule() string
+	}
+	provider, ok := handler.(scheduleProvider)
+	if !ok {
+		return
+	}
+
+	schedule := provider.GetSchedule()
+	if schedule != "" {
+		scheduledTask := fmt.Sprintf("%s%s:scheduled", TransformationTaskPrefix, modelID)
+		desiredTasks[scheduledTask] = schedule
+	}
+}
+
+// buildIncrementalTransformationTasks builds tasks for incremental transformations
+func (s *service) buildIncrementalTransformationTasks(modelID string, handler interface{}, desiredTasks map[string]string) {
+	if handler == nil {
+		return
+	}
+
+	// Type assert handler to get config
+	type configProvider interface {
+		Config() interface{}
+	}
+	provider, ok := handler.(configProvider)
+	if !ok {
+		return
+	}
+
+	cfg, ok := provider.Config().(*incremental.Config)
+	if !ok || cfg.Schedules == nil {
+		return
+	}
+
+	if cfg.Schedules.ForwardFill != "" {
+		forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
+		desiredTasks[forwardTask] = cfg.Schedules.ForwardFill
+	}
+	if cfg.Schedules.Backfill != "" {
+		backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
+		desiredTasks[backfillTask] = cfg.Schedules.Backfill
 	}
 }
 
@@ -1026,89 +1060,6 @@ func (s *service) HandleScheduledTransformation(_ context.Context, t *asynq.Task
 	}).Info("Enqueued scheduled transformation task")
 
 	return nil
-}
-
-// registerScheduledTransformation registers tasks for scheduled transformations
-func (s *service) registerScheduledTransformation(mux *asynq.ServeMux, desiredTasks map[string]string, modelID string, trans models.Transformation) {
-	handler := trans.GetHandler()
-	if handler == nil {
-		s.log.WithField("model_id", modelID).Warn("Scheduled transformation has no handler")
-		return
-	}
-
-	type scheduleProvider interface {
-		GetSchedule() string
-	}
-	provider, ok := handler.(scheduleProvider)
-	if !ok {
-		s.log.WithField("model_id", modelID).Warn("Handler does not provide schedule")
-		return
-	}
-
-	schedule := provider.GetSchedule()
-	if schedule == "" {
-		s.log.WithField("model_id", modelID).Warn("Scheduled transformation has no schedule configured")
-		return
-	}
-
-	scheduledTask := fmt.Sprintf("%s%s:scheduled", TransformationTaskPrefix, modelID)
-	desiredTasks[scheduledTask] = schedule
-	mux.HandleFunc(scheduledTask, s.HandleScheduledTransformation)
-	s.log.WithFields(logrus.Fields{
-		"model_id": modelID,
-		"schedule": schedule,
-		"type":     "scheduled",
-	}).Debug("Registering scheduled transformation task")
-}
-
-// registerIncrementalTransformation registers tasks for incremental transformations
-func (s *service) registerIncrementalTransformation(mux *asynq.ServeMux, desiredTasks map[string]string, modelID string, trans models.Transformation) {
-	handler := trans.GetHandler()
-	if handler == nil {
-		s.log.WithField("model_id", modelID).Debug("No handler for transformation")
-		return
-	}
-
-	registeredAny := false
-
-	// Forward fill task (only if configured)
-	type forwardProvider interface {
-		IsForwardFillEnabled() bool
-		GetForwardSchedule() string
-	}
-	if fProvider, ok := handler.(forwardProvider); ok && fProvider.IsForwardFillEnabled() {
-		forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
-		schedule := fProvider.GetForwardSchedule()
-		desiredTasks[forwardTask] = schedule
-		mux.HandleFunc(forwardTask, s.HandleScheduledForward)
-		s.log.WithFields(logrus.Fields{
-			"model_id": modelID,
-			"schedule": schedule,
-		}).Debug("Registering forward fill task")
-		registeredAny = true
-	}
-
-	// Backfill task (only if configured)
-	type backfillProvider interface {
-		IsBackfillEnabled() bool
-		GetBackfillSchedule() string
-	}
-	if bProvider, ok := handler.(backfillProvider); ok && bProvider.IsBackfillEnabled() {
-		backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
-		schedule := bProvider.GetBackfillSchedule()
-		desiredTasks[backfillTask] = schedule
-		mux.HandleFunc(backfillTask, s.HandleScheduledBackfill)
-		s.log.WithFields(logrus.Fields{
-			"model_id": modelID,
-			"schedule": schedule,
-		}).Debug("Registering backfill task")
-		registeredAny = true
-	}
-
-	// Warn if no tasks were registered
-	if !registeredAny {
-		s.log.WithField("model_id", modelID).Warn("Incremental transformation has no scheduled tasks (neither forward fill nor backfill configured)")
-	}
 }
 
 // enqueueScheduledTask attempts to enqueue a scheduled transformation task

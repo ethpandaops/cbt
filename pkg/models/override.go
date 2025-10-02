@@ -139,7 +139,7 @@ func (m *ModelOverride) IsDisabled() bool {
 }
 
 // TransformationOverride implements OverrideConfig for transformation models
-func (t *TransformationOverride) applyToTransformation(model Transformation) {
+func (t *TransformationOverride) applyToTransformation(_ Transformation) {
 	// Transformation overrides don't apply to external models - this is a no-op
 	// The actual override application happens through the handler for transformation models
 	// Since the transformation.Config is minimal in the feature branch, we don't apply overrides here

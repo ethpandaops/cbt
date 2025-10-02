@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
+	"github.com/ethpandaops/cbt/pkg/models/transformation/incremental"
+	"github.com/ethpandaops/cbt/pkg/models/transformation/scheduled"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
@@ -57,6 +59,9 @@ func NewService(log logrus.FieldLogger, cfg *Config, _ *redis.Client, clickhouse
 
 // Start initializes the models service and builds the dependency graph
 func (s *service) Start() error {
+	// Register transformation handlers explicitly
+	s.registerHandlers()
+
 	if err := s.parseModels(); err != nil {
 		return err
 	}
@@ -73,6 +78,17 @@ func (s *service) Start() error {
 // Stop gracefully shuts down the models service
 func (s *service) Stop() error {
 	return nil
+}
+
+// registerHandlers explicitly registers all transformation handlers
+func (s *service) registerHandlers() {
+	// Register the incremental transformation handler
+	incremental.Register()
+	s.log.Debug("Registered incremental transformation handler")
+
+	// Register the scheduled transformation handler
+	scheduled.Register()
+	s.log.Debug("Registered scheduled transformation handler")
 }
 
 func (s *service) parseModels() error {
