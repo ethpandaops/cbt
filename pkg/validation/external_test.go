@@ -32,8 +32,8 @@ func (m *testClickHouseClient) QueryMany(_ context.Context, _ string, _ interfac
 	return nil
 }
 
-func (m *testClickHouseClient) Execute(_ context.Context, _ string) error {
-	return nil
+func (m *testClickHouseClient) Execute(_ context.Context, _ string) ([]byte, error) {
+	return nil, nil
 }
 
 func (m *testClickHouseClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
@@ -210,6 +210,10 @@ func (a *externalModelAdapter) GetID() string {
 
 func (a *externalModelAdapter) GetConfig() external.Config {
 	return a.testModel.GetConfig()
+}
+
+func (a *externalModelAdapter) GetConfigMutable() *external.Config {
+	return &a.testModel.config
 }
 
 func (a *externalModelAdapter) GetType() string {

@@ -12,16 +12,16 @@ type MockService struct {
 	mu sync.Mutex
 
 	// Control behavior
-	StartFunc                      func(ctx context.Context) error
-	StopFunc                       func() error
-	ProcessFunc                    func(transformation models.Transformation, direction Direction)
-	ProcessBoundsOrchestrationFunc func(ctx context.Context)
+	StartFunc               func(ctx context.Context) error
+	StopFunc                func() error
+	ProcessFunc             func(transformation models.Transformation, direction Direction)
+	ProcessExternalScanFunc func(modelID, scanType string)
 
 	// Track calls for assertions
-	StartCalls                      []context.Context
-	StopCalls                       int
-	ProcessCalls                    []ProcessCall
-	ProcessBoundsOrchestrationCalls []context.Context
+	StartCalls               []context.Context
+	StopCalls                int
+	ProcessCalls             []ProcessCall
+	ProcessExternalScanCalls []ExternalScanCall
 }
 
 // ProcessCall records a Process method call
@@ -30,11 +30,18 @@ type ProcessCall struct {
 	Direction      Direction
 }
 
+// ExternalScanCall records a ProcessExternalScan method call
+type ExternalScanCall struct {
+	ModelID  string
+	ScanType string
+}
+
 // NewMockService creates a new mock coordinator service
 func NewMockService() *MockService {
 	return &MockService{
-		StartCalls:   make([]context.Context, 0),
-		ProcessCalls: make([]ProcessCall, 0),
+		StartCalls:               make([]context.Context, 0),
+		ProcessCalls:             make([]ProcessCall, 0),
+		ProcessExternalScanCalls: make([]ExternalScanCall, 0),
 	}
 }
 
@@ -79,15 +86,18 @@ func (m *MockService) Process(transformation models.Transformation, direction Di
 	}
 }
 
-// ProcessBoundsOrchestration implements Service
-func (m *MockService) ProcessBoundsOrchestration(ctx context.Context) {
+// ProcessExternalScan implements Service
+func (m *MockService) ProcessExternalScan(modelID, scanType string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.ProcessBoundsOrchestrationCalls = append(m.ProcessBoundsOrchestrationCalls, ctx)
+	m.ProcessExternalScanCalls = append(m.ProcessExternalScanCalls, ExternalScanCall{
+		ModelID:  modelID,
+		ScanType: scanType,
+	})
 
-	if m.ProcessBoundsOrchestrationFunc != nil {
-		m.ProcessBoundsOrchestrationFunc(ctx)
+	if m.ProcessExternalScanFunc != nil {
+		m.ProcessExternalScanFunc(modelID, scanType)
 	}
 }
 
@@ -99,6 +109,7 @@ func (m *MockService) Reset() {
 	m.StartCalls = make([]context.Context, 0)
 	m.StopCalls = 0
 	m.ProcessCalls = make([]ProcessCall, 0)
+	m.ProcessExternalScanCalls = make([]ExternalScanCall, 0)
 }
 
 // AssertStartCalled returns true if Start was called

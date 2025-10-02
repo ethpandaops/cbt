@@ -26,6 +26,7 @@ type External interface {
 	GetType() string
 	GetID() string
 	GetConfig() external.Config
+	GetConfigMutable() *external.Config
 	GetValue() string
 	SetDefaultDatabase(defaultDB string)
 }

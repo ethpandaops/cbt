@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/coordinator"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
+	"github.com/ethpandaops/cbt/pkg/models/transformation/incremental"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -69,8 +72,9 @@ func TestNewService(t *testing.T) {
 			}
 			mockDAG := &mockDAGReader{}
 			mockCoord := &mockCoordinator{}
+			mockAdmin := newMockAdminService()
 
-			svc, err := NewService(log, tt.cfg, redisOpt, mockDAG, mockCoord)
+			svc, err := NewService(log, tt.cfg, redisOpt, mockDAG, mockCoord, mockAdmin)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -354,8 +358,9 @@ func TestServiceStopWithoutStart(t *testing.T) {
 	}
 	mockDAG := &mockDAGReader{}
 	mockCoord := &mockCoordinator{}
+	mockAdmin := newMockAdminService()
 
-	svc, err := NewService(log, cfg, redisOpt, mockDAG, mockCoord)
+	svc, err := NewService(log, cfg, redisOpt, mockDAG, mockCoord, mockAdmin)
 	require.NoError(t, err)
 
 	// Should not panic when stopping without starting
@@ -409,10 +414,11 @@ func BenchmarkNewService(b *testing.B) {
 	}
 	mockDAG := &mockDAGReader{}
 	mockCoord := &mockCoordinator{}
+	mockAdmin := newMockAdminService()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = NewService(log, cfg, redisOpt, mockDAG, mockCoord)
+		_, _ = NewService(log, cfg, redisOpt, mockDAG, mockCoord, mockAdmin)
 	}
 }
 
@@ -496,7 +502,7 @@ func (m *mockCoordinator) RunConsolidation(_ context.Context) {
 	m.consolidationCalls++
 }
 
-func (m *mockCoordinator) ProcessBoundsOrchestration(_ context.Context) {
+func (m *mockCoordinator) ProcessExternalScan(_, _ string) {
 	// Mock implementation - does nothing
 }
 
@@ -516,10 +522,14 @@ func (m *mockHandler) Type() transformation.Type {
 }
 
 func (m *mockHandler) Config() any {
-	return &transformation.Config{
+	return &incremental.Config{
 		Type:     transformation.TypeIncremental,
 		Database: "test",
 		Table:    "test",
+		Schedules: &incremental.SchedulesConfig{
+			ForwardFill: m.forwardSchedule,
+			Backfill:    m.backfillSchedule,
+		},
 	}
 }
 
@@ -566,6 +576,90 @@ func (m *mockHandler) GetBackfillSchedule() string {
 	return m.backfillSchedule
 }
 
+// mockAdminService implements admin.Service interface for testing
+type mockAdminService struct {
+	externalBounds map[string]*admin.BoundsCache
+}
+
+func newMockAdminService() *mockAdminService {
+	return &mockAdminService{
+		externalBounds: make(map[string]*admin.BoundsCache),
+	}
+}
+
+func (m *mockAdminService) GetLastProcessedEndPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetLastProcessedPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetFirstPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) RecordCompletion(_ context.Context, _ string, _, _ uint64) error {
+	return nil
+}
+
+func (m *mockAdminService) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64) (bool, error) {
+	return false, nil
+}
+
+func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetExternalBounds(_ context.Context, modelID string) (*admin.BoundsCache, error) {
+	if bounds, ok := m.externalBounds[modelID]; ok {
+		return bounds, nil
+	}
+	return nil, nil
+}
+
+func (m *mockAdminService) SetExternalBounds(_ context.Context, bounds *admin.BoundsCache) error {
+	if m.externalBounds == nil {
+		m.externalBounds = make(map[string]*admin.BoundsCache)
+	}
+	m.externalBounds[bounds.ModelID] = bounds
+	return nil
+}
+
+func (m *mockAdminService) GetIncrementalAdminDatabase() string {
+	return "admin"
+}
+
+func (m *mockAdminService) GetIncrementalAdminTable() string {
+	return "cbt_incremental"
+}
+
+func (m *mockAdminService) GetScheduledAdminDatabase() string {
+	return "admin"
+}
+
+func (m *mockAdminService) GetScheduledAdminTable() string {
+	return "cbt_scheduled"
+}
+
+var _ admin.Service = (*mockAdminService)(nil)
+
 type mockTransformation struct {
 	id      string
 	conf    transformation.Config
@@ -596,3 +690,340 @@ func (m *mockTransformation) SetDefaultDatabase(defaultDB string) {
 }
 
 var _ models.Transformation = (*mockTransformation)(nil)
+
+// TestEmptyScheduleHandling tests that empty schedule values are handled gracefully
+func TestEmptyScheduleHandling(t *testing.T) {
+	tests := []struct {
+		name                string
+		forwardFillSchedule string
+		backfillSchedule    string
+		expectError         bool
+		description         string
+	}{
+		{
+			name:                "both schedules empty",
+			forwardFillSchedule: "",
+			backfillSchedule:    "",
+			expectError:         false,
+			description:         "Empty schedules should not cause errors",
+		},
+		{
+			name:                "forward empty, backfill set",
+			forwardFillSchedule: "",
+			backfillSchedule:    "@every 5m",
+			expectError:         false,
+			description:         "Only backfill should be registered",
+		},
+		{
+			name:                "forward set, backfill empty",
+			forwardFillSchedule: "@every 1m",
+			backfillSchedule:    "",
+			expectError:         false,
+			description:         "Only forward fill should be registered",
+		},
+		{
+			name:                "both schedules set",
+			forwardFillSchedule: "@every 1m",
+			backfillSchedule:    "@every 5m",
+			expectError:         false,
+			description:         "Both tasks should be registered",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			logger := logrus.New()
+			logger.SetLevel(logrus.DebugLevel)
+
+			redisOpt := &redis.Options{
+				Addr: "localhost:6379",
+			}
+
+			// Create mock DAG with test transformation
+			mockTransformation := &mockTransformation{
+				id: "test.model",
+				conf: transformation.Config{
+					Database: "test_db",
+					Table:    "test_table",
+				},
+			}
+
+			mockDAG := &mockDAGReader{
+				transformations: []models.Transformation{mockTransformation},
+			}
+
+			mockCoordinator := &mockCoordinator{}
+
+			cfg := &Config{
+				Concurrency:   10,
+				Consolidation: "", // Empty consolidation schedule
+			}
+
+			// Create service
+			mockAdmin := newMockAdminService()
+			svc, err := NewService(logger, cfg, redisOpt, mockDAG, mockCoordinator, mockAdmin)
+			require.NoError(t, err)
+
+			s := svc.(*service)
+
+			// Test reconcileSchedules
+			err = s.reconcileSchedules()
+
+			if tt.expectError {
+				assert.Error(t, err, tt.description)
+			} else {
+				assert.NoError(t, err, tt.description)
+			}
+		})
+	}
+}
+
+// TestRegisterScheduledTaskWithEmptySchedule tests the registerScheduledTask method directly
+func TestRegisterScheduledTaskWithEmptySchedule(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	redisOpt := &redis.Options{
+		Addr: "localhost:6379",
+	}
+
+	mockDAG := &mockDAGReader{}
+	mockCoordinator := &mockCoordinator{}
+
+	cfg := &Config{
+		Concurrency: 10,
+	}
+
+	mockAdmin := newMockAdminService()
+	svc, err := NewService(logger, cfg, redisOpt, mockDAG, mockCoordinator, mockAdmin)
+	require.NoError(t, err)
+
+	s := svc.(*service)
+
+	// Test with empty schedule - should not error
+	err = s.registerScheduledTask("test:task", "")
+	assert.NoError(t, err, "Empty schedule should not cause error")
+
+	// Test with valid schedule - would error without real Redis but that's OK for this test
+	// We're just verifying the empty schedule path doesn't panic
+}
+
+// Tests for handler registration separation fix
+// These tests verify that handler registration and task scheduling are properly separated:
+// - registerAllHandlers() is called on ALL instances at startup
+// - buildDesiredTasks() is called only by the leader
+// This ensures non-leader instances can process tasks from the queue without "handler not found" errors
+
+// TestRegisterAllHandlers tests that handlers are registered on all instances
+func TestRegisterAllHandlers(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	redisOpt := &redis.Options{
+		Addr: "localhost:6379",
+	}
+
+	mockTransformation := &mockTransformation{
+		id: "test.model",
+		conf: transformation.Config{
+			Database: "test_db",
+			Table:    "test_table",
+		},
+	}
+
+	mockDAG := &mockDAGReader{
+		transformations: []models.Transformation{mockTransformation},
+	}
+
+	mockCoordinator := &mockCoordinator{}
+
+	cfg := &Config{
+		Concurrency:   10,
+		Consolidation: "@hourly",
+	}
+
+	mockAdmin := newMockAdminService()
+	svc, err := NewService(logger, cfg, redisOpt, mockDAG, mockCoordinator, mockAdmin)
+	require.NoError(t, err)
+
+	s := svc.(*service)
+
+	// Call registerAllHandlers
+	s.registerAllHandlers()
+
+	// Verify mux has handlers registered
+	// We can't directly inspect mux handlers, but we can verify no panic occurred
+	// and the method completed successfully
+	assert.NotNil(t, s.mux, "ServeMux should be initialized")
+}
+
+// TestBuildDesiredTasks tests that only task schedules are built (no handler registration)
+func TestBuildDesiredTasks(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	redisOpt := &redis.Options{
+		Addr: "localhost:6379",
+	}
+
+	mockTransformation := &mockTransformation{
+		id: "test.model",
+		conf: transformation.Config{
+			Database: "test_db",
+			Table:    "test_table",
+		},
+	}
+
+	mockDAG := &mockDAGReader{
+		transformations: []models.Transformation{mockTransformation},
+	}
+
+	mockCoordinator := &mockCoordinator{}
+
+	cfg := &Config{
+		Concurrency:   10,
+		Consolidation: "@hourly",
+	}
+
+	mockAdmin := newMockAdminService()
+	svc, err := NewService(logger, cfg, redisOpt, mockDAG, mockCoordinator, mockAdmin)
+	require.NoError(t, err)
+
+	s := svc.(*service)
+
+	// Build desired tasks
+	desiredTasks := s.buildDesiredTasks()
+
+	// Verify tasks were built
+	assert.NotEmpty(t, desiredTasks, "Should have built desired tasks")
+	assert.Contains(t, desiredTasks, "transformation:test.model:forward")
+	assert.Contains(t, desiredTasks, "transformation:test.model:back")
+	assert.Contains(t, desiredTasks, ConsolidationTaskType)
+
+	// Verify schedules are correct
+	assert.Equal(t, "@every 1m", desiredTasks["transformation:test.model:forward"])
+	assert.Equal(t, "@every 5m", desiredTasks["transformation:test.model:back"])
+	assert.Equal(t, "@hourly", desiredTasks[ConsolidationTaskType])
+}
+
+// TestHandlerRegistrationSeparation tests that handler registration and task scheduling are separate
+func TestHandlerRegistrationSeparation(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	redisOpt := &redis.Options{
+		Addr: "localhost:6379",
+	}
+
+	mockTransformation := &mockTransformation{
+		id: "test.model",
+		conf: transformation.Config{
+			Database: "test_db",
+			Table:    "test_table",
+		},
+	}
+
+	mockDAG := &mockDAGReader{
+		transformations: []models.Transformation{mockTransformation},
+	}
+
+	mockCoordinator := &mockCoordinator{}
+
+	cfg := &Config{
+		Concurrency:   10,
+		Consolidation: "",
+	}
+
+	mockAdmin := newMockAdminService()
+	svc, err := NewService(logger, cfg, redisOpt, mockDAG, mockCoordinator, mockAdmin)
+	require.NoError(t, err)
+
+	s := svc.(*service)
+
+	// Register handlers (happens on all instances)
+	s.registerAllHandlers()
+
+	// Build desired tasks (happens only on leader)
+	desiredTasks := s.buildDesiredTasks()
+
+	// Verify handlers are registered but tasks are not yet scheduled
+	assert.NotNil(t, s.mux, "ServeMux should be initialized")
+	assert.Equal(t, 2, len(desiredTasks), "Should have 2 tasks (forward and back)")
+}
+
+// TestBuildDesiredTasksWithEmptySchedules tests that empty schedules are handled correctly
+func TestBuildDesiredTasksWithEmptySchedules(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	redisOpt := &redis.Options{
+		Addr: "localhost:6379",
+	}
+
+	tests := []struct {
+		name                string
+		forwardFillSchedule string
+		backfillSchedule    string
+		expectedTaskCount   int
+	}{
+		{
+			name:                "both schedules set",
+			forwardFillSchedule: "@every 1m",
+			backfillSchedule:    "@every 5m",
+			expectedTaskCount:   2,
+		},
+		{
+			name:                "only forward fill set",
+			forwardFillSchedule: "@every 1m",
+			backfillSchedule:    "",
+			expectedTaskCount:   1,
+		},
+		{
+			name:                "only backfill set",
+			forwardFillSchedule: "",
+			backfillSchedule:    "@every 5m",
+			expectedTaskCount:   1,
+		},
+		{
+			name:                "both schedules empty",
+			forwardFillSchedule: "",
+			backfillSchedule:    "",
+			expectedTaskCount:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockTransformation := &mockTransformation{
+				id: "test.model",
+				conf: transformation.Config{
+					Database: "test_db",
+					Table:    "test_table",
+				},
+			}
+
+			mockDAG := &mockDAGReader{
+				transformations: []models.Transformation{mockTransformation},
+			}
+
+			mockCoordinator := &mockCoordinator{}
+
+			cfg := &Config{
+				Concurrency:   10,
+				Consolidation: "",
+			}
+
+			mockAdmin := newMockAdminService()
+			svc, err := NewService(logger, cfg, redisOpt, mockDAG, mockCoordinator, mockAdmin)
+			require.NoError(t, err)
+
+			s := svc.(*service)
+
+			desiredTasks := s.buildDesiredTasks()
+
+			assert.Equal(t, tt.expectedTaskCount, len(desiredTasks),
+				"Expected %d tasks for %s", tt.expectedTaskCount, tt.name)
+		})
+	}
+}

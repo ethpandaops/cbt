@@ -1,12 +1,18 @@
 package models
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
+)
+
+var (
+	// ErrOverrideModelNotFound is returned when an override key doesn't match any loaded model
+	ErrOverrideModelNotFound = errors.New("no matching model found for override key")
 )
 
 // Service defines the interface for the models service (ethPandaOps pattern)
@@ -159,47 +165,172 @@ func (s *service) applyOverrides() {
 		return
 	}
 
-	// Track which overrides were applied
-	appliedOverrides := make(map[string]bool)
+	modelTypes := s.buildModelTypeMapping()
+	s.resolveAllOverrides(modelTypes)
+	appliedOverrides := s.applyOverridesToModels()
+	s.warnUnmatchedOverrides(appliedOverrides)
+}
 
-	// Filter transformations based on overrides - pre-allocate with capacity
-	filteredTransformations := make([]Transformation, 0, len(s.transformationModels))
+// buildModelTypeMapping creates a map of model IDs to their types
+func (s *service) buildModelTypeMapping() map[string]ModelType {
+	modelTypes := make(map[string]ModelType, len(s.externalModels)+len(s.transformationModels))
+
+	for _, model := range s.externalModels {
+		config := model.GetConfig()
+		modelTypes[config.GetID()] = ModelTypeExternal
+	}
+
 	for _, model := range s.transformationModels {
 		config := model.GetConfig()
-		modelID := config.GetID()
+		modelTypes[config.GetID()] = ModelTypeTransformation
+	}
 
-		// Try to find override using either full ID or table-only format
-		override, overrideKey := s.findOverride(modelID, config.Table)
+	return modelTypes
+}
+
+// resolveAllOverrides resolves the config for all overrides based on model type lookup
+func (s *service) resolveAllOverrides(modelTypes map[string]ModelType) {
+	for modelID, override := range s.config.Overrides {
+		if modelType, exists := modelTypes[modelID]; exists {
+			if err := override.ResolveConfig(modelType); err != nil {
+				s.log.WithField("model", modelID).WithError(err).Warn("Failed to resolve override config")
+			}
+		} else {
+			// Try table-only lookup with default databases
+			if resolveErr := s.resolveOverrideWithDefaults(modelID, override, modelTypes); resolveErr != nil {
+				s.log.WithField("model", modelID).Debug("Could not resolve override (will check during model iteration)")
+			}
+		}
+	}
+}
+
+// applyOverridesToModels applies overrides to both external and transformation models
+func (s *service) applyOverridesToModels() map[string]bool {
+	appliedOverrides := make(map[string]bool, len(s.config.Overrides))
+
+	s.externalModels = s.applyExternalOverrides(appliedOverrides)
+	s.transformationModels = s.applyTransformationOverrides(appliedOverrides)
+
+	return appliedOverrides
+}
+
+// applyExternalOverrides applies overrides to external models and returns filtered list
+func (s *service) applyExternalOverrides(appliedOverrides map[string]bool) []External {
+	filtered := make([]External, 0, len(s.externalModels))
+
+	for _, model := range s.externalModels {
+		if s.shouldSkipModel(model, ModelTypeExternal, appliedOverrides) {
+			continue
+		}
+		filtered = append(filtered, model)
+	}
+
+	return filtered
+}
+
+// applyTransformationOverrides applies overrides to transformation models and returns filtered list
+func (s *service) applyTransformationOverrides(appliedOverrides map[string]bool) []Transformation {
+	filtered := make([]Transformation, 0, len(s.transformationModels))
+
+	for _, model := range s.transformationModels {
+		if s.shouldSkipModel(model, ModelTypeTransformation, appliedOverrides) {
+			continue
+		}
+		filtered = append(filtered, model)
+	}
+
+	return filtered
+}
+
+// shouldSkipModel checks if a model should be skipped and applies overrides if found
+func (s *service) shouldSkipModel(model interface{}, modelType ModelType, appliedOverrides map[string]bool) bool {
+	var modelID, tableName string
+	var override *ModelOverride
+	var overrideKey string
+
+	switch modelType {
+	case ModelTypeExternal:
+		extModel, ok := model.(External)
+		if !ok {
+			return false
+		}
+		config := extModel.GetConfig()
+		modelID = config.GetID()
+		tableName = config.Table
+		override, overrideKey = s.findOverride(modelID, tableName, ModelTypeExternal)
 
 		if override != nil {
 			appliedOverrides[overrideKey] = true
 
-			// Check if model is disabled
 			if override.IsDisabled() {
-				s.log.WithField("model", modelID).Info("Model disabled by override")
-				continue // Skip this model
+				s.log.WithField("model", modelID).Info("External model disabled by override")
+				return true
 			}
 
-			// Apply configuration overrides to the model
-			override.ApplyToTransformation(model)
-			s.log.WithField("model", modelID).Debug("Applied configuration override")
+			mutableConfig := extModel.GetConfigMutable()
+			override.ApplyToExternal(mutableConfig)
+			s.log.WithField("model", modelID).Debug("Applied external configuration override")
 		}
 
-		filteredTransformations = append(filteredTransformations, model)
+	case ModelTypeTransformation:
+		transModel, ok := model.(Transformation)
+		if !ok {
+			return false
+		}
+		config := transModel.GetConfig()
+		modelID = config.GetID()
+		tableName = config.Table
+		override, overrideKey = s.findOverride(modelID, tableName, ModelTypeTransformation)
+
+		if override != nil {
+			appliedOverrides[overrideKey] = true
+
+			if override.IsDisabled() {
+				s.log.WithField("model", modelID).Info("Transformation model disabled by override")
+				return true
+			}
+
+			override.ApplyToTransformation(transModel)
+			s.log.WithField("model", modelID).Debug("Applied transformation configuration override")
+		}
 	}
 
-	// Warn about overrides that didn't match any models
+	return false
+}
+
+// warnUnmatchedOverrides logs warnings for overrides that didn't match any models
+func (s *service) warnUnmatchedOverrides(appliedOverrides map[string]bool) {
 	for modelID := range s.config.Overrides {
 		if !appliedOverrides[modelID] {
 			s.log.WithField("model", modelID).Warn("Override specified for non-existent model")
 		}
 	}
+}
 
-	s.transformationModels = filteredTransformations
+// resolveOverrideWithDefaults attempts to resolve an override using default database lookup
+func (s *service) resolveOverrideWithDefaults(overrideKey string, override *ModelOverride, modelTypes map[string]ModelType) error {
+	// Check if this could be a table-only key
+	// Try with external default database
+	if s.config.External.DefaultDatabase != "" {
+		fullID := fmt.Sprintf("%s.%s", s.config.External.DefaultDatabase, overrideKey)
+		if modelType, exists := modelTypes[fullID]; exists {
+			return override.ResolveConfig(modelType)
+		}
+	}
+
+	// Try with transformation default database
+	if s.config.Transformation.DefaultDatabase != "" {
+		fullID := fmt.Sprintf("%s.%s", s.config.Transformation.DefaultDatabase, overrideKey)
+		if modelType, exists := modelTypes[fullID]; exists {
+			return override.ResolveConfig(modelType)
+		}
+	}
+
+	return fmt.Errorf("%w: %s", ErrOverrideModelNotFound, overrideKey)
 }
 
 // findOverride looks up an override using both full ID and table-only formats
-func (s *service) findOverride(fullID, tableName string) (override *ModelOverride, overrideKey string) {
+func (s *service) findOverride(fullID, tableName string, modelType ModelType) (override *ModelOverride, overrideKey string) {
 	// First, try with the full model ID (database.table)
 	if override, exists := s.config.Overrides[fullID]; exists {
 		return override, fullID
@@ -207,9 +338,16 @@ func (s *service) findOverride(fullID, tableName string) (override *ModelOverrid
 
 	// If the model uses the default database, also try with just the table name
 	// This allows more intuitive overrides when using default databases
-	if s.config.Transformation.DefaultDatabase != "" {
+	var defaultDatabase string
+	if modelType == ModelTypeExternal {
+		defaultDatabase = s.config.External.DefaultDatabase
+	} else {
+		defaultDatabase = s.config.Transformation.DefaultDatabase
+	}
+
+	if defaultDatabase != "" {
 		// Check if this model is using the default database
-		if fullID == fmt.Sprintf("%s.%s", s.config.Transformation.DefaultDatabase, tableName) {
+		if fullID == fmt.Sprintf("%s.%s", defaultDatabase, tableName) {
 			if override, exists := s.config.Overrides[tableName]; exists {
 				return override, tableName
 			}

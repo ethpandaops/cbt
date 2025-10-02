@@ -141,7 +141,7 @@ worker:
 #       interval:
 #         max: 7200  # Override interval
 #       schedules:
-#         backfill: null  # Disable backfill
+#         backfill: ""  # Disable backfill (use empty string)
 ```
 
 ## Models
@@ -212,7 +212,7 @@ overrides:
         max: 7200  # Increase interval to 2 hours (staging environment)
       schedules:
         forwardfill: "@every 10m"  # Slower schedule for staging
-        backfill: null  # Disable backfill
+        backfill: ""  # Disable backfill (use empty string)
   
   # Models with custom databases must use full ID
   custom_db.special_model:
@@ -233,7 +233,7 @@ overrides:
 
 - **`enabled`**: Set to `false` to completely disable a model
 - **`config.interval`**: Override `max` and/or `min` interval settings
-- **`config.schedules`**: Override `forwardfill` and/or `backfill` schedules (set to `null` to disable)
+- **`config.schedules`**: Override `forwardfill` and/or `backfill` schedules (set to `""` empty string to disable)
 - **`config.limits`**: Set or override position limits (`min`/`max`)
 - **`config.tags`**: Add additional tags (appended to existing tags)
 
@@ -250,7 +250,7 @@ overrides:
         max: 14400  # Process larger chunks less frequently
       schedules:
         forwardfill: "@every 30m"
-        backfill: null  # No backfill in staging
+        backfill: ""  # No backfill in staging (use empty string)
   
   # Disable production-only models (table-only format)
   production_reporting:

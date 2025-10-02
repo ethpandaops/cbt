@@ -57,6 +57,26 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 			},
 			expected: "model.test-123_v2:500:100",
 		},
+		{
+			name: "incremental with direction forward",
+			payload: IncrementalTaskPayload{
+				ModelID:   "model.test",
+				Position:  100,
+				Interval:  50,
+				Direction: DirectionForward,
+			},
+			expected: "model.test:100:50",
+		},
+		{
+			name: "incremental with direction back",
+			payload: IncrementalTaskPayload{
+				ModelID:   "model.test",
+				Position:  200,
+				Interval:  50,
+				Direction: DirectionBack,
+			},
+			expected: "model.test:200:50",
+		},
 	}
 
 	for _, tt := range tests {
@@ -171,19 +191,37 @@ func TestTaskPayload_UniqueID_Consistency(t *testing.T) {
 	// Same payloads should produce same unique ID
 	assert.Equal(t, payload1.UniqueID(), payload2.UniqueID())
 
-	// Different position should produce different unique ID
+	// Different position produces different unique ID (position is part of uniqueness)
 	payload2.Position = 200
 	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
 
-	// Different interval should produce different unique ID
+	// Reset position, different interval produces different unique ID
 	payload2.Position = 100
 	payload2.Interval = 100
 	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
 
 	// Different model ID should produce different unique ID
-	payload2.Interval = 50
 	payload2.ModelID = "model.different"
 	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
+
+	// Direction doesn't affect uniqueness for incremental tasks - position and interval do
+	payload3 := IncrementalTaskPayload{
+		ModelID:   "model.test",
+		Position:  100,
+		Interval:  50,
+		Direction: DirectionForward,
+	}
+	payload4 := IncrementalTaskPayload{
+		ModelID:   "model.test",
+		Position:  100,
+		Interval:  50,
+		Direction: DirectionBack,
+	}
+	assert.Equal(t, payload3.UniqueID(), payload4.UniqueID())
+
+	// Different position/interval means different task
+	payload4.Position = 200
+	assert.NotEqual(t, payload3.UniqueID(), payload4.UniqueID())
 }
 
 // Benchmark UniqueID generation for incremental

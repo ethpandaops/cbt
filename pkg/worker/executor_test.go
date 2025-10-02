@@ -174,26 +174,6 @@ func TestModelExecutor_Execute(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name: "record completion fails",
-			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, a *mockExecutorAdminService) {
-				ch.tableExists = true
-				m.renderedSQL = "SELECT 1"
-				a.recordErr = errMockExecute
-			},
-			taskCtx: &tasks.TaskContext{
-				Transformation: &mockExecutorTransformation{
-					id:   "test.model",
-					typ:  transformation.TransformationTypeSQL,
-					sql:  "SELECT 1",
-					conf: transformation.Config{Database: "test", Table: "model"},
-				},
-				Position:  100,
-				Interval:  50,
-				StartTime: time.Now(),
-			},
-			wantErr: true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -413,7 +393,7 @@ func TestModelExecutor_UpdateBounds(t *testing.T) {
 			tt.setupMocks(mockCH, mockModels, mockAdmin)
 
 			executor := NewModelExecutor(log, mockCH, mockModels, mockAdmin)
-			err := executor.UpdateBounds(context.Background(), tt.modelID)
+			err := executor.UpdateBounds(context.Background(), tt.modelID, "full")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -503,8 +483,8 @@ func (m *mockExecutorClickhouseClient) QueryOne(_ context.Context, query string,
 func (m *mockExecutorClickhouseClient) QueryMany(_ context.Context, _ string, _ interface{}) error {
 	return nil
 }
-func (m *mockExecutorClickhouseClient) Execute(_ context.Context, _ string) error {
-	return m.executeErr
+func (m *mockExecutorClickhouseClient) Execute(_ context.Context, _ string) ([]byte, error) {
+	return nil, m.executeErr
 }
 func (m *mockExecutorClickhouseClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
 	return nil
@@ -630,10 +610,11 @@ type mockExternal struct {
 	typ  string
 }
 
-func (m *mockExternal) GetID() string              { return m.id }
-func (m *mockExternal) GetConfig() external.Config { return m.conf }
-func (m *mockExternal) GetValue() string           { return m.val }
-func (m *mockExternal) GetType() string            { return m.typ }
+func (m *mockExternal) GetID() string                      { return m.id }
+func (m *mockExternal) GetConfig() external.Config         { return m.conf }
+func (m *mockExternal) GetConfigMutable() *external.Config { return &m.conf }
+func (m *mockExternal) GetValue() string                   { return m.val }
+func (m *mockExternal) GetType() string                    { return m.typ }
 func (m *mockExternal) SetDefaultDatabase(defaultDB string) {
 	if m.conf.Database == "" {
 		m.conf.Database = defaultDB

@@ -29,8 +29,8 @@ type ClientInterface interface {
 	QueryOne(ctx context.Context, query string, dest interface{}) error
 	// QueryMany executes a query and returns multiple results
 	QueryMany(ctx context.Context, query string, dest interface{}) error
-	// Execute runs a query without expecting results
-	Execute(ctx context.Context, query string) error
+	// Execute runs a query and returns the raw response body
+	Execute(ctx context.Context, query string) ([]byte, error)
 	// BulkInsert performs a bulk insert operation
 	BulkInsert(ctx context.Context, table string, data interface{}) error
 	// Start initializes the client
@@ -89,7 +89,7 @@ func (c *client) Start() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := c.Execute(ctx, "SELECT 1"); err != nil {
+	if _, err := c.Execute(ctx, "SELECT 1"); err != nil {
 		return fmt.Errorf("failed to connect to ClickHouse: %w", err)
 	}
 
@@ -199,13 +199,13 @@ func (c *client) QueryMany(ctx context.Context, query string, dest interface{}) 
 	return nil
 }
 
-func (c *client) Execute(ctx context.Context, query string) error {
-	_, err := c.executeHTTPRequest(ctx, query, c.getTimeout(ctx, "query"))
+func (c *client) Execute(ctx context.Context, query string) ([]byte, error) {
+	body, err := c.executeHTTPRequest(ctx, query, c.getTimeout(ctx, "query"))
 	if err != nil {
-		return fmt.Errorf("execution failed: %w", err)
+		return nil, fmt.Errorf("execution failed: %w", err)
 	}
 
-	return nil
+	return body, nil
 }
 
 func (c *client) BulkInsert(ctx context.Context, table string, data interface{}) error {

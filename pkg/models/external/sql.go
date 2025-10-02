@@ -64,6 +64,11 @@ func (c *SQL) GetConfig() Config {
 	return c.Config
 }
 
+// GetConfigMutable returns a mutable pointer to the external model configuration
+func (c *SQL) GetConfigMutable() *Config {
+	return &c.Config
+}
+
 // GetValue returns the SQL content
 func (c *SQL) GetValue() string {
 	return c.Content

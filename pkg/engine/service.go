@@ -78,7 +78,7 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 		return nil, fmt.Errorf("failed to create coordinator service: %w", err)
 	}
 
-	schedulerService, err := scheduler.NewService(log, &cfg.Scheduler, redisOptions, modelsService.GetDAG(), coordinatorService)
+	schedulerService, err := scheduler.NewService(log, &cfg.Scheduler, redisOptions, modelsService.GetDAG(), coordinatorService, adminManager)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scheduler service: %w", err)
 	}

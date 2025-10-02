@@ -5,6 +5,13 @@ import (
 	"time"
 )
 
+const (
+	// DirectionForward represents forward fill processing
+	DirectionForward = "forward"
+	// DirectionBack represents backfill processing
+	DirectionBack = "back"
+)
+
 // TaskType indicates whether this is a scheduled or incremental task
 type TaskType string
 
@@ -13,6 +20,8 @@ const (
 	TaskTypeIncremental TaskType = "incremental"
 	// TaskTypeScheduled represents scheduled cron-based tasks
 	TaskTypeScheduled TaskType = "scheduled"
+	// TaskTypeExternal represents external model scan tasks
+	TaskTypeExternal TaskType = "external"
 )
 
 // TaskPayload is the common interface for all task payloads
@@ -29,6 +38,7 @@ type IncrementalTaskPayload struct {
 	ModelID    string    `json:"model_id"`
 	Position   uint64    `json:"position"`
 	Interval   uint64    `json:"interval"`
+	Direction  string    `json:"direction"` // DirectionForward or DirectionBack
 	EnqueuedAt time.Time `json:"enqueued_at"`
 }
 
@@ -70,3 +80,27 @@ func (p ScheduledTaskPayload) QueueName() string { return p.ModelID }
 
 // UniqueID returns a unique identifier for this task
 func (p ScheduledTaskPayload) UniqueID() string { return p.ModelID }
+
+// ExternalScanTaskPayload represents an external model scan task
+type ExternalScanTaskPayload struct {
+	ModelID    string    `json:"model_id"`
+	ScanType   string    `json:"scan_type"` // "full" or "incremental"
+	EnqueuedAt time.Time `json:"enqueued_at"`
+}
+
+// GetModelID returns the model ID
+func (p ExternalScanTaskPayload) GetModelID() string { return p.ModelID }
+
+// GetEnqueuedAt returns the enqueued time
+func (p ExternalScanTaskPayload) GetEnqueuedAt() time.Time { return p.EnqueuedAt }
+
+// GetType returns the task type
+func (p ExternalScanTaskPayload) GetType() TaskType { return TaskTypeExternal }
+
+// QueueName returns the queue name for this task
+func (p ExternalScanTaskPayload) QueueName() string { return p.ModelID }
+
+// UniqueID returns a unique identifier for this task
+func (p ExternalScanTaskPayload) UniqueID() string {
+	return fmt.Sprintf("%s:external:%s", p.ModelID, p.ScanType)
+}

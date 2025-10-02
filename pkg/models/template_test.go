@@ -62,12 +62,13 @@ type mockExternalWithTemplate struct {
 	value  string
 }
 
-func (m *mockExternalWithTemplate) GetID() string                     { return m.id }
-func (m *mockExternalWithTemplate) GetConfig() external.Config        { return m.config }
-func (m *mockExternalWithTemplate) GetType() string                   { return m.typ }
-func (m *mockExternalWithTemplate) GetSQL() string                    { return "" }
-func (m *mockExternalWithTemplate) GetValue() string                  { return m.value }
-func (m *mockExternalWithTemplate) GetEnvironmentVariables() []string { return []string{} }
+func (m *mockExternalWithTemplate) GetID() string                      { return m.id }
+func (m *mockExternalWithTemplate) GetConfig() external.Config         { return m.config }
+func (m *mockExternalWithTemplate) GetConfigMutable() *external.Config { return &m.config }
+func (m *mockExternalWithTemplate) GetType() string                    { return m.typ }
+func (m *mockExternalWithTemplate) GetSQL() string                     { return "" }
+func (m *mockExternalWithTemplate) GetValue() string                   { return m.value }
+func (m *mockExternalWithTemplate) GetEnvironmentVariables() []string  { return []string{} }
 func (m *mockExternalWithTemplate) SetDefaultDatabase(defaultDB string) {
 	m.config.SetDefaults(defaultDB)
 }

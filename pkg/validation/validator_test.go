@@ -1032,6 +1032,13 @@ func (m *mockExternal) GetConfig() external.Config {
 		Table:    "test",
 	}
 }
+func (m *mockExternal) GetConfigMutable() *external.Config {
+	config := external.Config{
+		Database: "test",
+		Table:    "test",
+	}
+	return &config
+}
 func (m *mockExternal) GetValue() string { return "" }
 func (m *mockExternal) GetType() string  { return "sql" }
 func (m *mockExternal) SetDefaultDatabase(_ string) {
@@ -1080,7 +1087,7 @@ func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, _ interface
 func (m *mockClickhouseClient) QueryMany(_ context.Context, _ string, _ interface{}) error {
 	return nil
 }
-func (m *mockClickhouseClient) Execute(_ context.Context, _ string) error { return nil }
+func (m *mockClickhouseClient) Execute(_ context.Context, _ string) ([]byte, error) { return nil, nil }
 func (m *mockClickhouseClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
 	return nil
 }

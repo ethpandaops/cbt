@@ -33,8 +33,8 @@ type Service interface {
 	// Process handles transformation processing in the specified direction
 	Process(transformation models.Transformation, direction Direction)
 
-	// ProcessBoundsOrchestration handles bounds orchestration for external models
-	ProcessBoundsOrchestration(ctx context.Context)
+	// ProcessExternalScan handles external model scan processing
+	ProcessExternalScan(modelID, scanType string)
 }
 
 // Direction represents the processing direction for tasks
@@ -46,7 +46,11 @@ const (
 	// DirectionBack processes tasks in backward direction
 	DirectionBack Direction = "back"
 
-	// BoundsCacheTaskType is the task type for external bounds cache updates
+	// ExternalIncrementalTaskType is the task type for external incremental scan
+	ExternalIncrementalTaskType = "external:incremental"
+	// ExternalFullTaskType is the task type for external full scan
+	ExternalFullTaskType = "external:full"
+	// BoundsCacheTaskType is the task type for bounds cache updates
 	BoundsCacheTaskType = "bounds:cache"
 )
 
