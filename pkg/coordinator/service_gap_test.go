@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/models"
@@ -12,6 +13,52 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// mockTransformationConfig provides a simple config implementation for testing
+type mockTransformationConfig struct {
+	maxInterval uint64
+	maxLimit    uint64
+}
+
+func (m *mockTransformationConfig) GetMaxInterval() uint64 {
+	return m.maxInterval
+}
+
+func (m *mockTransformationConfig) GetLimits() *struct{ Min, Max uint64 } {
+	if m.maxLimit > 0 {
+		return &struct{ Min, Max uint64 }{Min: 0, Max: m.maxLimit}
+	}
+	return nil
+}
+
+func (m *mockTransformationConfig) Config() any {
+	// Return nil since we're using handler-based interfaces now
+	return nil
+}
+
+func (m *mockTransformationConfig) GetAdminTable() transformation.AdminTable {
+	return transformation.AdminTable{}
+}
+
+func (m *mockTransformationConfig) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
+	return nil
+}
+
+func (m *mockTransformationConfig) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
+	return nil
+}
+
+func (m *mockTransformationConfig) ShouldTrackPosition() bool {
+	return true
+}
+
+func (m *mockTransformationConfig) Type() transformation.Type {
+	return "mock"
+}
+
+func (m *mockTransformationConfig) Validate() error {
+	return nil
+}
 
 // mockValidatorWithGaps provides controlled validation results for testing gap skipping
 type mockValidatorWithGaps struct {
@@ -30,7 +77,7 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 	tests := []struct {
 		name              string
 		startPos          uint64
-		config            *transformation.Config
+		config            *mockTransformationConfig
 		validationResults []validation.Result
 		expectedCalls     []validationCall
 		description       string
@@ -38,13 +85,9 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 		{
 			name:     "no gaps - continuous processing",
 			startPos: 100,
-			config: &transformation.Config{
-				Interval: &transformation.IntervalConfig{
-					Max: 50,
-				},
-				Limits: &transformation.LimitsConfig{
-					Max: 300,
-				},
+			config: &mockTransformationConfig{
+				maxInterval: 50,
+				maxLimit:    300,
 			},
 			validationResults: []validation.Result{
 				{CanProcess: true},  // Process 100-150
@@ -64,13 +107,9 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 		{
 			name:     "gap at 101-109 - skip to 110",
 			startPos: 100,
-			config: &transformation.Config{
-				Interval: &transformation.IntervalConfig{
-					Max: 50,
-				},
-				Limits: &transformation.LimitsConfig{
-					Max: 300,
-				},
+			config: &mockTransformationConfig{
+				maxInterval: 50,
+				maxLimit:    300,
 			},
 			validationResults: []validation.Result{
 				{CanProcess: false, NextValidPos: 110}, // Gap detected at 100, skip to 110
@@ -92,13 +131,9 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 		{
 			name:     "multiple gaps - skip each one",
 			startPos: 100,
-			config: &transformation.Config{
-				Interval: &transformation.IntervalConfig{
-					Max: 50,
-				},
-				Limits: &transformation.LimitsConfig{
-					Max: 400,
-				},
+			config: &mockTransformationConfig{
+				maxInterval: 50,
+				maxLimit:    400,
 			},
 			validationResults: []validation.Result{
 				{CanProcess: false, NextValidPos: 110}, // Gap 1: 100-109
@@ -124,13 +159,9 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 		{
 			name:     "no more data after gap",
 			startPos: 100,
-			config: &transformation.Config{
-				Interval: &transformation.IntervalConfig{
-					Max: 50,
-				},
-				Limits: &transformation.LimitsConfig{
-					Max: 300,
-				},
+			config: &mockTransformationConfig{
+				maxInterval: 50,
+				maxLimit:    300,
 			},
 			validationResults: []validation.Result{
 				{CanProcess: true},                   // Process 100-150
@@ -221,10 +252,8 @@ func TestGapSkippingScenario(t *testing.T) {
 
 	trans := &mockTransformationForGaps{
 		id: "table.b",
-		config: &transformation.Config{
-			Interval: &transformation.IntervalConfig{
-				Max: 50,
-			},
+		config: &mockTransformationConfig{
+			maxInterval: 50,
 		},
 	}
 
@@ -306,6 +335,30 @@ func (m *mockAdminServiceForGaps) GetAdminTable() string {
 	return "test_table"
 }
 
+func (m *mockAdminServiceForGaps) GetIncrementalAdminDatabase() string {
+	return "test_incremental_db"
+}
+
+func (m *mockAdminServiceForGaps) GetIncrementalAdminTable() string {
+	return "test_incremental_table"
+}
+
+func (m *mockAdminServiceForGaps) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
+	return nil, nil
+}
+
+func (m *mockAdminServiceForGaps) GetScheduledAdminDatabase() string {
+	return "test_scheduled_db"
+}
+
+func (m *mockAdminServiceForGaps) GetScheduledAdminTable() string {
+	return "test_scheduled_table"
+}
+
+func (m *mockAdminServiceForGaps) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
 func (m *mockValidatorWithGaps) ValidateDependencies(_ context.Context, modelID string, position, interval uint64) (validation.Result, error) {
 	// Track the call
 	m.calls = append(m.calls, validationCall{
@@ -340,19 +393,25 @@ func (m *mockValidatorWithGaps) GetValidRange(_ context.Context, _ string) (minP
 // mockTransformationForGaps implements models.Transformation for testing
 type mockTransformationForGaps struct {
 	id     string
-	config *transformation.Config
+	config *mockTransformationConfig
 }
 
 func (m *mockTransformationForGaps) GetID() string {
 	return m.id
 }
 
-func (m *mockTransformationForGaps) GetConfig() *transformation.Config {
+func (m *mockTransformationForGaps) GetHandler() transformation.Handler {
 	return m.config
 }
 
+func (m *mockTransformationForGaps) GetConfig() *transformation.Config {
+	// Return nil since we're using handler-based interfaces now
+	return nil
+}
+
 func (m *mockTransformationForGaps) GetConfigMutable() *transformation.Config {
-	return m.config
+	// Return nil since we're using handler-based interfaces now
+	return nil
 }
 
 func (m *mockTransformationForGaps) GetType() string {

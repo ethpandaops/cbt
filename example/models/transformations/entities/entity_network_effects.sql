@@ -1,6 +1,7 @@
 ---
 # database is set in the config models.transformations.defaultDatabase
 # database: analytics
+type: incremental
 table: entity_network_effects
 interval:
   max: 300

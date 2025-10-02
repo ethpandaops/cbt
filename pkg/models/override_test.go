@@ -5,693 +5,461 @@ import (
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/models/external"
-	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
+func TestModelOverride_UnmarshalYAML(t *testing.T) {
+	tests := []struct {
+		name      string
+		yaml      string
+		wantErr   bool
+		checkFunc func(t *testing.T, m *ModelOverride)
+	}{
+		{
+			name: "override with enabled flag only",
+			yaml: `
+enabled: false
+`,
+			checkFunc: func(t *testing.T, m *ModelOverride) {
+				require.NotNil(t, m.Enabled)
+				assert.False(t, *m.Enabled)
+				assert.Nil(t, m.rawConfig)
+			},
+		},
+		{
+			name: "override with config for transformation",
+			yaml: `
+enabled: true
+config:
+  interval:
+    min: 100
+    max: 1000
+  schedules:
+    forwardfill: "@every 10s"
+    backfill: "@every 30s"
+`,
+			checkFunc: func(t *testing.T, m *ModelOverride) {
+				require.NotNil(t, m.Enabled)
+				assert.True(t, *m.Enabled)
+				assert.NotNil(t, m.rawConfig)
+			},
+		},
+		{
+			name: "override with config for external",
+			yaml: `
+enabled: true
+config:
+  interval: 500
+  updateInterval: 10m
+  maxSecondsOverdue: 300
+`,
+			checkFunc: func(t *testing.T, m *ModelOverride) {
+				require.NotNil(t, m.Enabled)
+				assert.True(t, *m.Enabled)
+				assert.NotNil(t, m.rawConfig)
+			},
+		},
+		{
+			name: "override without enabled flag",
+			yaml: `
+config:
+  interval:
+    min: 50
+`,
+			checkFunc: func(t *testing.T, m *ModelOverride) {
+				assert.Nil(t, m.Enabled)
+				assert.NotNil(t, m.rawConfig)
+			},
+		},
+		{
+			name: "empty override",
+			yaml: `{}`,
+			checkFunc: func(t *testing.T, m *ModelOverride) {
+				assert.Nil(t, m.Enabled)
+				assert.Nil(t, m.rawConfig)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var m ModelOverride
+			err := yaml.Unmarshal([]byte(tt.yaml), &m)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			tt.checkFunc(t, &m)
+		})
+	}
+}
+
+func TestModelOverride_ResolveConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		yaml      string
+		modelType ModelType
+		wantErr   bool
+		checkFunc func(t *testing.T, m *ModelOverride)
+	}{
+		{
+			name: "resolve transformation config",
+			yaml: `
+enabled: true
+config:
+  interval:
+    min: 100
+    max: 1000
+  schedules:
+    forwardfill: "@every 10s"
+    backfill: ""
+  limits:
+    min: 1000
+    max: 2000
+  tags:
+    - override-tag1
+    - override-tag2
+`,
+			modelType: ModelTypeTransformation,
+			checkFunc: func(t *testing.T, m *ModelOverride) {
+				require.NotNil(t, m.Config)
+
+				config, ok := m.Config.(*TransformationOverride)
+				require.True(t, ok, "expected TransformationOverride type")
+
+				// Check interval
+				require.NotNil(t, config.Interval)
+				require.NotNil(t, config.Interval.Min)
+				assert.Equal(t, uint64(100), *config.Interval.Min)
+				require.NotNil(t, config.Interval.Max)
+				assert.Equal(t, uint64(1000), *config.Interval.Max)
+
+				// Check schedules
+				require.NotNil(t, config.Schedules)
+				require.NotNil(t, config.Schedules.ForwardFill)
+				assert.Equal(t, "@every 10s", *config.Schedules.ForwardFill)
+				require.NotNil(t, config.Schedules.Backfill)
+				assert.Equal(t, "", *config.Schedules.Backfill) // Empty string means disable
+
+				// Check limits
+				require.NotNil(t, config.Limits)
+				require.NotNil(t, config.Limits.Min)
+				assert.Equal(t, uint64(1000), *config.Limits.Min)
+				require.NotNil(t, config.Limits.Max)
+				assert.Equal(t, uint64(2000), *config.Limits.Max)
+
+				// Check tags
+				assert.Equal(t, []string{"override-tag1", "override-tag2"}, config.Tags)
+			},
+		},
+		{
+			name: "resolve external config",
+			yaml: `
+config:
+  lag: 250
+  cache:
+    incremental_scan_interval: 5m
+    full_scan_interval: 30m
+`,
+			modelType: ModelTypeExternal,
+			checkFunc: func(t *testing.T, m *ModelOverride) {
+				require.NotNil(t, m.Config)
+
+				config, ok := m.Config.(*ExternalOverride)
+				require.True(t, ok, "expected ExternalOverride type")
+
+				require.NotNil(t, config.Lag)
+				assert.Equal(t, uint64(250), *config.Lag)
+
+				require.NotNil(t, config.Cache)
+				require.NotNil(t, config.Cache.IncrementalScanInterval)
+				assert.Equal(t, 5*time.Minute, *config.Cache.IncrementalScanInterval)
+				require.NotNil(t, config.Cache.FullScanInterval)
+				assert.Equal(t, 30*time.Minute, *config.Cache.FullScanInterval)
+			},
+		},
+		{
+			name: "resolve with no config",
+			yaml: `
+enabled: false
+`,
+			modelType: ModelTypeTransformation,
+			checkFunc: func(t *testing.T, m *ModelOverride) {
+				assert.Nil(t, m.Config)
+			},
+		},
+		{
+			name: "resolve with unknown model type",
+			yaml: `
+config:
+  interval: 100
+`,
+			modelType: ModelType("unknown"),
+			wantErr:   true,
+		},
+		{
+			name: "transformation config with partial override",
+			yaml: `
+config:
+  schedules:
+    forwardfill: "@every 1m"
+`,
+			modelType: ModelTypeTransformation,
+			checkFunc: func(t *testing.T, m *ModelOverride) {
+				require.NotNil(t, m.Config)
+
+				config, ok := m.Config.(*TransformationOverride)
+				require.True(t, ok)
+
+				// Only schedules should be set
+				assert.Nil(t, config.Interval)
+				assert.Nil(t, config.Limits)
+				require.NotNil(t, config.Schedules)
+				require.NotNil(t, config.Schedules.ForwardFill)
+				assert.Equal(t, "@every 1m", *config.Schedules.ForwardFill)
+				assert.Nil(t, config.Schedules.Backfill) // Not set, so nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var m ModelOverride
+			err := yaml.Unmarshal([]byte(tt.yaml), &m)
+			require.NoError(t, err)
+
+			err = m.ResolveConfig(tt.modelType)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			tt.checkFunc(t, &m)
+		})
+	}
+}
+
 func TestModelOverride_IsDisabled(t *testing.T) {
 	tests := []struct {
 		name     string
 		override *ModelOverride
-		expected bool
+		want     bool
 	}{
 		{
 			name:     "nil override",
 			override: nil,
-			expected: false,
+			want:     false,
 		},
 		{
 			name:     "enabled not set",
 			override: &ModelOverride{},
-			expected: false,
+			want:     false,
 		},
 		{
 			name: "explicitly enabled",
 			override: &ModelOverride{
-				Enabled: boolPtr(true),
+				Enabled: ptrBool(true),
 			},
-			expected: false,
+			want: false,
 		},
 		{
 			name: "explicitly disabled",
 			override: &ModelOverride{
-				Enabled: boolPtr(false),
+				Enabled: ptrBool(false),
 			},
-			expected: true,
+			want: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, tt.override.IsDisabled())
+			assert.Equal(t, tt.want, tt.override.IsDisabled())
 		})
 	}
 }
 
-func TestModelOverride_ApplyToTransformation(t *testing.T) {
+func TestExternalOverride_ApplyToExternal(t *testing.T) {
 	tests := []struct {
-		name           string
-		override       *ModelOverride
-		config         *transformation.Config
-		expectedConfig *transformation.Config
+		name      string
+		override  *ExternalOverride
+		initial   *external.Config
+		checkFunc func(t *testing.T, config *external.Config)
 	}{
+		{
+			name: "apply all overrides",
+			override: &ExternalOverride{
+				Lag: ptrUint64(500),
+				Cache: &CacheOverride{
+					IncrementalScanInterval: ptrDuration(10 * time.Minute),
+					FullScanInterval:        ptrDuration(1 * time.Hour),
+				},
+			},
+			initial: &external.Config{
+				Database: "test_db",
+				Table:    "test_table",
+				Lag:      100,
+				Cache: &external.CacheConfig{
+					IncrementalScanInterval: 5 * time.Minute,
+					FullScanInterval:        30 * time.Minute,
+				},
+			},
+			checkFunc: func(t *testing.T, config *external.Config) {
+				assert.Equal(t, uint64(500), config.Lag)
+				assert.Equal(t, 10*time.Minute, config.Cache.IncrementalScanInterval)
+				assert.Equal(t, 1*time.Hour, config.Cache.FullScanInterval)
+				// Unchanged fields
+				assert.Equal(t, "test_db", config.Database)
+				assert.Equal(t, "test_table", config.Table)
+			},
+		},
+		{
+			name: "apply partial overrides - lag only",
+			override: &ExternalOverride{
+				Lag: ptrUint64(250),
+			},
+			initial: &external.Config{
+				Database: "test_db",
+				Table:    "test_table",
+				Lag:      100,
+				Cache: &external.CacheConfig{
+					IncrementalScanInterval: 5 * time.Minute,
+					FullScanInterval:        30 * time.Minute,
+				},
+			},
+			checkFunc: func(t *testing.T, config *external.Config) {
+				assert.Equal(t, uint64(250), config.Lag)
+				// Unchanged fields
+				assert.Equal(t, 5*time.Minute, config.Cache.IncrementalScanInterval)
+				assert.Equal(t, 30*time.Minute, config.Cache.FullScanInterval)
+			},
+		},
+		{
+			name: "apply cache overrides only",
+			override: &ExternalOverride{
+				Cache: &CacheOverride{
+					IncrementalScanInterval: ptrDuration(2 * time.Minute),
+				},
+			},
+			initial: &external.Config{
+				Database: "test_db",
+				Table:    "test_table",
+				Lag:      100,
+				Cache: &external.CacheConfig{
+					IncrementalScanInterval: 5 * time.Minute,
+					FullScanInterval:        30 * time.Minute,
+				},
+			},
+			checkFunc: func(t *testing.T, config *external.Config) {
+				assert.Equal(t, uint64(100), config.Lag) // Unchanged
+				assert.Equal(t, 2*time.Minute, config.Cache.IncrementalScanInterval)
+				assert.Equal(t, 30*time.Minute, config.Cache.FullScanInterval) // Unchanged
+			},
+		},
 		{
 			name:     "nil override does nothing",
 			override: nil,
-			config: &transformation.Config{
+			initial: &external.Config{
 				Database: "test_db",
 				Table:    "test_table",
-				Interval: &transformation.IntervalConfig{
-					Max: 100,
-					Min: 10,
-				},
-			},
-			expectedConfig: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Interval: &transformation.IntervalConfig{
-					Max: 100,
-					Min: 10,
-				},
-			},
-		},
-		{
-			name: "override interval max only",
-			override: &ModelOverride{
-				Config: &TransformationOverride{
-					Interval: &IntervalOverride{
-						Max: uint64Ptr(200),
-					},
-				},
-			},
-			config: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Interval: &transformation.IntervalConfig{
-					Max: 100,
-					Min: 10,
-				},
-			},
-			expectedConfig: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Interval: &transformation.IntervalConfig{
-					Max: 200,
-					Min: 10,
-				},
-			},
-		},
-		{
-			name: "override both interval values",
-			override: &ModelOverride{
-				Config: &TransformationOverride{
-					Interval: &IntervalOverride{
-						Max: uint64Ptr(500),
-						Min: uint64Ptr(50),
-					},
-				},
-			},
-			config: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Interval: &transformation.IntervalConfig{
-					Max: 100,
-					Min: 10,
-				},
-			},
-			expectedConfig: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Interval: &transformation.IntervalConfig{
-					Max: 500,
-					Min: 50,
-				},
-			},
-		},
-		{
-			name: "override schedules",
-			override: &ModelOverride{
-				Config: &TransformationOverride{
-					Schedules: &SchedulesOverride{
-						ForwardFill: stringPtr("@every 10m"),
-						Backfill:    stringPtr(""),
-					},
-				},
-			},
-			config: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Schedules: &transformation.SchedulesConfig{
-					ForwardFill: "@every 1m",
-					Backfill:    "@every 5m",
-				},
-			},
-			expectedConfig: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Schedules: &transformation.SchedulesConfig{
-					ForwardFill: "@every 10m",
-					Backfill:    "",
-				},
-			},
-		},
-		{
-			name: "add limits when not present",
-			override: &ModelOverride{
-				Config: &TransformationOverride{
-					Limits: &LimitsOverride{
-						Min: uint64Ptr(1000),
-						Max: uint64Ptr(2000),
-					},
-				},
-			},
-			config: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-			},
-			expectedConfig: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Limits: &transformation.LimitsConfig{
-					Min: 1000,
-					Max: 2000,
-				},
-			},
-		},
-		{
-			name: "override existing limits",
-			override: &ModelOverride{
-				Config: &TransformationOverride{
-					Limits: &LimitsOverride{
-						Max: uint64Ptr(5000),
-					},
-				},
-			},
-			config: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Limits: &transformation.LimitsConfig{
-					Min: 100,
-					Max: 1000,
-				},
-			},
-			expectedConfig: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Limits: &transformation.LimitsConfig{
-					Min: 100,
-					Max: 5000,
-				},
-			},
-		},
-		{
-			name: "append tags",
-			override: &ModelOverride{
-				Config: &TransformationOverride{
-					Tags: []string{"staging", "low-priority"},
-				},
-			},
-			config: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Tags:     []string{"batch", "daily"},
-			},
-			expectedConfig: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Tags:     []string{"batch", "daily", "staging", "low-priority"},
-			},
-		},
-		{
-			name: "complex override with multiple fields",
-			override: &ModelOverride{
-				Config: &TransformationOverride{
-					Interval: &IntervalOverride{
-						Max: uint64Ptr(7200),
-					},
-					Schedules: &SchedulesOverride{
-						ForwardFill: stringPtr("@every 30m"),
-					},
-					Limits: &LimitsOverride{
-						Min: uint64Ptr(5000),
-					},
-					Tags: []string{"override-tag"},
-				},
-			},
-			config: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Interval: &transformation.IntervalConfig{
-					Max: 3600,
-					Min: 0,
-				},
-				Schedules: &transformation.SchedulesConfig{
-					ForwardFill: "@every 5m",
-					Backfill:    "@every 10m",
-				},
-				Limits: &transformation.LimitsConfig{
-					Min: 1000,
-					Max: 10000,
-				},
-				Tags: []string{"original"},
-			},
-			expectedConfig: &transformation.Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Interval: &transformation.IntervalConfig{
-					Max: 7200,
-					Min: 0,
-				},
-				Schedules: &transformation.SchedulesConfig{
-					ForwardFill: "@every 30m",
-					Backfill:    "@every 10m",
-				},
-				Limits: &transformation.LimitsConfig{
-					Min: 5000,
-					Max: 10000,
-				},
-				Tags: []string{"original", "override-tag"},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Make a copy to avoid modifying the original
-			configCopy := *tt.config
-			if tt.config.Interval != nil {
-				intervalCopy := *tt.config.Interval
-				configCopy.Interval = &intervalCopy
-			}
-			if tt.config.Schedules != nil {
-				schedulesCopy := *tt.config.Schedules
-				configCopy.Schedules = &schedulesCopy
-			}
-			if tt.config.Limits != nil {
-				limitsCopy := *tt.config.Limits
-				configCopy.Limits = &limitsCopy
-			}
-			if tt.config.Tags != nil {
-				configCopy.Tags = make([]string, len(tt.config.Tags))
-				copy(configCopy.Tags, tt.config.Tags)
-			}
-
-			tt.override.ApplyToTransformation(&configCopy)
-			assert.Equal(t, tt.expectedConfig, &configCopy)
-		})
-	}
-}
-
-func TestOverrideIntegration(t *testing.T) {
-	// Test that overrides work correctly when applied through the service
-	config := &Config{
-		External: ExternalConfig{
-			Paths:           []string{"testdata/external"},
-			DefaultDatabase: "ethereum",
-		},
-		Transformation: TransformationConfig{
-			Paths:           []string{"testdata/transformations"},
-			DefaultDatabase: "analytics",
-		},
-		Overrides: map[string]*ModelOverride{
-			"analytics.test_table": {
-				Config: &TransformationOverride{
-					Interval: &IntervalOverride{
-						Max: uint64Ptr(7200),
-					},
-				},
-			},
-			"analytics.disabled_model": {
-				Enabled: boolPtr(false),
-			},
-		},
-	}
-
-	// Validate the config structure
-	require.NotNil(t, config.Overrides)
-	assert.Len(t, config.Overrides, 2)
-
-	// Check specific override configurations
-	testTableOverride := config.Overrides["analytics.test_table"]
-	require.NotNil(t, testTableOverride)
-	require.NotNil(t, testTableOverride.Config)
-	transOverride, ok := testTableOverride.Config.(*TransformationOverride)
-	require.True(t, ok)
-	require.NotNil(t, transOverride.Interval)
-	assert.Equal(t, uint64(7200), *transOverride.Interval.Max)
-
-	disabledOverride := config.Overrides["analytics.disabled_model"]
-	require.NotNil(t, disabledOverride)
-	assert.True(t, disabledOverride.IsDisabled())
-}
-
-func TestOverride_DisableScheduleWithEmptyString(t *testing.T) {
-	// Test that setting a schedule to empty string properly disables it
-	t.Run("disable backfill with empty string", func(t *testing.T) {
-		yamlContent := `
-test_model:
-  config:
-    schedules:
-      backfill: ""
-`
-		var overrides map[string]*ModelOverride
-		err := yaml.Unmarshal([]byte(yamlContent), &overrides)
-		assert.NoError(t, err)
-
-		override := overrides["test_model"]
-		assert.NotNil(t, override)
-
-		// Resolve the config
-		err = override.ResolveConfig(ModelTypeTransformation)
-		require.NoError(t, err)
-
-		// Create a config with existing backfill schedule
-		config := &transformation.Config{
-			Database: "test_db",
-			Table:    "test_table",
-			Schedules: &transformation.SchedulesConfig{
-				ForwardFill: "@every 1m",
-				Backfill:    "@every 5m", // Has existing backfill
-			},
-		}
-
-		// Apply override
-		override.ApplyToTransformation(config)
-
-		// Verify backfill is disabled
-		assert.Equal(t, "", config.Schedules.Backfill, "Backfill should be empty string")
-		assert.False(t, config.IsBackfillEnabled(), "Backfill should be disabled")
-		assert.True(t, config.IsForwardFillEnabled(), "ForwardFill should still be enabled")
-	})
-
-	t.Run("disable forwardfill with empty string", func(t *testing.T) {
-		yamlContent := `
-test_model:
-  config:
-    schedules:
-      forwardfill: ""
-`
-		var overrides map[string]*ModelOverride
-		err := yaml.Unmarshal([]byte(yamlContent), &overrides)
-		assert.NoError(t, err)
-
-		override := overrides["test_model"]
-		assert.NotNil(t, override)
-
-		// Resolve the config
-		err = override.ResolveConfig(ModelTypeTransformation)
-		require.NoError(t, err)
-
-		// Create a config with existing schedules
-		config := &transformation.Config{
-			Database: "test_db",
-			Table:    "test_table",
-			Schedules: &transformation.SchedulesConfig{
-				ForwardFill: "@every 1m", // Has existing forwardfill
-				Backfill:    "@every 5m",
-			},
-		}
-
-		// Apply override
-		override.ApplyToTransformation(config)
-
-		// Verify forwardfill is disabled
-		assert.Equal(t, "", config.Schedules.ForwardFill, "ForwardFill should be empty string")
-		assert.False(t, config.IsForwardFillEnabled(), "ForwardFill should be disabled")
-		assert.True(t, config.IsBackfillEnabled(), "Backfill should still be enabled")
-	})
-}
-
-func TestExternalModelOverride_ApplyToExternal(t *testing.T) {
-	tests := []struct {
-		name           string
-		override       *ModelOverride
-		initialConfig  *external.Config
-		expectedConfig *external.Config
-	}{
-		{
-			name: "override lag only",
-			override: &ModelOverride{
-				Config: &ExternalOverride{
-					Lag: uint64Ptr(60),
-				},
-			},
-			initialConfig: &external.Config{
-				Database: "mainnet",
-				Table:    "beacon_block",
-				Lag:      12,
-				Cache: &external.CacheConfig{
-					IncrementalScanInterval: 5 * time.Second,
-					FullScanInterval:        24 * time.Hour,
-				},
-			},
-			expectedConfig: &external.Config{
-				Database: "mainnet",
-				Table:    "beacon_block",
-				Lag:      60,
-				Cache: &external.CacheConfig{
-					IncrementalScanInterval: 5 * time.Second,
-					FullScanInterval:        24 * time.Hour,
-				},
-			},
-		},
-		{
-			name: "override cache intervals",
-			override: &ModelOverride{
-				Config: &ExternalOverride{
-					Cache: &CacheOverride{
-						IncrementalScanInterval: durationPtr(10 * time.Second),
-						FullScanInterval:        durationPtr(48 * time.Hour),
-					},
-				},
-			},
-			initialConfig: &external.Config{
-				Database: "mainnet",
-				Table:    "beacon_block",
-				Lag:      12,
-				Cache: &external.CacheConfig{
-					IncrementalScanInterval: 5 * time.Second,
-					FullScanInterval:        24 * time.Hour,
-				},
-			},
-			expectedConfig: &external.Config{
-				Database: "mainnet",
-				Table:    "beacon_block",
-				Lag:      12,
-				Cache: &external.CacheConfig{
-					IncrementalScanInterval: 10 * time.Second,
-					FullScanInterval:        48 * time.Hour,
-				},
-			},
-		},
-		{
-			name: "override both lag and cache",
-			override: &ModelOverride{
-				Config: &ExternalOverride{
-					Lag: uint64Ptr(100),
-					Cache: &CacheOverride{
-						IncrementalScanInterval: durationPtr(15 * time.Second),
-						FullScanInterval:        durationPtr(72 * time.Hour),
-					},
-				},
-			},
-			initialConfig: &external.Config{
-				Database: "mainnet",
-				Table:    "beacon_block",
-				Lag:      12,
-				Cache: &external.CacheConfig{
-					IncrementalScanInterval: 5 * time.Second,
-					FullScanInterval:        24 * time.Hour,
-				},
-			},
-			expectedConfig: &external.Config{
-				Database: "mainnet",
-				Table:    "beacon_block",
 				Lag:      100,
-				Cache: &external.CacheConfig{
-					IncrementalScanInterval: 15 * time.Second,
-					FullScanInterval:        72 * time.Hour,
-				},
 			},
-		},
-		{
-			name: "override incremental scan interval only",
-			override: &ModelOverride{
-				Config: &ExternalOverride{
-					Cache: &CacheOverride{
-						IncrementalScanInterval: durationPtr(20 * time.Second),
-					},
-				},
-			},
-			initialConfig: &external.Config{
-				Database: "mainnet",
-				Table:    "beacon_block",
-				Lag:      12,
-				Cache: &external.CacheConfig{
-					IncrementalScanInterval: 5 * time.Second,
-					FullScanInterval:        24 * time.Hour,
-				},
-			},
-			expectedConfig: &external.Config{
-				Database: "mainnet",
-				Table:    "beacon_block",
-				Lag:      12,
-				Cache: &external.CacheConfig{
-					IncrementalScanInterval: 20 * time.Second,
-					FullScanInterval:        24 * time.Hour,
-				},
+			checkFunc: func(t *testing.T, config *external.Config) {
+				assert.Equal(t, uint64(100), config.Lag)
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Make a copy of the initial config
-			configCopy := *tt.initialConfig
-			if tt.initialConfig.Cache != nil {
-				cacheCopy := *tt.initialConfig.Cache
-				configCopy.Cache = &cacheCopy
+			config := tt.initial
+			if tt.override != nil {
+				tt.override.applyToExternal(config)
 			}
-
-			// Apply override
-			tt.override.ApplyToExternal(&configCopy)
-
-			// Verify
-			assert.Equal(t, tt.expectedConfig.Lag, configCopy.Lag)
-			assert.Equal(t, tt.expectedConfig.Cache.IncrementalScanInterval, configCopy.Cache.IncrementalScanInterval)
-			assert.Equal(t, tt.expectedConfig.Cache.FullScanInterval, configCopy.Cache.FullScanInterval)
+			tt.checkFunc(t, config)
 		})
 	}
 }
 
-func TestTableOnlyOverrides(t *testing.T) {
-	// Test that table-only overrides work when models use default database
+func TestSchedulesOverride_Behavior(t *testing.T) {
 	tests := []struct {
-		name                string
-		defaultDatabase     string
-		overrides           map[string]*ModelOverride
-		modelFullID         string
-		modelTable          string
-		expectOverrideFound bool
-		expectDisabled      bool
+		name      string
+		yaml      string
+		checkFunc func(t *testing.T, s *SchedulesOverride)
 	}{
 		{
-			name:            "table-only override matches model with default database",
-			defaultDatabase: "analytics",
-			overrides: map[string]*ModelOverride{
-				"hourly_stats": {
-					Enabled: boolPtr(false),
-				},
+			name: "nil means keep existing",
+			yaml: `{}`,
+			checkFunc: func(t *testing.T, s *SchedulesOverride) {
+				assert.Nil(t, s.ForwardFill)
+				assert.Nil(t, s.Backfill)
 			},
-			modelFullID:         "analytics.hourly_stats",
-			modelTable:          "hourly_stats",
-			expectOverrideFound: true,
-			expectDisabled:      true,
 		},
 		{
-			name:            "full ID override still works",
-			defaultDatabase: "analytics",
-			overrides: map[string]*ModelOverride{
-				"analytics.hourly_stats": {
-					Enabled: boolPtr(false),
-				},
+			name: "empty string means disable",
+			yaml: `
+forwardfill: ""
+backfill: ""
+`,
+			checkFunc: func(t *testing.T, s *SchedulesOverride) {
+				require.NotNil(t, s.ForwardFill)
+				assert.Equal(t, "", *s.ForwardFill)
+				require.NotNil(t, s.Backfill)
+				assert.Equal(t, "", *s.Backfill)
 			},
-			modelFullID:         "analytics.hourly_stats",
-			modelTable:          "hourly_stats",
-			expectOverrideFound: true,
-			expectDisabled:      true,
 		},
 		{
-			name:            "table-only override doesn't match model with different database",
-			defaultDatabase: "analytics",
-			overrides: map[string]*ModelOverride{
-				"hourly_stats": {
-					Enabled: boolPtr(false),
-				},
+			name: "non-empty means new schedule",
+			yaml: `
+forwardfill: "@every 30s"
+backfill: "@every 1m"
+`,
+			checkFunc: func(t *testing.T, s *SchedulesOverride) {
+				require.NotNil(t, s.ForwardFill)
+				assert.Equal(t, "@every 30s", *s.ForwardFill)
+				require.NotNil(t, s.Backfill)
+				assert.Equal(t, "@every 1m", *s.Backfill)
 			},
-			modelFullID:         "custom.hourly_stats",
-			modelTable:          "hourly_stats",
-			expectOverrideFound: false,
-			expectDisabled:      false,
 		},
 		{
-			name:            "prefer full ID override over table-only",
-			defaultDatabase: "analytics",
-			overrides: map[string]*ModelOverride{
-				"analytics.hourly_stats": {
-					Enabled: boolPtr(false),
-				},
-				"hourly_stats": {
-					Enabled: boolPtr(true),
-				},
+			name: "mixed: one disabled, one new",
+			yaml: `
+forwardfill: ""
+backfill: "@every 2m"
+`,
+			checkFunc: func(t *testing.T, s *SchedulesOverride) {
+				require.NotNil(t, s.ForwardFill)
+				assert.Equal(t, "", *s.ForwardFill) // Disabled
+				require.NotNil(t, s.Backfill)
+				assert.Equal(t, "@every 2m", *s.Backfill) // New schedule
 			},
-			modelFullID:         "analytics.hourly_stats",
-			modelTable:          "hourly_stats",
-			expectOverrideFound: true,
-			expectDisabled:      true, // Should use the full ID override (disabled)
-		},
-		{
-			name:            "no override found",
-			defaultDatabase: "analytics",
-			overrides: map[string]*ModelOverride{
-				"other_table": {
-					Enabled: boolPtr(false),
-				},
-			},
-			modelFullID:         "analytics.hourly_stats",
-			modelTable:          "hourly_stats",
-			expectOverrideFound: false,
-			expectDisabled:      false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a minimal service with the config
-			s := &service{
-				config: &Config{
-					Transformation: TransformationConfig{
-						DefaultDatabase: tt.defaultDatabase,
-					},
-					Overrides: tt.overrides,
-				},
-			}
-
-			// Test the findOverride method
-			override, overrideKey := s.findOverride(tt.modelFullID, tt.modelTable, ModelTypeTransformation)
-
-			if tt.expectOverrideFound {
-				assert.NotNil(t, override, "Expected to find override")
-				assert.NotEmpty(t, overrideKey, "Expected override key")
-
-				if tt.expectDisabled {
-					assert.True(t, override.IsDisabled(), "Expected model to be disabled")
-				} else {
-					assert.False(t, override.IsDisabled(), "Expected model to be enabled")
-				}
-			} else {
-				assert.Nil(t, override, "Expected no override")
-				assert.Empty(t, overrideKey, "Expected no override key")
-			}
+			var s SchedulesOverride
+			err := yaml.Unmarshal([]byte(tt.yaml), &s)
+			require.NoError(t, err)
+			tt.checkFunc(t, &s)
 		})
 	}
 }
 
-// Helper functions for creating pointers
-func boolPtr(b bool) *bool {
+// Helper functions
+func ptrBool(b bool) *bool {
 	return &b
 }
 
-func uint64Ptr(u uint64) *uint64 {
+func ptrUint64(u uint64) *uint64 {
 	return &u
 }
 
-func stringPtr(s string) *string {
-	return &s
-}
-
-func durationPtr(d time.Duration) *time.Duration {
+func ptrDuration(d time.Duration) *time.Duration {
 	return &d
 }
