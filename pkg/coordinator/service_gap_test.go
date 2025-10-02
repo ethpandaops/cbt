@@ -26,67 +26,6 @@ type validationCall struct {
 	interval uint64
 }
 
-func (m *mockValidatorWithGaps) ValidateDependencies(_ context.Context, modelID string, position, interval uint64) (validation.Result, error) {
-	// Track the call
-	m.calls = append(m.calls, validationCall{
-		modelID:  modelID,
-		position: position,
-		interval: interval,
-	})
-
-	// Return the next pre-configured result
-	if m.index < len(m.results) {
-		result := m.results[m.index]
-		m.index++
-		return result, nil
-	}
-
-	// Default to no more data
-	return validation.Result{CanProcess: false}, nil
-}
-
-func (m *mockValidatorWithGaps) GetInitialPosition(_ context.Context, _ string) (uint64, error) {
-	return 100, nil
-}
-
-func (m *mockValidatorWithGaps) GetEarliestPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockValidatorWithGaps) GetValidRange(_ context.Context, _ string) (minPos, maxPos uint64, err error) {
-	return 0, 1000, nil
-}
-
-// mockTransformationForGaps implements models.Transformation for testing
-type mockTransformationForGaps struct {
-	id     string
-	config *transformation.Config
-}
-
-func (m *mockTransformationForGaps) GetID() string {
-	return m.id
-}
-
-func (m *mockTransformationForGaps) GetConfig() *transformation.Config {
-	return m.config
-}
-
-func (m *mockTransformationForGaps) GetConfigMutable() *transformation.Config {
-	return m.config
-}
-
-func (m *mockTransformationForGaps) GetType() string {
-	return "sql"
-}
-
-func (m *mockTransformationForGaps) GetValue() string {
-	return ""
-}
-
-func (m *mockTransformationForGaps) SetDefaultDatabase(_ string) {
-	// No-op for testing
-}
-
 func TestProcessForwardWithGapSkipping(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -365,4 +304,65 @@ func (m *mockAdminServiceForGaps) GetAdminDatabase() string {
 
 func (m *mockAdminServiceForGaps) GetAdminTable() string {
 	return "test_table"
+}
+
+func (m *mockValidatorWithGaps) ValidateDependencies(_ context.Context, modelID string, position, interval uint64) (validation.Result, error) {
+	// Track the call
+	m.calls = append(m.calls, validationCall{
+		modelID:  modelID,
+		position: position,
+		interval: interval,
+	})
+
+	// Return the next pre-configured result
+	if m.index < len(m.results) {
+		result := m.results[m.index]
+		m.index++
+		return result, nil
+	}
+
+	// Default to no more data
+	return validation.Result{CanProcess: false}, nil
+}
+
+func (m *mockValidatorWithGaps) GetInitialPosition(_ context.Context, _ string) (uint64, error) {
+	return 100, nil
+}
+
+func (m *mockValidatorWithGaps) GetEarliestPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockValidatorWithGaps) GetValidRange(_ context.Context, _ string) (minPos, maxPos uint64, err error) {
+	return 0, 1000, nil
+}
+
+// mockTransformationForGaps implements models.Transformation for testing
+type mockTransformationForGaps struct {
+	id     string
+	config *transformation.Config
+}
+
+func (m *mockTransformationForGaps) GetID() string {
+	return m.id
+}
+
+func (m *mockTransformationForGaps) GetConfig() *transformation.Config {
+	return m.config
+}
+
+func (m *mockTransformationForGaps) GetConfigMutable() *transformation.Config {
+	return m.config
+}
+
+func (m *mockTransformationForGaps) GetType() string {
+	return "sql"
+}
+
+func (m *mockTransformationForGaps) GetValue() string {
+	return ""
+}
+
+func (m *mockTransformationForGaps) SetDefaultDatabase(_ string) {
+	// No-op for testing
 }
