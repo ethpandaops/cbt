@@ -146,24 +146,42 @@ func (d *DependencyGraph) AddExternalModels(models []External) error {
 // AddTransformationEdges adds edges between transformation models based on dependencies
 func (d *DependencyGraph) AddTransformationEdges(models []Transformation) error {
 	for _, model := range models {
-		if model != nil {
-			config := model.GetConfig()
-			// Process all dependencies (both single and OR groups)
-			allDeps := config.GetFlattenedDependencies()
-			for _, depID := range allDeps {
-				// Validate dependency exists
-				if _, err := d.dag.GetVertex(depID); err != nil {
-					return fmt.Errorf("%w: %s depends on %s", ErrNonExistentDependency, model.GetID(), depID)
-				}
+		if model == nil {
+			continue
+		}
 
-				// AddEdge returns error if it would create a cycle
-				if err := d.dag.AddEdge(depID, model.GetID()); err != nil {
-					return fmt.Errorf("invalid dependency %s → %s: %w", depID, model.GetID(), err)
-				}
-			}
+		if err := d.addModelDependencies(model); err != nil {
+			return err
 		}
 	}
+	return nil
+}
 
+// addModelDependencies adds dependency edges for a single model
+func (d *DependencyGraph) addModelDependencies(model Transformation) error {
+	handler := model.GetHandler()
+	if handler == nil {
+		return nil
+	}
+
+	// Check if handler implements dependency provider interface
+	depProvider, ok := handler.(interface{ GetFlattenedDependencies() []string })
+	if !ok {
+		return nil
+	}
+
+	allDeps := depProvider.GetFlattenedDependencies()
+	for _, depID := range allDeps {
+		// Validate dependency exists
+		if _, err := d.dag.GetVertex(depID); err != nil {
+			return fmt.Errorf("%w: %s depends on %s", ErrNonExistentDependency, model.GetID(), depID)
+		}
+
+		// AddEdge returns error if it would create a cycle
+		if err := d.dag.AddEdge(depID, model.GetID()); err != nil {
+			return fmt.Errorf("invalid dependency %s → %s: %w", depID, model.GetID(), err)
+		}
+	}
 	return nil
 }
 

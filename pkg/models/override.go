@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/models/external"
-	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,7 +26,7 @@ const (
 
 // OverrideConfig defines the interface for override configurations
 type OverrideConfig interface {
-	applyToTransformation(config *transformation.Config)
+	applyToTransformation(model Transformation)
 	applyToExternal(config *external.Config)
 }
 
@@ -124,12 +123,12 @@ type LimitsOverride struct {
 }
 
 // ApplyToTransformation applies override configuration to a transformation model
-func (m *ModelOverride) ApplyToTransformation(config *transformation.Config) {
+func (m *ModelOverride) ApplyToTransformation(model Transformation) {
 	if m == nil || m.Config == nil {
 		return
 	}
 
-	m.Config.applyToTransformation(config)
+	m.Config.applyToTransformation(model)
 }
 
 // IsDisabled returns true if the model is explicitly disabled
@@ -137,66 +136,14 @@ func (m *ModelOverride) IsDisabled() bool {
 	return m != nil && m.Enabled != nil && !*m.Enabled
 }
 
-// TransformationOverride implements OverrideConfig for transformation models
-func (t *TransformationOverride) applyToTransformation(config *transformation.Config) {
-	t.applyIntervalOverrides(config)
-	t.applyScheduleOverrides(config)
-	t.applyLimitOverrides(config)
-	t.applyTagOverrides(config)
+// applyToTransformation is a no-op for TransformationOverride
+// The actual override application is handled at a different layer through the handler system
+func (t *TransformationOverride) applyToTransformation(_ Transformation) {
+	// No-op: overrides are applied through the handler system
 }
 
 func (t *TransformationOverride) applyToExternal(_ *external.Config) {
 	// No-op: transformation overrides don't apply to external models
-}
-
-func (t *TransformationOverride) applyIntervalOverrides(config *transformation.Config) {
-	if t.Interval == nil || config.Interval == nil {
-		return
-	}
-
-	if t.Interval.Max != nil {
-		config.Interval.Max = *t.Interval.Max
-	}
-	if t.Interval.Min != nil {
-		config.Interval.Min = *t.Interval.Min
-	}
-}
-
-func (t *TransformationOverride) applyScheduleOverrides(config *transformation.Config) {
-	if t.Schedules == nil || config.Schedules == nil {
-		return
-	}
-
-	if t.Schedules.ForwardFill != nil {
-		config.Schedules.ForwardFill = *t.Schedules.ForwardFill
-	}
-	if t.Schedules.Backfill != nil {
-		config.Schedules.Backfill = *t.Schedules.Backfill
-	}
-}
-
-func (t *TransformationOverride) applyLimitOverrides(config *transformation.Config) {
-	if t.Limits == nil {
-		return
-	}
-
-	// Initialize limits if not already present
-	if config.Limits == nil {
-		config.Limits = &transformation.LimitsConfig{}
-	}
-
-	if t.Limits.Min != nil {
-		config.Limits.Min = *t.Limits.Min
-	}
-	if t.Limits.Max != nil {
-		config.Limits.Max = *t.Limits.Max
-	}
-}
-
-func (t *TransformationOverride) applyTagOverrides(config *transformation.Config) {
-	if len(t.Tags) > 0 {
-		config.Tags = append(config.Tags, t.Tags...)
-	}
 }
 
 // ExternalOverride contains override values for external model configurations
@@ -213,7 +160,7 @@ type CacheOverride struct {
 }
 
 // ExternalOverride implements OverrideConfig for external models
-func (e *ExternalOverride) applyToTransformation(_ *transformation.Config) {
+func (e *ExternalOverride) applyToTransformation(_ Transformation) {
 	// No-op: external overrides don't apply to transformation models
 }
 

@@ -174,7 +174,8 @@ SELECT * FROM test`
 	require.NoError(t, err)
 
 	// Create transformation models with placeholder dependencies
-	transformationContent := `table: test_transform
+	transformationContent := `type: incremental
+table: test_transform
 interval:
   max: 100
   min: 10
@@ -190,7 +191,8 @@ exec: "echo test"`
 	require.NoError(t, err)
 
 	// Create another transformation that uses default database
-	transformationContent2 := `table: other_transform
+	transformationContent2 := `type: incremental
+table: other_transform
 interval:
   max: 100
   min: 10
@@ -234,31 +236,39 @@ exec: "echo test"`
 
 	// Verify dependencies were substituted correctly
 	for _, model := range s.transformationModels {
-		cfg := model.GetConfig()
-		for _, dep := range cfg.Dependencies {
-			// Should not contain any placeholders
-			if dep.IsGroup {
-				for _, groupDep := range dep.GroupDeps {
-					assert.NotContains(t, groupDep, "{{external}}")
-					assert.NotContains(t, groupDep, "{{transformation}}")
-				}
-			} else {
-				assert.NotContains(t, dep.SingleDep, "{{external}}")
-				assert.NotContains(t, dep.SingleDep, "{{transformation}}")
-			}
-		}
+		verifyModelDependencies(t, model)
+	}
+}
 
-		// Check specific substitutions by getting flattened dependencies
-		if cfg.Table == "test_transform" {
-			flatDeps := cfg.GetFlattenedDependencies()
-			assert.Contains(t, flatDeps, "ethereum.beacon_blocks")
-			assert.Contains(t, flatDeps, "analytics.other_transform")
-			assert.Contains(t, flatDeps, "custom_db.custom_table")
-		}
-		if cfg.Table == "other_transform" {
-			flatDeps := cfg.GetFlattenedDependencies()
-			assert.Contains(t, flatDeps, "ethereum.beacon_blocks")
-		}
+// verifyModelDependencies is a helper to check model dependencies
+func verifyModelDependencies(t *testing.T, model Transformation) {
+	cfg := model.GetConfig()
+	handler := model.GetHandler()
+	if handler == nil {
+		return
+	}
+
+	depProvider, ok := handler.(interface{ GetFlattenedDependencies() []string })
+	if !ok {
+		return
+	}
+
+	flatDeps := depProvider.GetFlattenedDependencies()
+
+	// Should not contain any placeholders
+	for _, dep := range flatDeps {
+		assert.NotContains(t, dep, "{{external}}")
+		assert.NotContains(t, dep, "{{transformation}}")
+	}
+
+	// Check specific substitutions
+	if cfg.Table == "test_transform" {
+		assert.Contains(t, flatDeps, "ethereum.beacon_blocks")
+		assert.Contains(t, flatDeps, "analytics.other_transform")
+		assert.Contains(t, flatDeps, "custom_db.custom_table")
+	}
+	if cfg.Table == "other_transform" {
+		assert.Contains(t, flatDeps, "ethereum.beacon_blocks")
 	}
 }
 
@@ -282,7 +292,8 @@ SELECT * FROM test`
 	require.NoError(t, err)
 
 	// Create a transformation model without database field
-	transformationContent := `table: test_table
+	transformationContent := `type: incremental
+table: test_table
 interval:
   max: 100
   min: 10

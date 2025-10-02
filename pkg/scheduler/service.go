@@ -13,8 +13,10 @@ import (
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/coordinator"
 	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/models/transformation/incremental"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	r "github.com/ethpandaops/cbt/pkg/redis"
+	"github.com/ethpandaops/cbt/pkg/tasks"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -25,6 +27,8 @@ const (
 	TransformationTaskPrefix = "transformation:"
 	// ConsolidationTaskType is the task type for consolidation
 	ConsolidationTaskType = "consolidation"
+	// BoundsOrchestratorTaskType is the task type for bounds orchestration
+	BoundsOrchestratorTaskType = "bounds:orchestrator"
 	// ExternalTaskPrefix is the prefix for external model tasks
 	ExternalTaskPrefix = "external:"
 	// QueueName is the queue name for scheduler tasks
@@ -43,6 +47,14 @@ const (
 var (
 	// ErrScheduleRegistrationFailed is returned when one or more scheduled tasks fail to register
 	ErrScheduleRegistrationFailed = errors.New("failed to register scheduled tasks")
+	// ErrNotScheduledType is returned when transformation is not a scheduled type
+	ErrNotScheduledType = errors.New("transformation is not a scheduled type")
+	// ErrCoordinatorNoQueueSupport is returned when coordinator doesn't support queue management
+	ErrCoordinatorNoQueueSupport = errors.New("coordinator doesn't support queue management")
+	// ErrQueueManagerNil is returned when queue manager is nil
+	ErrQueueManagerNil = errors.New("queue manager is nil")
+	// ErrQueueNoTransformationSupport is returned when queue doesn't support transformation enqueueing
+	ErrQueueNoTransformationSupport = errors.New("queue manager doesn't support transformation enqueueing")
 	// ErrInvalidExternalTaskType is returned when the external task type format is invalid
 	ErrInvalidExternalTaskType = errors.New("invalid external task type format")
 )
@@ -324,9 +336,10 @@ func (s *service) getExistingScheduledTasks() map[string]*asynq.SchedulerEntry {
 
 	for _, entry := range entries {
 		taskType := entry.Task.Type()
-		// Only track our tasks (transformation, consolidation, or external)
+		// Only track our tasks (transformation, consolidation, bounds orchestrator, or external)
 		if strings.HasPrefix(taskType, TransformationTaskPrefix) ||
 			taskType == ConsolidationTaskType ||
+			taskType == BoundsOrchestratorTaskType ||
 			strings.HasPrefix(taskType, ExternalTaskPrefix) {
 			existingTasks[taskType] = entry
 			s.log.WithFields(logrus.Fields{
@@ -388,14 +401,32 @@ func (s *service) buildDesiredTasks() map[string]string {
 func (s *service) registerTransformationHandlers(transformation models.Transformation) {
 	config := transformation.GetConfig()
 	modelID := transformation.GetID()
+	handler := transformation.GetHandler()
 
-	if config.IsForwardFillEnabled() {
+	// Handle scheduled transformations
+	if config.Type == "scheduled" {
+		scheduledTask := fmt.Sprintf("%s%s:scheduled", TransformationTaskPrefix, modelID)
+		s.mux.HandleFunc(scheduledTask, s.HandleScheduledTransformation)
+		s.log.WithField("model_id", modelID).Debug("Registered scheduled transformation handler")
+		return
+	}
+
+	// Handle incremental transformations
+	if handler == nil {
+		return
+	}
+
+	cfg, ok := handler.Config().(*incremental.Config)
+	if !ok || cfg.Schedules == nil {
+		return
+	}
+
+	if cfg.Schedules.ForwardFill != "" {
 		forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
 		s.mux.HandleFunc(forwardTask, s.HandleScheduledForward)
 		s.log.WithField("model_id", modelID).Debug("Registered forward fill handler")
 	}
-
-	if config.IsBackfillEnabled() {
+	if cfg.Schedules.Backfill != "" {
 		backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
 		s.mux.HandleFunc(backfillTask, s.HandleScheduledBackfill)
 		s.log.WithField("model_id", modelID).Debug("Registered backfill handler")
@@ -406,15 +437,66 @@ func (s *service) registerTransformationHandlers(transformation models.Transform
 func (s *service) buildTransformationTasks(transformation models.Transformation, desiredTasks map[string]string) {
 	config := transformation.GetConfig()
 	modelID := transformation.GetID()
+	handler := transformation.GetHandler()
 
-	if config.IsForwardFillEnabled() {
-		forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
-		desiredTasks[forwardTask] = config.GetForwardSchedule()
+	// Handle scheduled transformations
+	if config.Type == "scheduled" {
+		s.buildScheduledTransformationTasks(modelID, handler, desiredTasks)
+		return
 	}
 
-	if config.IsBackfillEnabled() {
+	// Handle incremental transformations
+	s.buildIncrementalTransformationTasks(modelID, handler, desiredTasks)
+}
+
+// buildScheduledTransformationTasks builds tasks for scheduled transformations
+func (s *service) buildScheduledTransformationTasks(modelID string, handler interface{}, desiredTasks map[string]string) {
+	if handler == nil {
+		return
+	}
+
+	type scheduleProvider interface {
+		GetSchedule() string
+	}
+	provider, ok := handler.(scheduleProvider)
+	if !ok {
+		return
+	}
+
+	schedule := provider.GetSchedule()
+	if schedule != "" {
+		scheduledTask := fmt.Sprintf("%s%s:scheduled", TransformationTaskPrefix, modelID)
+		desiredTasks[scheduledTask] = schedule
+	}
+}
+
+// buildIncrementalTransformationTasks builds tasks for incremental transformations
+func (s *service) buildIncrementalTransformationTasks(modelID string, handler interface{}, desiredTasks map[string]string) {
+	if handler == nil {
+		return
+	}
+
+	// Type assert handler to get config
+	type configProvider interface {
+		Config() interface{}
+	}
+	provider, ok := handler.(configProvider)
+	if !ok {
+		return
+	}
+
+	cfg, ok := provider.Config().(*incremental.Config)
+	if !ok || cfg.Schedules == nil {
+		return
+	}
+
+	if cfg.Schedules.ForwardFill != "" {
+		forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
+		desiredTasks[forwardTask] = cfg.Schedules.ForwardFill
+	}
+	if cfg.Schedules.Backfill != "" {
 		backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
-		desiredTasks[backfillTask] = config.GetBackfillSchedule()
+		desiredTasks[backfillTask] = cfg.Schedules.Backfill
 	}
 }
 
@@ -468,6 +550,10 @@ func (s *service) registerSystemHandlers() {
 		s.mux.HandleFunc(ConsolidationTaskType, s.HandleConsolidation)
 		s.log.Debug("Registered consolidation handler")
 	}
+
+	// Register bounds orchestrator handler
+	s.mux.HandleFunc(BoundsOrchestratorTaskType, s.HandleBoundsOrchestrator)
+	s.log.Debug("Registered bounds orchestrator handler")
 }
 
 // buildSystemTasks builds desired task schedules for system tasks
@@ -475,6 +561,9 @@ func (s *service) buildSystemTasks(desiredTasks map[string]string) {
 	if s.cfg.Consolidation != "" {
 		desiredTasks[ConsolidationTaskType] = s.cfg.Consolidation
 	}
+
+	// Add bounds orchestrator task - runs every second
+	desiredTasks[BoundsOrchestratorTaskType] = "@every 1s"
 }
 
 // reconcileTasks reconciles desired tasks with existing ones
@@ -640,7 +729,7 @@ func extractModelID(taskType string) string {
 func (s *service) HandleScheduledForward(_ context.Context, t *asynq.Task) error {
 	modelID := extractModelID(t.Type())
 
-	transformation, err := s.dag.GetTransformationNode(modelID)
+	trans, err := s.dag.GetTransformationNode(modelID)
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get transformation node")
 
@@ -650,7 +739,7 @@ func (s *service) HandleScheduledForward(_ context.Context, t *asynq.Task) error
 	s.log.WithField("model_id", modelID).Debug("Processing scheduled forward check")
 
 	// This triggers the existing forward fill logic
-	s.coordinator.Process(transformation, coordinator.DirectionForward)
+	s.coordinator.Process(trans, coordinator.DirectionForward)
 
 	// Record metrics
 	observability.RecordScheduledTaskExecution(modelID, string(coordinator.DirectionForward), "success")
@@ -687,10 +776,11 @@ func (s *service) runPeriodicCleanup() {
 			// Group by task type to find duplicates
 			taskGroups := make(map[string][]*asynq.SchedulerEntry, 10) // Add capacity hint
 			for _, entry := range entries {
-				// Only process our tasks (transformation, consolidation, or external)
+				// Only process our tasks (transformation, consolidation, bounds orchestrator, or external)
 				taskType := entry.Task.Type()
 				if strings.HasPrefix(taskType, TransformationTaskPrefix) ||
 					taskType == ConsolidationTaskType ||
+					taskType == BoundsOrchestratorTaskType ||
 					strings.HasPrefix(taskType, ExternalTaskPrefix) {
 					taskGroups[taskType] = append(taskGroups[taskType], entry)
 				}
@@ -751,7 +841,8 @@ func (s *service) removeObsoleteTasks(desiredTasks map[string]string, existingTa
 		// Check if this task is one we manage
 		isOurTask := strings.HasPrefix(taskType, TransformationTaskPrefix) ||
 			strings.HasPrefix(taskType, ExternalTaskPrefix) ||
-			taskType == ConsolidationTaskType
+			taskType == ConsolidationTaskType ||
+			taskType == BoundsOrchestratorTaskType
 
 		if !isOurTask {
 			// Skip tasks we don't manage
@@ -875,7 +966,7 @@ func (s *service) triggerInitialExternalScans(ctx context.Context) {
 func (s *service) HandleScheduledBackfill(_ context.Context, t *asynq.Task) error {
 	modelID := extractModelID(t.Type())
 
-	transformation, err := s.dag.GetTransformationNode(modelID)
+	trans, err := s.dag.GetTransformationNode(modelID)
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get transformation node")
 
@@ -885,7 +976,7 @@ func (s *service) HandleScheduledBackfill(_ context.Context, t *asynq.Task) erro
 	s.log.WithField("model_id", modelID).Debug("Processing scheduled backfill scan")
 
 	// This triggers the existing backfill logic
-	s.coordinator.Process(transformation, coordinator.DirectionBack)
+	s.coordinator.Process(trans, coordinator.DirectionBack)
 
 	// Record metrics
 	observability.RecordScheduledTaskExecution(modelID, string(coordinator.DirectionBack), "success")
@@ -907,6 +998,103 @@ func (s *service) HandleConsolidation(ctx context.Context, _ *asynq.Task) error 
 	}
 
 	return nil
+}
+
+// HandleBoundsOrchestrator processes the bounds orchestrator task
+// This task runs every second and checks if external models need bounds updates
+func (s *service) HandleBoundsOrchestrator(ctx context.Context, _ *asynq.Task) error {
+	s.log.Debug("Running bounds orchestrator check")
+
+	// Delegate to coordinator to handle bounds orchestration
+	if boundsOrchestrator, ok := s.coordinator.(interface{ ProcessBoundsOrchestration(context.Context) }); ok {
+		boundsOrchestrator.ProcessBoundsOrchestration(ctx)
+	} else {
+		s.log.Debug("Coordinator doesn't support bounds orchestration")
+	}
+
+	return nil
+}
+
+// HandleScheduledTransformation handles the execution of scheduled (cron-based) transformations
+func (s *service) HandleScheduledTransformation(_ context.Context, t *asynq.Task) error {
+	modelID := extractModelID(t.Type())
+
+	trans, err := s.dag.GetTransformationNode(modelID)
+	if err != nil {
+		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get transformation node")
+		return err
+	}
+
+	config := trans.GetConfig()
+
+	// Verify this is a scheduled transformation
+	if !config.IsScheduledType() {
+		s.log.WithField("model_id", modelID).Error("Task is not a scheduled transformation")
+		return fmt.Errorf("%w: %s", ErrNotScheduledType, modelID)
+	}
+
+	currentTime := time.Now()
+	s.log.WithFields(logrus.Fields{
+		"model_id":       modelID,
+		"type":           "scheduled",
+		"execution_time": currentTime.Format(time.RFC3339),
+	}).Debug("Processing scheduled transformation")
+
+	// For scheduled transformations, we create a scheduled task payload
+	taskPayload := tasks.ScheduledTaskPayload{
+		ModelID:       modelID,
+		ExecutionTime: currentTime,
+		EnqueuedAt:    currentTime,
+	}
+
+	// Try to enqueue through coordinator's queue manager
+	err = s.enqueueScheduledTask(taskPayload)
+	if err != nil {
+		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to enqueue scheduled transformation task")
+		return err
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"model_id":       modelID,
+		"execution_time": currentTime.Format(time.RFC3339),
+	}).Info("Enqueued scheduled transformation task")
+
+	return nil
+}
+
+// enqueueScheduledTask attempts to enqueue a scheduled transformation task
+func (s *service) enqueueScheduledTask(payload tasks.TaskPayload) error {
+	// Check if coordinator has GetQueueManager method
+	type queueManagerGetter interface {
+		GetQueueManager() interface{}
+	}
+
+	qmGetter, ok := s.coordinator.(queueManagerGetter)
+	if !ok {
+		return ErrCoordinatorNoQueueSupport
+	}
+
+	queueManager := qmGetter.GetQueueManager()
+	if queueManager == nil {
+		return ErrQueueManagerNil
+	}
+
+	// Check if queue manager supports EnqueueTransformation
+	type transformationEnqueuer interface {
+		EnqueueTransformation(payload tasks.TaskPayload, opts ...asynq.Option) error
+	}
+
+	enqueuer, ok := queueManager.(transformationEnqueuer)
+	if !ok {
+		return ErrQueueNoTransformationSupport
+	}
+
+	// Both scheduled and incremental transformations use the same uniqueness strategy:
+	// The unique ID is based on model_id:position:interval
+	// For scheduled: model_id:0:0 (always the same, preventing overlapping runs)
+	// For incremental: model_id:position:interval (preventing duplicate processing of same range)
+	// Use 1 second uniqueness - just prevents rapid-fire duplicates, task ID handles actual deduplication
+	return enqueuer.EnqueueTransformation(payload, asynq.Unique(1*time.Second))
 }
 
 // Ensure service implements the interface

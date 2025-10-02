@@ -259,7 +259,14 @@ func (v *dependencyValidator) GetEarliestPosition(ctx context.Context, modelID s
 	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
 	}
-	interval := model.GetConfig().GetMaxInterval()
+	// Get interval from handler
+	var interval uint64
+	handler := model.GetHandler()
+	if handler != nil {
+		if intervalProvider, ok := handler.(interface{ GetMaxInterval() uint64 }); ok {
+			interval = intervalProvider.GetMaxInterval()
+		}
+	}
 
 	// For backfill gap detection, we want to start from where data is available
 	// Don't round up past the actual data availability point
@@ -314,7 +321,14 @@ func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
 	}
-	interval := model.GetConfig().GetMaxInterval()
+	// Get interval from handler
+	var interval uint64
+	handler := model.GetHandler()
+	if handler != nil {
+		if intervalProvider, ok := handler.(interface{ GetMaxInterval() uint64 }); ok {
+			interval = intervalProvider.GetMaxInterval()
+		}
+	}
 
 	// Use GetValidRange to get the valid range
 	minPos, maxPos, err := v.GetValidRange(ctx, modelID)
@@ -415,22 +429,46 @@ func (v *dependencyValidator) collectDependencyBoundsWithOR(ctx context.Context,
 		transformationDeps: []dependencyBound{},
 	}
 
-	transformConfig := model.GetConfig()
-	for _, dep := range transformConfig.Dependencies {
+	// Get dependencies from handler
+	handler := model.GetHandler()
+	if handler == nil {
+		return bounds, nil
+	}
+
+	// For incremental types, get dependencies with OR support
+	if err := v.processDependenciesFromHandler(ctx, handler, bounds); err != nil {
+		return nil, err
+	}
+
+	return bounds, nil
+}
+
+// processDependenciesFromHandler processes dependencies from a handler if it provides them
+func (v *dependencyValidator) processDependenciesFromHandler(ctx context.Context, handler transformation.Handler, bounds *dependencyBounds) error {
+	type dependencyProvider interface {
+		GetDependencies() []transformation.Dependency
+	}
+
+	depProvider, ok := handler.(dependencyProvider)
+	if !ok {
+		return nil
+	}
+
+	dependencies := depProvider.GetDependencies()
+	for _, dep := range dependencies {
 		if dep.IsGroup {
 			// Process OR group
 			if err := v.processORGroup(ctx, dep, bounds); err != nil {
-				return nil, err
+				return err
 			}
 		} else {
 			// Process single dependency
 			if err := v.processSingleDependency(ctx, dep.SingleDep, bounds); err != nil {
-				return nil, err
+				return err
 			}
 		}
 	}
-
-	return bounds, nil
+	return nil
 }
 
 // processORGroup processes an OR group dependency and adds the best available bounds
@@ -618,11 +656,10 @@ func (v *dependencyValidator) GetValidRange(ctx context.Context, modelID string)
 		return 0, 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
 	}
 
-	// Get the model's configuration
-	config := model.GetConfig()
+	// Get the model's configuration (not used directly anymore, dependencies from handler)
 
-	if len(config.Dependencies) == 0 {
-		// No dependencies - no valid range (model needs dependencies to process)
+	// Check if model has dependencies through handler
+	if !v.hasDependencies(model) {
 		return 0, 0, nil
 	}
 
@@ -635,15 +672,8 @@ func (v *dependencyValidator) GetValidRange(ctx context.Context, modelID string)
 	// Calculate the final range
 	finalMin, finalMax := v.calculateFinalRange(bounds)
 
-	// Apply configured limits if any
-	if config.Limits != nil {
-		if config.Limits.Min > 0 && config.Limits.Min > finalMin {
-			finalMin = config.Limits.Min
-		}
-		if config.Limits.Max > 0 && config.Limits.Max < finalMax {
-			finalMax = config.Limits.Max
-		}
-	}
+	// Apply configured limits from handler if any
+	finalMin, finalMax = v.applyLimitsFromHandler(model.GetHandler(), modelID, finalMin, finalMax)
 
 	// Ensure min <= max
 	if finalMin > finalMax {
@@ -791,3 +821,57 @@ func mergeOverlappingGaps(gaps []admin.GapInfo) []admin.GapInfo {
 
 	return merged
 }
+
+// hasDependencies checks if a model has dependencies through its handler
+func (v *dependencyValidator) hasDependencies(model models.Transformation) bool {
+	handler := model.GetHandler()
+	if handler == nil {
+		return false
+	}
+
+	type dependencyProvider interface{ GetFlattenedDependencies() []string }
+	depProvider, ok := handler.(dependencyProvider)
+	if !ok {
+		return false
+	}
+
+	deps := depProvider.GetFlattenedDependencies()
+	return len(deps) > 0
+}
+
+// applyLimitsFromHandler applies configured limits from handler if available
+func (v *dependencyValidator) applyLimitsFromHandler(handler transformation.Handler, _ string, finalMin, finalMax uint64) (adjustedMin, adjustedMax uint64) {
+	if handler == nil {
+		return finalMin, finalMax
+	}
+
+	type limitsProvider interface {
+		GetLimits() *struct {
+			Min uint64
+			Max uint64
+		}
+	}
+
+	provider, ok := handler.(limitsProvider)
+	if !ok {
+		return finalMin, finalMax
+	}
+
+	limits := provider.GetLimits()
+	if limits == nil {
+		return finalMin, finalMax
+	}
+
+	if limits.Min > 0 && limits.Min > finalMin {
+		finalMin = limits.Min
+	}
+
+	if limits.Max > 0 && limits.Max < finalMax {
+		finalMax = limits.Max
+	}
+
+	return finalMin, finalMax
+}
+
+// Ensure dependencyValidator implements Validator interface
+var _ Validator = (*dependencyValidator)(nil)
