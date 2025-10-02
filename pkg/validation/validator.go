@@ -749,7 +749,6 @@ func (v *dependencyValidator) findNextValidPosition(
 }
 
 // sortGapsByStart sorts gaps in ascending order by their start position.
-// Uses insertion sort which is efficient for small arrays (typical case).
 func sortGapsByStart(gaps []admin.GapInfo) {
 	for i := 1; i < len(gaps); i++ {
 		var (

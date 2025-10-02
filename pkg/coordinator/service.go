@@ -188,13 +188,16 @@ func (s *service) processForward(trans models.Transformation) {
 		return
 	}
 
-	ctx := context.Background()
-	modelID := trans.GetID()
+	var (
+		ctx     = context.Background()
+		modelID = trans.GetID()
+	)
 
 	// Get starting position
 	position, err := s.admin.GetNextUnprocessedPosition(ctx, modelID)
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get position")
+
 		return
 	}
 
@@ -203,8 +206,10 @@ func (s *service) processForward(trans models.Transformation) {
 		initialPos, err := s.validator.GetInitialPosition(ctx, modelID)
 		if err != nil {
 			s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get initial position")
+
 			return
 		}
+
 		position = initialPos
 	}
 
@@ -220,12 +225,17 @@ func (s *service) processForward(trans models.Transformation) {
 // over gaps in transformation dependencies. When a gap is detected, it jumps to the next
 // position where all dependencies have data available, allowing forward fill to continue
 // rather than stopping at the first gap.
-func (s *service) processForwardWithGapSkipping(ctx context.Context, trans models.Transformation, startPos uint64) {
-	config := trans.GetConfig()
-	modelID := trans.GetID()
-	maxInterval := config.GetMaxInterval()
-
-	currentPos := startPos
+func (s *service) processForwardWithGapSkipping(
+	ctx context.Context,
+	trans models.Transformation,
+	startPos uint64,
+) {
+	var (
+		config      = trans.GetConfig()
+		modelID     = trans.GetID()
+		maxInterval = config.GetMaxInterval()
+		currentPos  = startPos
+	)
 
 	// Process forward until we reach configured limits or run out of dependency data
 	for config.Limits == nil || config.Limits.Max == 0 || currentPos < config.Limits.Max {
@@ -241,6 +251,7 @@ func (s *service) processForwardWithGapSkipping(ctx context.Context, trans model
 		result, err := s.validator.ValidateDependencies(ctx, modelID, currentPos, interval)
 		if err != nil {
 			s.log.WithError(err).WithField("model_id", modelID).Error("Critical validation error")
+
 			return
 		}
 
@@ -248,6 +259,7 @@ func (s *service) processForwardWithGapSkipping(ctx context.Context, trans model
 		case result.CanProcess:
 			// All dependencies have data for this range - enqueue for processing
 			s.checkAndEnqueuePositionWithTrigger(ctx, trans, currentPos, interval, "forward_fill")
+
 			currentPos += interval
 
 		case result.NextValidPos > currentPos:
@@ -257,6 +269,7 @@ func (s *service) processForwardWithGapSkipping(ctx context.Context, trans model
 				"gap_start": currentPos,
 				"gap_end":   result.NextValidPos,
 			}).Info("Skipping gap in transformation dependencies")
+
 			currentPos = result.NextValidPos
 
 		default:
@@ -265,6 +278,7 @@ func (s *service) processForwardWithGapSkipping(ctx context.Context, trans model
 				"model_id":      modelID,
 				"last_position": currentPos,
 			}).Debug("No more valid positions found - reached end of dependency data")
+
 			return
 		}
 	}
