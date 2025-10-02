@@ -137,7 +137,7 @@ func (h *Handler) GetMinInterval() uint64 {
 
 // GetFlattenedDependencies returns all dependencies as a flat string array
 func (h *Handler) GetFlattenedDependencies() []string {
-	var result []string
+	result := []string{}
 	for _, dep := range h.config.Dependencies {
 		result = append(result, dep.GetAllDependencies()...)
 	}
