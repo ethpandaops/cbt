@@ -209,34 +209,43 @@ func (s *service) processForwardWithGapSkipping(ctx context.Context, trans model
 	modelID := trans.GetID()
 	currentPos := startPos
 
-	for maxLimit == 0 || currentPos < maxLimit {
-		interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, currentPos, maxLimit)
-		if shouldReturn {
+	// Calculate interval for this position
+	interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, currentPos, maxLimit)
+	if shouldReturn {
+		return
+	}
+
+	// Validate dependencies for this position
+	result, err := s.validator.ValidateDependencies(ctx, modelID, currentPos, interval)
+	if err != nil {
+		s.log.WithError(err).WithField("model_id", modelID).Error("Critical validation error")
+		return
+	}
+
+	switch {
+	case result.CanProcess:
+		// Dependencies satisfied, enqueue the task
+		s.checkAndEnqueuePositionWithTrigger(ctx, trans, currentPos, interval)
+
+	case result.NextValidPos > currentPos:
+		// Gap detected - skip to next valid position and enqueue there
+		s.log.WithFields(logrus.Fields{
+			"model_id":  modelID,
+			"gap_start": currentPos,
+			"gap_end":   result.NextValidPos,
+		}).Info("Skipping gap in transformation dependencies")
+
+		// Check if the next valid position is within limits
+		if maxLimit > 0 && result.NextValidPos >= maxLimit {
+			s.log.WithField("model_id", modelID).Debug("Next valid position beyond limit")
 			return
 		}
 
-		result, err := s.validator.ValidateDependencies(ctx, modelID, currentPos, interval)
-		if err != nil {
-			s.log.WithError(err).WithField("model_id", modelID).Error("Critical validation error")
-			return
-		}
+		// Recursively process the next valid position (single recursion to skip gap)
+		s.processForwardWithGapSkipping(ctx, trans, result.NextValidPos, maxLimit)
 
-		switch {
-		case result.CanProcess:
-			s.checkAndEnqueuePositionWithTrigger(ctx, trans, currentPos, interval)
-			currentPos += interval
-
-		case result.NextValidPos > currentPos:
-			s.log.WithFields(logrus.Fields{
-				"model_id":  modelID,
-				"gap_start": currentPos,
-				"gap_end":   result.NextValidPos,
-			}).Info("Skipping gap in transformation dependencies")
-			currentPos = result.NextValidPos
-
-		default:
-			s.log.WithField("model_id", modelID).Debug("No more valid positions for forward fill")
-			return
-		}
+	default:
+		// No valid position to process
+		s.log.WithField("model_id", modelID).Debug("No more valid positions for forward fill")
 	}
 }

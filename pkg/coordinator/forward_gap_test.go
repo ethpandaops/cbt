@@ -21,25 +21,25 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 			canProcess   bool
 			nextValidPos uint64
 		}
-		expectedPositions []uint64
+		expectedPositions []uint64 // Positions where validator is called
+		expectedEnqueued  int      // Number of tasks enqueued
 		startPos          uint64
 		maxLimit          uint64
 	}{
 		{
-			name: "gap detected, skip and continue",
+			name: "gap detected, skip and enqueue at next valid",
 			validationResults: []struct {
 				position     uint64
 				canProcess   bool
 				nextValidPos uint64
 			}{
-				{position: 100, canProcess: false, nextValidPos: 110}, // Gap detected
-				{position: 110, canProcess: true},                     // Can process
-				{position: 160, canProcess: true},                     // Continue
-				{position: 210, canProcess: false, nextValidPos: 0},   // Stop
+				{position: 100, canProcess: false, nextValidPos: 110}, // Gap detected, recurse to 110
+				{position: 110, canProcess: true},                     // Can process, enqueue
 			},
-			expectedPositions: []uint64{100, 110, 160, 210},
+			expectedPositions: []uint64{100, 110}, // Validate at 100 (gap), then at 110 (process)
+			expectedEnqueued:  1,                  // Only enqueue at 110
 			startPos:          100,
-			maxLimit:          0, // No limit
+			maxLimit:          0,
 		},
 		{
 			name: "no gaps, normal processing",
@@ -48,29 +48,42 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 				canProcess   bool
 				nextValidPos uint64
 			}{
-				{position: 100, canProcess: true},
-				{position: 150, canProcess: true},
-				{position: 200, canProcess: false, nextValidPos: 0}, // Stop
+				{position: 100, canProcess: true}, // Can process immediately
 			},
-			expectedPositions: []uint64{100, 150, 200},
+			expectedPositions: []uint64{100}, // Only validate once
+			expectedEnqueued:  1,             // Enqueue at 100
 			startPos:          100,
 			maxLimit:          0,
 		},
 		{
-			name: "multiple gaps",
+			name: "multiple gaps chained",
 			validationResults: []struct {
 				position     uint64
 				canProcess   bool
 				nextValidPos uint64
 			}{
-				{position: 100, canProcess: false, nextValidPos: 120}, // First gap
-				{position: 120, canProcess: false, nextValidPos: 140}, // Second gap
-				{position: 140, canProcess: true},                     // Can process
-				{position: 190, canProcess: false, nextValidPos: 0},   // Stop
+				{position: 100, canProcess: false, nextValidPos: 120}, // First gap, recurse to 120
+				{position: 120, canProcess: false, nextValidPos: 140}, // Second gap, recurse to 140
+				{position: 140, canProcess: true},                     // Can process, enqueue
 			},
-			expectedPositions: []uint64{100, 120, 140, 190},
+			expectedPositions: []uint64{100, 120, 140}, // Three validation calls due to recursion
+			expectedEnqueued:  1,                       // Only enqueue at 140
 			startPos:          100,
 			maxLimit:          0,
+		},
+		{
+			name: "gap beyond limit",
+			validationResults: []struct {
+				position     uint64
+				canProcess   bool
+				nextValidPos uint64
+			}{
+				{position: 100, canProcess: false, nextValidPos: 250}, // Gap detected but next is beyond limit
+			},
+			expectedPositions: []uint64{100}, // Only validate once, no recursion due to limit
+			expectedEnqueued:  0,             // Nothing enqueued
+			startPos:          100,
+			maxLimit:          200, // Limit prevents recursion to 250
 		},
 	}
 
@@ -178,41 +191,50 @@ func (s *testableService) calculateProcessingInterval(_ context.Context, _ model
 	return interval, false
 }
 
-// processForwardWithGapSkipping is the method we're testing - copy from the actual implementation
+// processForwardWithGapSkipping is the method we're testing - matches the actual implementation
 func (s *testableService) processForwardWithGapSkipping(ctx context.Context, trans models.Transformation, startPos, maxLimit uint64) {
 	handler := trans.GetHandler()
 	modelID := trans.GetID()
 	currentPos := startPos
 
-	for maxLimit == 0 || currentPos < maxLimit {
-		interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, currentPos, maxLimit)
-		if shouldReturn {
+	// Calculate interval for this position
+	interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, currentPos, maxLimit)
+	if shouldReturn {
+		return
+	}
+
+	// Validate dependencies for this position
+	result, err := s.validator.ValidateDependencies(ctx, modelID, currentPos, interval)
+	if err != nil {
+		s.log.WithError(err).WithField("model_id", modelID).Error("Critical validation error")
+		return
+	}
+
+	switch {
+	case result.CanProcess:
+		// Dependencies satisfied, enqueue the task
+		s.checkAndEnqueuePositionWithTrigger(ctx, trans, currentPos, interval)
+
+	case result.NextValidPos > currentPos:
+		// Gap detected - skip to next valid position and enqueue there
+		s.log.WithFields(logrus.Fields{
+			"model_id":  modelID,
+			"gap_start": currentPos,
+			"gap_end":   result.NextValidPos,
+		}).Info("Skipping gap in transformation dependencies")
+
+		// Check if the next valid position is within limits
+		if maxLimit > 0 && result.NextValidPos >= maxLimit {
+			s.log.WithField("model_id", modelID).Debug("Next valid position beyond limit")
 			return
 		}
 
-		result, err := s.validator.ValidateDependencies(ctx, modelID, currentPos, interval)
-		if err != nil {
-			s.log.WithError(err).WithField("model_id", modelID).Error("Critical validation error")
-			return
-		}
+		// Recursively process the next valid position (single recursion to skip gap)
+		s.processForwardWithGapSkipping(ctx, trans, result.NextValidPos, maxLimit)
 
-		switch {
-		case result.CanProcess:
-			s.checkAndEnqueuePositionWithTrigger(ctx, trans, currentPos, interval)
-			currentPos += interval
-
-		case result.NextValidPos > currentPos:
-			s.log.WithFields(logrus.Fields{
-				"model_id":  modelID,
-				"gap_start": currentPos,
-				"gap_end":   result.NextValidPos,
-			}).Info("Skipping gap in transformation dependencies")
-			currentPos = result.NextValidPos
-
-		default:
-			s.log.WithField("model_id", modelID).Debug("No more valid positions for forward fill")
-			return
-		}
+	default:
+		// No valid position to process
+		s.log.WithField("model_id", modelID).Debug("No more valid positions for forward fill")
 	}
 }
 
