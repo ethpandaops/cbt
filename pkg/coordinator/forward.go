@@ -31,13 +31,16 @@ func (s *service) processForward(trans models.Transformation) {
 		return
 	}
 
-	// Get and adjust interval based on limits and dependencies
-	interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, nextPos, maxLimit)
-	if shouldReturn {
-		return
+	// Use gap-aware processing for incremental transformations
+	if handler.ShouldTrackPosition() {
+		s.processForwardWithGapSkipping(ctx, trans, nextPos, maxLimit)
+	} else {
+		interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, nextPos, maxLimit)
+		if shouldReturn {
+			return
+		}
+		s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval)
 	}
-
-	s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval)
 }
 
 // isForwardFillEnabled checks if forward fill is enabled for the handler
@@ -198,4 +201,42 @@ func (s *service) adjustIntervalForDependencies(ctx context.Context, trans model
 	}).Info("Using partial interval due to dependency limits")
 
 	return availableInterval, false
+}
+
+// processForwardWithGapSkipping processes forward fill with gap detection and skipping
+func (s *service) processForwardWithGapSkipping(ctx context.Context, trans models.Transformation, startPos, maxLimit uint64) {
+	handler := trans.GetHandler()
+	modelID := trans.GetID()
+	currentPos := startPos
+
+	for maxLimit == 0 || currentPos < maxLimit {
+		interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, currentPos, maxLimit)
+		if shouldReturn {
+			return
+		}
+
+		result, err := s.validator.ValidateDependencies(ctx, modelID, currentPos, interval)
+		if err != nil {
+			s.log.WithError(err).WithField("model_id", modelID).Error("Critical validation error")
+			return
+		}
+
+		switch {
+		case result.CanProcess:
+			s.checkAndEnqueuePositionWithTrigger(ctx, trans, currentPos, interval)
+			currentPos += interval
+
+		case result.NextValidPos > currentPos:
+			s.log.WithFields(logrus.Fields{
+				"model_id":  modelID,
+				"gap_start": currentPos,
+				"gap_end":   result.NextValidPos,
+			}).Info("Skipping gap in transformation dependencies")
+			currentPos = result.NextValidPos
+
+		default:
+			s.log.WithField("model_id", modelID).Debug("No more valid positions for forward fill")
+			return
+		}
+	}
 }

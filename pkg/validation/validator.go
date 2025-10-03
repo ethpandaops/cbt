@@ -46,8 +46,9 @@ type dependencyValidator struct {
 
 // Result contains the result of dependency validation
 type Result struct {
-	CanProcess bool
-	Errors     []error
+	CanProcess   bool    // Whether current position can be processed
+	Errors       []error // Validation errors
+	NextValidPos uint64  // Next position where dependencies are available (0 if can process or no next position)
 }
 
 // Validation-specific errors
@@ -84,48 +85,139 @@ func NewDependencyValidator(
 
 // ValidateDependencies checks if all dependencies are satisfied for a model at a given position
 func (v *dependencyValidator) ValidateDependencies(ctx context.Context, modelID string, position, interval uint64) (Result, error) {
-	// Get the valid range for this model
+	// Check if position falls within dependency bounds
 	minValid, maxValid, err := v.GetValidRange(ctx, modelID)
 	if err != nil {
-		return Result{
-			CanProcess: false,
-			Errors:     []error{err},
-		}, nil
+		return Result{CanProcess: false, Errors: []error{err}}, nil
 	}
 
-	// Check if the requested position falls within the valid range
 	requestedEnd := position + interval
 	canProcess := position >= minValid && requestedEnd <= maxValid
 
 	if !canProcess {
-		v.log.WithFields(logrus.Fields{
-			"model_id":      modelID,
-			"position":      position,
-			"interval":      interval,
-			"requested_end": requestedEnd,
-			"valid_min":     minValid,
-			"valid_max":     maxValid,
-		}).Debug("Position outside valid range")
-
 		return Result{
 			CanProcess: false,
-			Errors: []error{fmt.Errorf("%w: position %d with interval %d is outside valid range [%d, %d]",
-				ErrRangeNotAvailable, position, interval, minValid, maxValid)},
+			Errors:     []error{ErrRangeNotAvailable},
 		}, nil
 	}
 
-	v.log.WithFields(logrus.Fields{
-		"model_id":    modelID,
-		"position":    position,
-		"interval":    interval,
-		"can_process": canProcess,
-		"valid_min":   minValid,
-		"valid_max":   maxValid,
-	}).Debug("Dependency validation complete")
+	// Check for gaps in incremental transformation dependencies
+	nextValidPos, hasGaps, err := v.checkIncrementalDependencyGaps(ctx, modelID, position, interval)
+	if err != nil {
+		v.log.WithError(err).WithField("model_id", modelID).Debug("Failed to check dependency gaps")
+		return Result{CanProcess: true}, nil
+	}
 
-	return Result{
-		CanProcess: canProcess,
-	}, nil
+	if hasGaps {
+		return Result{
+			CanProcess:   false,
+			NextValidPos: nextValidPos,
+			Errors:       []error{ErrRangeNotCovered},
+		}, nil
+	}
+
+	return Result{CanProcess: true}, nil
+}
+
+// checkIncrementalDependencyGaps checks for gaps in incremental transformation dependencies
+func (v *dependencyValidator) checkIncrementalDependencyGaps(ctx context.Context, modelID string, position, interval uint64) (nextValidPos uint64, hasGaps bool, err error) {
+	// Get model and its dependencies
+	node, err := v.dag.GetNode(modelID)
+	if err != nil {
+		return 0, false, err
+	}
+
+	model, ok := node.Model.(models.Transformation)
+	if !ok {
+		return 0, false, nil // Not a transformation, no gaps to check
+	}
+
+	handler := model.GetHandler()
+	if handler == nil {
+		return 0, false, nil
+	}
+
+	// Get dependencies from handler
+	type depProvider interface {
+		GetFlattenedDependencies() []string
+	}
+	provider, ok := handler.(depProvider)
+	if !ok {
+		return 0, false, nil
+	}
+
+	endPos := position + interval
+	maxGapEnd := uint64(0)
+	hasAnyGaps := false
+
+	// Check each dependency for gaps
+	for _, depID := range provider.GetFlattenedDependencies() {
+		// Only check incremental transformation dependencies
+		if !v.isIncrementalTransformation(depID) {
+			continue
+		}
+
+		// Get gaps for this dependency in our requested range
+		gaps, err := v.admin.FindGaps(ctx, depID, position, endPos, 1000)
+		if err != nil {
+			v.log.WithError(err).WithField("dependency_id", depID).Debug("Failed to find gaps in dependency")
+			continue
+		}
+
+		// Process gaps with proper sorting and merging
+		nextValid, hasGaps := v.processGapsForRange(gaps, position, endPos)
+		if hasGaps {
+			hasAnyGaps = true
+			if nextValid > maxGapEnd {
+				maxGapEnd = nextValid
+			}
+		}
+	}
+
+	return maxGapEnd, hasAnyGaps, nil
+}
+
+// isIncrementalTransformation checks if a dependency is an incremental transformation
+func (v *dependencyValidator) isIncrementalTransformation(depID string) bool {
+	depNode, err := v.dag.GetNode(depID)
+	if err != nil {
+		return false
+	}
+
+	if depNode.NodeType != models.NodeTypeTransformation {
+		return false
+	}
+
+	depModel, ok := depNode.Model.(models.Transformation)
+	if !ok {
+		return false
+	}
+
+	depHandler := depModel.GetHandler()
+	if depHandler == nil {
+		return false
+	}
+
+	// Only incremental transformations track positions and can have gaps
+	return depHandler.ShouldTrackPosition()
+}
+
+// processGapsForRange finds the furthest gap end that affects our range
+func (v *dependencyValidator) processGapsForRange(gaps []admin.GapInfo, position, endPos uint64) (uint64, bool) {
+	maxGapEnd := uint64(0)
+	hasGaps := false
+
+	for _, gap := range gaps {
+		// Gap affects our range if it overlaps with [position, endPos]
+		if gap.StartPos < endPos && gap.EndPos > position {
+			hasGaps = true
+			if gap.EndPos > maxGapEnd {
+				maxGapEnd = gap.EndPos
+			}
+		}
+	}
+
+	return maxGapEnd, hasGaps
 }
 
 // findMin returns the minimum value from a slice of uint64
