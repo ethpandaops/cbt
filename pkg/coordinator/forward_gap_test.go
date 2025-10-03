@@ -76,15 +76,11 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Setup mock validator with expected results
+			// Setup mock validator to track calls and return expected results
 			mockValidator := validation.NewMockValidator()
 			callIndex := 0
-			var calledPositions []uint64
-			var enqueuedPositions []uint64
 
-			mockValidator.ValidateDependenciesFunc = func(_ context.Context, _ string, position, _ uint64) (validation.Result, error) {
-				calledPositions = append(calledPositions, position)
-
+			mockValidator.ValidateDependenciesFunc = func(_ context.Context, _ string, _, _ uint64) (validation.Result, error) {
 				if callIndex >= len(tt.validationResults) {
 					return validation.Result{CanProcess: false}, nil
 				}
@@ -103,46 +99,87 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 				interval:           50,
 				forwardFillEnabled: true,
 			}
-			// Add ShouldTrackPosition method behavior
-			handler.allowsPartialIntervals = false
 
 			trans := &mockTransformation{
 				id:      "test.model",
 				handler: handler,
 			}
 
-			// Create a modified service that captures enqueue calls instead of executing them
-			testService := &testGapSkippingService{
-				log:               logrus.NewEntry(logrus.New()),
-				validator:         mockValidator,
-				admin:             &mockAdminService{},
-				enqueuedPositions: &enqueuedPositions,
+			// Create a testable service that tracks enqueued tasks
+			testService := &testableService{
+				log:       logrus.NewEntry(logrus.New()),
+				validator: mockValidator,
+				admin:     &mockAdminService{},
 			}
 
-			// Test the gap skipping functionality
+			// Test the actual gap skipping functionality
 			ctx := context.Background()
 			testService.processForwardWithGapSkipping(ctx, trans, tt.startPos, tt.maxLimit)
 
-			// Verify the positions that were called
-			assert.Equal(t, tt.expectedPositions, calledPositions, "Should call validation for expected positions")
+			// Verify the positions that were validated
+			assert.Equal(t, len(tt.expectedPositions), len(mockValidator.ValidateCalls), "Should call validation for expected number of positions")
+
+			for i, expectedPos := range tt.expectedPositions {
+				if i < len(mockValidator.ValidateCalls) {
+					assert.Equal(t, expectedPos, mockValidator.ValidateCalls[i].Position, "Should validate expected position %d", i)
+				}
+			}
+
+			// Verify tasks were enqueued for positions that can process
+			processableCount := 0
+			for _, result := range tt.validationResults {
+				if result.canProcess {
+					processableCount++
+				}
+			}
+			assert.Equal(t, processableCount, len(testService.enqueuedTasks), "Should enqueue tasks for processable positions")
 		})
 	}
 }
 
-// testGapSkippingService wraps the service to avoid dependency on queueManager
-type testGapSkippingService struct {
-	log               logrus.FieldLogger
-	validator         validation.Validator
-	admin             admin.Service
-	enqueuedPositions *[]uint64
+// testableService extends service to track enqueued tasks without needing Redis
+type testableService struct {
+	log           logrus.FieldLogger
+	validator     validation.Validator
+	admin         admin.Service
+	enqueuedTasks []enqueuedTask
 }
 
-func (s *testGapSkippingService) checkAndEnqueuePositionWithTrigger(_ context.Context, _ models.Transformation, position, _ uint64) {
-	// Instead of actually enqueuing, just record the position for verification
-	*s.enqueuedPositions = append(*s.enqueuedPositions, position)
+type enqueuedTask struct {
+	modelID  string
+	position uint64
+	interval uint64
 }
 
-func (s *testGapSkippingService) processForwardWithGapSkipping(ctx context.Context, trans models.Transformation, startPos, maxLimit uint64) {
+func (s *testableService) checkAndEnqueuePositionWithTrigger(_ context.Context, trans models.Transformation, position, interval uint64) {
+	// Track what would be enqueued instead of actually enqueuing
+	s.enqueuedTasks = append(s.enqueuedTasks, enqueuedTask{
+		modelID:  trans.GetID(),
+		position: position,
+		interval: interval,
+	})
+}
+
+func (s *testableService) calculateProcessingInterval(_ context.Context, _ models.Transformation, handler transformation.Handler, nextPos, maxLimit uint64) (uint64, bool) {
+	type intervalProvider interface {
+		GetMaxInterval() uint64
+	}
+
+	var interval uint64 = 50 // Default for testing
+	if provider, ok := handler.(intervalProvider); ok {
+		interval = provider.GetMaxInterval()
+	}
+
+	// Adjust interval if it would exceed max limit
+	if maxLimit > 0 && nextPos+interval > maxLimit {
+		interval = maxLimit - nextPos
+	}
+
+	return interval, false
+}
+
+// processForwardWithGapSkipping is the method we're testing - copy from the actual implementation
+func (s *testableService) processForwardWithGapSkipping(ctx context.Context, trans models.Transformation, startPos, maxLimit uint64) {
 	handler := trans.GetHandler()
 	modelID := trans.GetID()
 	currentPos := startPos
@@ -177,25 +214,6 @@ func (s *testGapSkippingService) processForwardWithGapSkipping(ctx context.Conte
 			return
 		}
 	}
-}
-
-// calculateProcessingInterval mimics the original service method for testing
-func (s *testGapSkippingService) calculateProcessingInterval(_ context.Context, _ models.Transformation, handler transformation.Handler, nextPos, maxLimit uint64) (uint64, bool) {
-	type intervalProvider interface {
-		GetMaxInterval() uint64
-	}
-
-	var interval uint64 = 50 // Default for testing
-	if provider, ok := handler.(intervalProvider); ok {
-		interval = provider.GetMaxInterval()
-	}
-
-	// Adjust interval if it would exceed max limit
-	if maxLimit > 0 && nextPos+interval > maxLimit {
-		interval = maxLimit - nextPos
-	}
-
-	return interval, false
 }
 
 func TestProcessForward_GapAwareRouting(t *testing.T) {
@@ -240,7 +258,7 @@ func TestProcessForward_GapAwareRouting(t *testing.T) {
 				admin:     &mockAdminService{},
 			}
 
-			// Mock the forward fill enabled check
+			// Test the routing logic - this calls the actual processForward method
 			service.processForward(trans)
 
 			if tt.expectGapProcessing {
