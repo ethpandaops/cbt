@@ -14,6 +14,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Ensure dependencyValidator implements Validator interface
+var _ Validator = (*dependencyValidator)(nil)
+
 // Validator defines the interface for dependency validation (ethPandaOps pattern)
 type Validator interface {
 	// ValidateDependencies checks if all dependencies are satisfied for a given position
@@ -96,7 +99,11 @@ func NewDependencyValidator(
 // - If multiple dependencies have gaps, it returns the MAXIMUM gap end
 // - Example: DepA has gap [101-109] (next=110), DepB has gap [105-115] (next=116)
 // - Returns NextValidPos=116 to ensure ALL dependencies have data at the next position
-func (v *dependencyValidator) ValidateDependencies(ctx context.Context, modelID string, position, interval uint64) (Result, error) {
+func (v *dependencyValidator) ValidateDependencies(
+	ctx context.Context,
+	modelID string,
+	position, interval uint64,
+) (Result, error) {
 	// Check if position falls within dependency bounds
 	minValid, maxValid, err := v.GetValidRange(ctx, modelID)
 	if err != nil {
@@ -113,7 +120,7 @@ func (v *dependencyValidator) ValidateDependencies(ctx context.Context, modelID 
 		}, nil
 	}
 
-	// NEW: Gap-aware processing for incremental transformations
+	// Gap-aware processing for incremental transformations
 	// Check if any incremental transformation dependencies have gaps (missing data ranges)
 	// This prevents processing positions where dependency data is missing
 	nextValidPos, hasGaps, err := v.checkIncrementalDependencyGaps(ctx, modelID, position, interval)
@@ -152,7 +159,11 @@ func (v *dependencyValidator) ValidateDependencies(ctx context.Context, modelID 
 //	Result: Returns nextValidPos=121 (MAX of 110 and 121)
 //
 // This ensures TableC only processes when both TableA AND TableB have data available.
-func (v *dependencyValidator) checkIncrementalDependencyGaps(ctx context.Context, modelID string, position, interval uint64) (nextValidPos uint64, hasGaps bool, err error) {
+func (v *dependencyValidator) checkIncrementalDependencyGaps(
+	ctx context.Context,
+	modelID string,
+	position, interval uint64,
+) (nextValidPos uint64, hasGaps bool, err error) {
 	// Get model and its dependencies
 	node, err := v.dag.GetNode(modelID)
 	if err != nil {
@@ -185,7 +196,7 @@ func (v *dependencyValidator) checkIncrementalDependencyGaps(ctx context.Context
 	// Iterate through ALL dependencies to find gaps
 	// We must check every dependency because we need data from all of them
 	for _, depID := range provider.GetFlattenedDependencies() {
-		// IMPORTANT: Only incremental transformations can have gaps
+		// Only incremental transformations can have gaps
 		// Scheduled transformations run on time-based schedules and don't have position-based gaps
 		// External models are assumed to have continuous data (gaps handled differently)
 		if !v.isIncrementalTransformation(depID) {
@@ -202,8 +213,8 @@ func (v *dependencyValidator) checkIncrementalDependencyGaps(ctx context.Context
 
 		// Process the gaps found for this dependency
 		// processGapsForRange finds the furthest gap end that affects our range
-		nextValid, hasGaps := v.processGapsForRange(gaps, position, endPos)
-		if hasGaps {
+		nextValid, depHasGaps := v.processGapsForRange(gaps, position, endPos)
+		if depHasGaps {
 			hasAnyGaps = true
 			// Track the MAXIMUM gap end across ALL dependencies
 			// This ensures we skip to a position where ALL deps have data
@@ -222,10 +233,6 @@ func (v *dependencyValidator) checkIncrementalDependencyGaps(ctx context.Context
 //   - Incremental: Process sequential positions (0, 1, 2, ...), can have gaps
 //     Example: Processing blockchain blocks sequentially
 //   - Scheduled: Run on time schedules (hourly, daily), don't have position gaps
-//     Example: Daily aggregations that run at midnight
-//
-// Only incremental transformations need gap detection because only they
-// track sequential positions where gaps can occur.
 func (v *dependencyValidator) isIncrementalTransformation(depID string) bool {
 	depNode, err := v.dag.GetNode(depID)
 	if err != nil {
@@ -246,8 +253,6 @@ func (v *dependencyValidator) isIncrementalTransformation(depID string) bool {
 		return false
 	}
 
-	// ShouldTrackPosition() returns true for incremental transformations
-	// These track sequential positions and can have gaps in their data
 	return depHandler.ShouldTrackPosition()
 }
 
@@ -265,9 +270,14 @@ func (v *dependencyValidator) isIncrementalTransformation(depID string) bool {
 //	Gap2: [110-125] -> affects range, end=125
 //	Gap3: [160-170] -> doesn't affect range (outside)
 //	Result: Returns 125 (maximum of affecting gaps)
-func (v *dependencyValidator) processGapsForRange(gaps []admin.GapInfo, position, endPos uint64) (uint64, bool) {
-	maxGapEnd := uint64(0)
-	hasGaps := false
+func (v *dependencyValidator) processGapsForRange(
+	gaps []admin.GapInfo,
+	position, endPos uint64,
+) (uint64, bool) {
+	var (
+		maxGapEnd = uint64(0)
+		hasGaps   = false
+	)
 
 	for _, gap := range gaps {
 		// Check if this gap overlaps with our processing range
@@ -807,6 +817,3 @@ func (v *dependencyValidator) applyLimitsFromHandler(handler transformation.Hand
 
 	return finalMin, finalMax
 }
-
-// Ensure dependencyValidator implements Validator interface
-var _ Validator = (*dependencyValidator)(nil)
