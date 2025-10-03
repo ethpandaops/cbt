@@ -31,11 +31,11 @@ func (s *service) processForward(trans models.Transformation) {
 		return
 	}
 
-	// NEW: Route to gap-aware processing for incremental transformations
-	// Incremental transformations process sequential positions (0, 1, 2, ...)
-	// and can have gaps in their dependency data that need to be skipped.
-	// Scheduled transformations run on time schedules (hourly, daily) and
-	// don't have position-based gaps, so they use the normal processing path.
+	// Route to gap-aware processing for incremental transformations
+	// which process sequential positions (0, 1, 2, ...) and can have gaps
+	// in their dependency data that need to be skipped. Scheduled
+	// transformations run on time schedules (hourly, daily) and don't have
+	// position-based gaps, so they use the normal processing path.
 	if handler.ShouldTrackPosition() {
 		// Gap-aware path: detect and skip gaps in dependencies
 		s.processForwardWithGapSkipping(ctx, trans, nextPos, maxLimit)
@@ -212,7 +212,7 @@ func (s *service) adjustIntervalForDependencies(ctx context.Context, trans model
 
 // processForwardWithGapSkipping processes forward fill with gap detection and skipping.
 //
-// CRITICAL DESIGN: This function processes ONE position per call, not a loop.
+// This function processes ONE position per call.
 // The coordinator calls processForward periodically, which then calls this function.
 //
 // Gap Skipping Logic:
@@ -227,10 +227,11 @@ func (s *service) adjustIntervalForDependencies(ctx context.Context, trans model
 //	-> Recursively calls with position 110
 //	Position 110: Dependencies satisfied
 //	-> Enqueues task for position 110
-//
-// This avoids the infinite loop bug from earlier implementations that used
-// a continuous loop instead of single-position processing.
-func (s *service) processForwardWithGapSkipping(ctx context.Context, trans models.Transformation, startPos, maxLimit uint64) {
+func (s *service) processForwardWithGapSkipping(
+	ctx context.Context,
+	trans models.Transformation,
+	startPos, maxLimit uint64,
+) {
 	var (
 		handler    = trans.GetHandler()
 		modelID    = trans.GetID()
@@ -252,12 +253,12 @@ func (s *service) processForwardWithGapSkipping(ctx context.Context, trans model
 
 	switch {
 	case result.CanProcess:
-		// SUCCESS: Dependencies are satisfied at this position
+		// Dependencies are satisfied at this position
 		// Enqueue the transformation task for processing
 		s.checkAndEnqueuePositionWithTrigger(ctx, trans, currentPos, interval)
 
 	case result.NextValidPos > currentPos:
-		// GAP DETECTED: Dependencies have missing data in range [currentPos, currentPos+interval]
+		// Dependencies have missing data in range [currentPos, currentPos+interval]
 		// NextValidPos indicates where the dependency data resumes
 		// Example: Gap [101-109] means we can't process 100, but can process 110
 		s.log.WithFields(logrus.Fields{
@@ -272,15 +273,11 @@ func (s *service) processForwardWithGapSkipping(ctx context.Context, trans model
 			return
 		}
 
-		// RECURSION: Skip to the next valid position and try again
-		// This is safe because:
-		// 1. We only recurse when NextValidPos > currentPos (forward progress)
-		// 2. We have the maxLimit check above to prevent infinite recursion
-		// 3. Each recursion processes a single position (not a loop)
+		// Skip to the next valid position and try again
 		s.processForwardWithGapSkipping(ctx, trans, result.NextValidPos, maxLimit)
 
 	default:
-		// NO MORE DATA: Dependencies don't have any more data available
+		// Dependencies don't have any more data available
 		// This is normal when we've caught up with real-time data
 		s.log.WithField("model_id", modelID).Debug("No more valid positions for forward fill")
 	}
