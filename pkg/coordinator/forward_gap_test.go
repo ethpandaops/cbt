@@ -238,6 +238,63 @@ func (s *testableService) processForwardWithGapSkipping(ctx context.Context, tra
 	}
 }
 
+func TestMultipleDependenciesWithDifferentGaps(t *testing.T) {
+	// Scenario: TableB depends on TableA and TableC
+	// TableA has gap [101-109] (next valid = 110)
+	// TableC has gap [105-115] (next valid = 116)
+	// TableB should skip to 116 (the furthest gap end)
+
+	mockValidator := validation.NewMockValidator()
+	callCount := 0
+
+	mockValidator.ValidateDependenciesFunc = func(_ context.Context, _ string, _, _ uint64) (validation.Result, error) {
+		callCount++
+
+		if callCount == 1 {
+			// First call at position 100
+			// Simulates finding gaps in both dependencies
+			// Returns the MAX gap end (116) since both deps have gaps
+			return validation.Result{
+				CanProcess:   false,
+				NextValidPos: 116, // Max of TableA's 110 and TableC's 116
+			}, nil
+		}
+
+		// Second call at position 116 - all dependencies satisfied
+		return validation.Result{
+			CanProcess: true,
+		}, nil
+	}
+
+	handler := &mockHandler{
+		interval:           50,
+		forwardFillEnabled: true,
+	}
+
+	trans := &mockTransformation{
+		id:      "tableB",
+		handler: handler,
+	}
+
+	testService := &testableService{
+		log:       logrus.NewEntry(logrus.New()),
+		validator: mockValidator,
+		admin:     &mockAdminService{},
+	}
+
+	ctx := context.Background()
+	testService.processForwardWithGapSkipping(ctx, trans, 100, 0)
+
+	// Verify validator was called twice: once at 100, once at 116
+	assert.Equal(t, 2, len(mockValidator.ValidateCalls), "Should validate at position 100 and 116")
+	assert.Equal(t, uint64(100), mockValidator.ValidateCalls[0].Position, "First validation at 100")
+	assert.Equal(t, uint64(116), mockValidator.ValidateCalls[1].Position, "Second validation at 116 (after skipping both gaps)")
+
+	// Verify only one task enqueued (at position 116)
+	assert.Equal(t, 1, len(testService.enqueuedTasks), "Should enqueue one task at position 116")
+	assert.Equal(t, uint64(116), testService.enqueuedTasks[0].position, "Task enqueued at position 116")
+}
+
 func TestProcessForward_GapAwareRouting(t *testing.T) {
 	tests := []struct {
 		name                string

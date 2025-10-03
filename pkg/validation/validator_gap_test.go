@@ -46,14 +46,17 @@ func TestProcessGapsForRange(t *testing.T) {
 			expectedHasGap: false,
 		},
 		{
+			// Tests non-contiguous gaps (separated gaps)
+			// Both gaps affect our range, so we take the furthest end
+			// This simulates fragmented data with multiple missing ranges
 			name: "multiple separate gaps, returns furthest end",
 			gaps: []admin.GapInfo{
-				{StartPos: 105, EndPos: 115},
-				{StartPos: 130, EndPos: 140},
+				{StartPos: 105, EndPos: 115}, // First gap
+				{StartPos: 130, EndPos: 140}, // Second gap (separate)
 			},
 			position:       100,
 			endPos:         150,
-			expectedNext:   140, // Furthest gap end
+			expectedNext:   140, // Skip to end of furthest gap
 			expectedHasGap: true,
 		},
 		{

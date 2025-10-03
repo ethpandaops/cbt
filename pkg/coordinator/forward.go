@@ -31,14 +31,21 @@ func (s *service) processForward(trans models.Transformation) {
 		return
 	}
 
-	// Use gap-aware processing for incremental transformations
+	// NEW: Route to gap-aware processing for incremental transformations
+	// Incremental transformations process sequential positions (0, 1, 2, ...)
+	// and can have gaps in their dependency data that need to be skipped.
+	// Scheduled transformations run on time schedules (hourly, daily) and
+	// don't have position-based gaps, so they use the normal processing path.
 	if handler.ShouldTrackPosition() {
+		// Gap-aware path: detect and skip gaps in dependencies
 		s.processForwardWithGapSkipping(ctx, trans, nextPos, maxLimit)
 	} else {
+		// Normal path: for scheduled transformations that don't track positions
 		interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, nextPos, maxLimit)
 		if shouldReturn {
 			return
 		}
+
 		s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval)
 	}
 }
@@ -203,11 +210,32 @@ func (s *service) adjustIntervalForDependencies(ctx context.Context, trans model
 	return availableInterval, false
 }
 
-// processForwardWithGapSkipping processes forward fill with gap detection and skipping
+// processForwardWithGapSkipping processes forward fill with gap detection and skipping.
+//
+// CRITICAL DESIGN: This function processes ONE position per call, not a loop.
+// The coordinator calls processForward periodically, which then calls this function.
+//
+// Gap Skipping Logic:
+// 1. Validate dependencies at the current position
+// 2. If dependencies are satisfied -> enqueue the task
+// 3. If a gap is detected -> recursively skip to the next valid position
+// 4. This ensures we don't waste resources trying to process positions with missing data
+//
+// Example Flow:
+//
+//	Position 100: Gap detected in dependency, NextValidPos=110
+//	-> Recursively calls with position 110
+//	Position 110: Dependencies satisfied
+//	-> Enqueues task for position 110
+//
+// This avoids the infinite loop bug from earlier implementations that used
+// a continuous loop instead of single-position processing.
 func (s *service) processForwardWithGapSkipping(ctx context.Context, trans models.Transformation, startPos, maxLimit uint64) {
-	handler := trans.GetHandler()
-	modelID := trans.GetID()
-	currentPos := startPos
+	var (
+		handler    = trans.GetHandler()
+		modelID    = trans.GetID()
+		currentPos = startPos
+	)
 
 	// Calculate interval for this position
 	interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, currentPos, maxLimit)
@@ -224,28 +252,36 @@ func (s *service) processForwardWithGapSkipping(ctx context.Context, trans model
 
 	switch {
 	case result.CanProcess:
-		// Dependencies satisfied, enqueue the task
+		// SUCCESS: Dependencies are satisfied at this position
+		// Enqueue the transformation task for processing
 		s.checkAndEnqueuePositionWithTrigger(ctx, trans, currentPos, interval)
 
 	case result.NextValidPos > currentPos:
-		// Gap detected - skip to next valid position and enqueue there
+		// GAP DETECTED: Dependencies have missing data in range [currentPos, currentPos+interval]
+		// NextValidPos indicates where the dependency data resumes
+		// Example: Gap [101-109] means we can't process 100, but can process 110
 		s.log.WithFields(logrus.Fields{
 			"model_id":  modelID,
 			"gap_start": currentPos,
 			"gap_end":   result.NextValidPos,
 		}).Info("Skipping gap in transformation dependencies")
 
-		// Check if the next valid position is within limits
+		// Safety check: Don't skip beyond configured limits
 		if maxLimit > 0 && result.NextValidPos >= maxLimit {
 			s.log.WithField("model_id", modelID).Debug("Next valid position beyond limit")
 			return
 		}
 
-		// Recursively process the next valid position (single recursion to skip gap)
+		// RECURSION: Skip to the next valid position and try again
+		// This is safe because:
+		// 1. We only recurse when NextValidPos > currentPos (forward progress)
+		// 2. We have the maxLimit check above to prevent infinite recursion
+		// 3. Each recursion processes a single position (not a loop)
 		s.processForwardWithGapSkipping(ctx, trans, result.NextValidPos, maxLimit)
 
 	default:
-		// No valid position to process
+		// NO MORE DATA: Dependencies don't have any more data available
+		// This is normal when we've caught up with real-time data
 		s.log.WithField("model_id", modelID).Debug("No more valid positions for forward fill")
 	}
 }
