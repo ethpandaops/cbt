@@ -389,7 +389,7 @@ func (s *service) RenderTransformation(model Transformation, position, interval 
 
 // GetTransformationEnvironmentVariables returns environment variables for a transformation
 func (s *service) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error) {
-	return s.templateEngine.GetTransformationEnvironmentVariables(model, position, interval, startTime)
+	return s.templateEngine.GetTransformationEnvironmentVariables(model, position, interval, startTime, s.config.Transformation.Env)
 }
 
 // RenderExternal renders an external model template with variables

@@ -571,11 +571,43 @@ Models can execute external scripts instead of SQL. The script receives environm
 #### Environment Variables
 
 Environment variables provided to scripts:
+
+**Built-in variables:**
 - `CLICKHOUSE_URL`: Connection URL (e.g., `clickhouse://host:9000`)
-- `BOUNDS_START`, `BOUNDS_END`: Bounds for processing
-- `TASK_START`: Task execution timestamp
+- `CLICKHOUSE_CLUSTER`: ClickHouse cluster name (if configured)
+- `CLICKHOUSE_LOCAL_SUFFIX`: Local table suffix for cluster setups (if configured)
+- `BOUNDS_START`, `BOUNDS_END`: Bounds for processing (incremental only)
+- `TASK_START`: Task execution timestamp (Unix)
+- `TASK_MODEL`: Full model identifier (database.table)
+- `TASK_INTERVAL`: Interval size being processed (incremental only)
 - `SELF_DATABASE`, `SELF_TABLE`: Target table info
-- `DEP_<MODEL>_DATABASE`, `DEP_<MODEL>_TABLE`: Dependency info
+- `DEP_<MODEL>_DATABASE`, `DEP_<MODEL>_TABLE`: Dependency info (uppercase, dots/hyphens → underscores)
+
+**Custom environment variables:**
+
+You can define custom environment variables at two levels:
+
+1. **Global level** (config.yaml) - applies to all transformations:
+```yaml
+models:
+  transformations:
+    env:
+      API_KEY: "your_api_key"
+      ENVIRONMENT: "production"
+      CUSTOM_SETTING: "value"
+```
+
+2. **Transformation level** (model YAML) - overrides global variables:
+```yaml
+type: incremental
+table: my_model
+exec: "python3 /app/scripts/process.py"
+env:
+  API_KEY: "model_specific_key"  # Overrides global
+  MODEL_PARAM: "specific_value"   # Model-specific only
+```
+
+Custom variables are passed to your script alongside built-in variables. Transformation-level variables take precedence over global variables with the same name
 
 #### Example
 
