@@ -33,20 +33,11 @@ const (
 	ExternalTaskPrefix = "external:"
 	// QueueName is the queue name for scheduler tasks
 	QueueName = "scheduler"
-)
-
-// taskReconcileResult represents the result of reconciling a scheduled task
-type taskReconcileResult int
-
-const (
-	taskReconcileSkipped taskReconcileResult = iota
-	taskReconcileRegistered
-	taskReconcileUpdated
+	// TransformationTypeScheduled is the transformation type for scheduled transformations
+	TransformationTypeScheduled = "scheduled"
 )
 
 var (
-	// ErrScheduleRegistrationFailed is returned when one or more scheduled tasks fail to register
-	ErrScheduleRegistrationFailed = errors.New("failed to register scheduled tasks")
 	// ErrNotScheduledType is returned when transformation is not a scheduled type
 	ErrNotScheduledType = errors.New("transformation is not a scheduled type")
 	// ErrCoordinatorNoQueueSupport is returned when coordinator doesn't support queue management
@@ -90,10 +81,14 @@ type service struct {
 	coordinator coordinator.Service
 	admin       admin.Service
 
-	scheduler *asynq.Scheduler
+	client    *asynq.Client
 	server    *asynq.Server
 	mux       *asynq.ServeMux
 	inspector *asynq.Inspector
+
+	tracker      scheduleTracker
+	ticker       tickerService
+	tickerCancel context.CancelFunc // To stop ticker when demoted
 
 	elector LeaderElector
 }
@@ -106,11 +101,8 @@ func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, da
 
 	asynqRedis := r.NewAsynqRedisOptions(redisOpt)
 
-	// Create scheduler for managing cron jobs
-	scheduler := asynq.NewScheduler(asynqRedis, &asynq.SchedulerOpts{
-		Location: time.UTC,
-		LogLevel: asynq.InfoLevel,
-	})
+	// Create client for enqueueing tasks
+	client := asynq.NewClient(asynqRedis)
 
 	// Create server for processing scheduled tasks
 	server := asynq.NewServer(asynqRedis, asynq.Config{
@@ -129,6 +121,12 @@ func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, da
 	// Initialize ServeMux for task handlers (needed before server starts)
 	mux := asynq.NewServeMux()
 
+	// Create Redis client for schedule tracker
+	redisClient := redis.NewClient(redisOpt)
+
+	// Create schedule tracker
+	tracker := newScheduleTracker(log, redisClient)
+
 	return &service{
 		log:  log.WithField("service", "scheduler"), // Add service-specific field per ethPandaOps
 		cfg:  cfg,
@@ -139,11 +137,14 @@ func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, da
 		coordinator: coord,
 		admin:       adminService,
 
-		scheduler: scheduler,
-		server:    server,
-		mux:       mux,
-		inspector: inspector,
-		elector:   elector,
+		client:       client,
+		server:       server,
+		mux:          mux,
+		inspector:    inspector,
+		tracker:      tracker,
+		ticker:       nil, // Created on leader promotion
+		tickerCancel: nil,
+		elector:      elector,
 	}, nil
 }
 
@@ -173,10 +174,6 @@ func (s *service) Start(ctx context.Context) error {
 		}
 	}()
 
-	// Start periodic cleanup (only active when leader)
-	s.wg.Add(1)
-	go s.runPeriodicCleanup()
-
 	s.log.Info("Scheduler service started (participating in leader election)")
 
 	return nil
@@ -194,16 +191,14 @@ func (s *service) Stop() error {
 		}
 	}
 
-	// NOTE: With leader election in place, calling Shutdown() is safe and proper.
-	// While Shutdown() does clear scheduler entries from Redis, this is acceptable because:
-	// 1. Only ONE scheduler runs (the leader), so no cross-instance pollution
-	// 2. Entries are ephemeral anyway - cleared when scheduler stops regardless
-	// 3. The promoted follower will reconcile and recreate all entries immediately
-	// 4. Shutdown() ensures proper cleanup of Redis client and cron scheduler
-	if s.scheduler != nil {
-		s.scheduler.Shutdown()
+	// Close asynq client
+	if s.client != nil {
+		if err := s.client.Close(); err != nil {
+			s.log.WithError(err).Warn("Failed to close asynq client")
+		}
 	}
 
+	// Shutdown server
 	if s.server != nil {
 		s.server.Shutdown()
 	}
@@ -236,9 +231,6 @@ func (s *service) handleLeaderElection(ctx context.Context) {
 	promoted := provider.PromotedChan()
 	demoted := provider.DemotedChan()
 
-	var schedulerRunning bool
-	var schedulerDone chan struct{}
-
 	for {
 		select {
 		case <-s.done:
@@ -248,108 +240,243 @@ func (s *service) handleLeaderElection(ctx context.Context) {
 			return
 
 		case <-promoted:
-			if schedulerRunning {
-				s.log.Warn("Received promotion but scheduler already running")
-				continue
-			}
+			s.log.Info("Promoted to leader, starting ticker service")
 
-			s.log.Info("Promoted to scheduler leader - starting scheduler")
+			// Build task list from current DAG config
+			scheduledTasks := s.buildScheduledTasks()
 
-			// Start scheduler goroutine
-			schedulerDone = make(chan struct{})
+			// Create ticker service with current task list
+			s.ticker = newTickerService(s.log, s.tracker, s.client, scheduledTasks)
+
+			// Start ticker in goroutine
+			tickerCtx, cancel := context.WithCancel(ctx)
+			s.tickerCancel = cancel
 			s.wg.Add(1)
 			go func() {
 				defer s.wg.Done()
-				defer close(schedulerDone)
-				if runErr := s.scheduler.Run(); runErr != nil {
-					s.log.WithError(runErr).Error("Scheduler stopped with error")
+				if err := s.ticker.Start(tickerCtx); err != nil && !errors.Is(err, context.Canceled) {
+					s.log.WithError(err).Error("Ticker service error")
 				}
 			}()
-			schedulerRunning = true
 
-			// Reconcile schedules as new leader (handlers already registered in s.mux)
-			if err := s.reconcileSchedules(); err != nil {
-				s.log.WithError(err).Error("Failed to reconcile schedules as leader")
-				continue
-			}
-
-			// Trigger initial external scans
+			// Trigger initial external scans (keep this - still needed)
 			s.triggerInitialExternalScans(ctx)
 
 		case <-demoted:
-			s.log.Info("Demoted from scheduler leader")
-			// Scheduler will stop naturally when s.done is closed
-			// We don't need to actively stop it here
-			schedulerRunning = false
+			s.log.Info("Demoted from leader, stopping ticker service")
+
+			// Stop ticker
+			if s.tickerCancel != nil {
+				s.tickerCancel()
+				s.tickerCancel = nil
+			}
+			if s.ticker != nil {
+				if err := s.ticker.Stop(); err != nil {
+					s.log.WithError(err).Error("Failed to stop ticker")
+				}
+				s.ticker = nil
+			}
 		}
 	}
 }
 
-// reconcileSchedules ensures scheduled tasks match current model configuration
-func (s *service) reconcileSchedules() error {
-	s.log.Info("Reconciling scheduled tasks with current configuration")
+// buildScheduledTasks constructs the list of scheduled tasks from DAG config
+func (s *service) buildScheduledTasks() []scheduledTask {
+	var scheduledTasks []scheduledTask
 
-	// Get existing scheduled tasks
-	existingTasks := s.getExistingScheduledTasks()
+	// System tasks
+	scheduledTasks = append(scheduledTasks, s.buildSystemScheduledTasks()...)
 
-	// Build desired state from current configuration
-	desiredTasks := s.buildDesiredTasks()
+	// External model tasks
+	scheduledTasks = append(scheduledTasks, s.buildExternalScheduledTasks()...)
 
-	// Reconcile tasks
-	stats, errs := s.reconcileTasks(desiredTasks, existingTasks)
+	// Transformation tasks
+	scheduledTasks = append(scheduledTasks, s.buildTransformationScheduledTasks()...)
 
-	s.log.WithFields(logrus.Fields{
-		"total_desired": len(desiredTasks),
-		"registered":    stats.registered,
-		"updated":       stats.updated,
-		"skipped":       stats.skipped,
-		"removed":       stats.removed,
-		"errors":        len(errs),
-	}).Info("Schedule reconciliation complete")
-
-	if len(errs) > 0 {
-		return fmt.Errorf("%w: %d tasks failed", ErrScheduleRegistrationFailed, len(errs))
-	}
-
-	return nil
+	return scheduledTasks
 }
 
-// reconcileStats holds statistics for reconciliation results
-type reconcileStats struct {
-	registered int
-	updated    int
-	skipped    int
-	removed    int
-}
+// buildSystemScheduledTasks creates scheduled tasks for system operations
+func (s *service) buildSystemScheduledTasks() []scheduledTask {
+	var scheduledTasks []scheduledTask
 
-// getExistingScheduledTasks retrieves existing scheduled tasks from Asynq
-func (s *service) getExistingScheduledTasks() map[string]*asynq.SchedulerEntry {
-	// IMPORTANT: We must check for existing tasks to prevent multiple instances
-	// from disrupting each other. When a new instance starts, it should NOT
-	// delete and re-register existing scheduled tasks unless the schedule changed.
-	existingTasks := make(map[string]*asynq.SchedulerEntry)
-	entries, err := s.inspector.SchedulerEntries()
-	if err != nil {
-		s.log.WithError(err).Warn("Failed to get existing scheduled entries, will register all tasks")
-		return existingTasks
-	}
-
-	for _, entry := range entries {
-		taskType := entry.Task.Type()
-		// Only track our tasks (transformation, consolidation, bounds orchestrator, or external)
-		if strings.HasPrefix(taskType, TransformationTaskPrefix) ||
-			taskType == ConsolidationTaskType ||
-			taskType == BoundsOrchestratorTaskType ||
-			strings.HasPrefix(taskType, ExternalTaskPrefix) {
-			existingTasks[taskType] = entry
-			s.log.WithFields(logrus.Fields{
-				"task_type": taskType,
-				"schedule":  entry.Spec,
-			}).Debug("Found existing scheduled task")
+	// Consolidation task
+	if s.cfg.Consolidation != "" {
+		interval, err := parseScheduleInterval(s.cfg.Consolidation)
+		if err != nil {
+			s.log.WithError(err).Error("Invalid consolidation schedule")
+		} else {
+			scheduledTasks = append(scheduledTasks, scheduledTask{
+				ID:       ConsolidationTaskType,
+				Schedule: s.cfg.Consolidation,
+				Interval: interval,
+				Task:     asynq.NewTask(ConsolidationTaskType, nil),
+				Queue:    QueueName,
+			})
 		}
 	}
-	s.log.WithField("existing_count", len(existingTasks)).Info("Found existing scheduled tasks")
-	return existingTasks
+
+	// Bounds orchestrator (runs every second)
+	scheduledTasks = append(scheduledTasks, scheduledTask{
+		ID:       BoundsOrchestratorTaskType,
+		Schedule: "@every 1s",
+		Interval: 1 * time.Second,
+		Task:     asynq.NewTask(BoundsOrchestratorTaskType, nil),
+		Queue:    QueueName,
+	})
+
+	return scheduledTasks
+}
+
+// buildExternalScheduledTasks creates scheduled tasks for external model scans
+func (s *service) buildExternalScheduledTasks() []scheduledTask {
+	var scheduledTasks []scheduledTask
+
+	for _, node := range s.dag.GetExternalNodes() {
+		model, ok := node.Model.(models.External)
+		if !ok {
+			continue
+		}
+
+		config := model.GetConfig()
+		if config.Cache == nil {
+			continue
+		}
+
+		modelID := model.GetID()
+
+		// Incremental scan
+		if config.Cache.IncrementalScanInterval > 0 {
+			schedule := fmt.Sprintf("@every %s", config.Cache.IncrementalScanInterval.String())
+			taskID := fmt.Sprintf("%s%s:incremental", ExternalTaskPrefix, modelID)
+			scheduledTasks = append(scheduledTasks, scheduledTask{
+				ID:       taskID,
+				Schedule: schedule,
+				Interval: config.Cache.IncrementalScanInterval,
+				Task:     asynq.NewTask(taskID, nil),
+				Queue:    QueueName,
+			})
+		}
+
+		// Full scan
+		if config.Cache.FullScanInterval > 0 {
+			schedule := fmt.Sprintf("@every %s", config.Cache.FullScanInterval.String())
+			taskID := fmt.Sprintf("%s%s:full", ExternalTaskPrefix, modelID)
+			scheduledTasks = append(scheduledTasks, scheduledTask{
+				ID:       taskID,
+				Schedule: schedule,
+				Interval: config.Cache.FullScanInterval,
+				Task:     asynq.NewTask(taskID, nil),
+				Queue:    QueueName,
+			})
+		}
+	}
+
+	return scheduledTasks
+}
+
+// buildTransformationScheduledTasks creates scheduled tasks for transformations
+func (s *service) buildTransformationScheduledTasks() []scheduledTask {
+	var scheduledTasks []scheduledTask
+
+	for _, node := range s.dag.GetTransformationNodes() {
+		trans := node
+		modelID := trans.GetID()
+		handler := trans.GetHandler()
+		config := trans.GetConfig()
+
+		// Handle scheduled transformations
+		if config.Type == TransformationTypeScheduled {
+			type scheduleProvider interface {
+				GetSchedule() string
+			}
+			provider, ok := handler.(scheduleProvider)
+			if !ok || provider == nil {
+				continue
+			}
+
+			schedule := provider.GetSchedule()
+			if schedule == "" {
+				continue
+			}
+
+			interval, err := parseScheduleInterval(schedule)
+			if err != nil {
+				s.log.WithError(err).
+					WithField("model_id", modelID).
+					Error("Invalid schedule")
+				continue
+			}
+
+			taskID := fmt.Sprintf("%s%s:scheduled", TransformationTaskPrefix, modelID)
+			scheduledTasks = append(scheduledTasks, scheduledTask{
+				ID:       taskID,
+				Schedule: schedule,
+				Interval: interval,
+				Task:     asynq.NewTask(taskID, nil),
+				Queue:    QueueName,
+			})
+			continue
+		}
+
+		// Handle incremental transformations
+		if handler == nil {
+			continue
+		}
+
+		type configProvider interface {
+			Config() interface{}
+		}
+		cfgProvider, ok := handler.(configProvider)
+		if !ok {
+			continue
+		}
+
+		cfg, ok := cfgProvider.Config().(*incremental.Config)
+		if !ok || cfg.Schedules == nil {
+			continue
+		}
+
+		// Forward fill
+		if cfg.Schedules.ForwardFill != "" {
+			interval, err := parseScheduleInterval(cfg.Schedules.ForwardFill)
+			if err != nil {
+				s.log.WithError(err).
+					WithField("model_id", modelID).
+					Error("Invalid forward fill schedule")
+			} else {
+				taskID := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
+				scheduledTasks = append(scheduledTasks, scheduledTask{
+					ID:       taskID,
+					Schedule: cfg.Schedules.ForwardFill,
+					Interval: interval,
+					Task:     asynq.NewTask(taskID, nil),
+					Queue:    QueueName,
+				})
+			}
+		}
+
+		// Backfill
+		if cfg.Schedules.Backfill != "" {
+			interval, err := parseScheduleInterval(cfg.Schedules.Backfill)
+			if err != nil {
+				s.log.WithError(err).
+					WithField("model_id", modelID).
+					Error("Invalid backfill schedule")
+			} else {
+				taskID := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
+				scheduledTasks = append(scheduledTasks, scheduledTask{
+					ID:       taskID,
+					Schedule: cfg.Schedules.Backfill,
+					Interval: interval,
+					Task:     asynq.NewTask(taskID, nil),
+					Queue:    QueueName,
+				})
+			}
+		}
+	}
+
+	return scheduledTasks
 }
 
 // registerAllHandlers registers all task handlers on the mux (called once at startup)
@@ -566,142 +693,6 @@ func (s *service) buildSystemTasks(desiredTasks map[string]string) {
 	desiredTasks[BoundsOrchestratorTaskType] = "@every 1s"
 }
 
-// reconcileTasks reconciles desired tasks with existing ones
-func (s *service) reconcileTasks(desiredTasks map[string]string, existingTasks map[string]*asynq.SchedulerEntry) (reconcileStats, []error) {
-	var errs []error
-	stats := reconcileStats{}
-
-	// First, handle desired tasks (add/update)
-	for taskType, schedule := range desiredTasks {
-		existingEntry := existingTasks[taskType]
-
-		result, err := s.reconcileTask(taskType, schedule, existingEntry)
-		if err != nil {
-			errs = append(errs, err)
-		}
-
-		switch result {
-		case taskReconcileRegistered:
-			stats.registered++
-		case taskReconcileUpdated:
-			stats.updated++
-		case taskReconcileSkipped:
-			stats.skipped++
-		}
-	}
-
-	// Second, remove obsolete tasks (exist but not desired)
-	stats.removed = s.removeObsoleteTasks(desiredTasks, existingTasks)
-
-	return stats, errs
-}
-
-// reconcileTask handles reconciling a single task - registering, updating, or skipping as needed
-func (s *service) reconcileTask(taskType, schedule string, existingEntry *asynq.SchedulerEntry) (taskReconcileResult, error) {
-	// New task if no existing entry
-	if existingEntry == nil {
-		if err := s.registerScheduledTask(taskType, schedule); err != nil {
-			s.log.WithError(err).WithField("task_type", taskType).Error("Failed to register scheduled task")
-			return taskReconcileSkipped, fmt.Errorf("failed to register %s: %w", taskType, err)
-		}
-		return taskReconcileRegistered, nil
-	}
-
-	// Task exists - check if schedule changed
-	if existingEntry.Spec == schedule {
-		// Schedule unchanged - skip to avoid disruption
-		s.log.WithFields(logrus.Fields{
-			"task_type": taskType,
-			"schedule":  schedule,
-		}).Debug("Skipping unchanged scheduled task")
-		return taskReconcileSkipped, nil
-	}
-
-	// Schedule changed - need to update
-	s.log.WithFields(logrus.Fields{
-		"task_type":    taskType,
-		"old_schedule": existingEntry.Spec,
-		"new_schedule": schedule,
-	}).Info("Schedule changed, updating task")
-
-	// Unregister old task
-	if err := s.scheduler.Unregister(existingEntry.ID); err != nil {
-		s.log.WithError(err).WithField("task_type", taskType).Error("Failed to unregister old scheduled task")
-	}
-
-	// Register with new schedule
-	if err := s.registerScheduledTask(taskType, schedule); err != nil {
-		s.log.WithError(err).WithField("task_type", taskType).Error("Failed to register updated scheduled task")
-		return taskReconcileSkipped, fmt.Errorf("failed to update %s: %w", taskType, err)
-	}
-
-	return taskReconcileUpdated, nil
-}
-
-// registerScheduledTask registers a new scheduled task
-func (s *service) registerScheduledTask(taskType, schedule string) error {
-	// Safety check: don't register tasks with empty schedules
-	if schedule == "" {
-		s.log.WithField("task_type", taskType).Debug("Skipping registration of task with empty schedule")
-		return nil
-	}
-
-	// Create the task
-	task := asynq.NewTask(taskType, nil)
-
-	// Calculate appropriate unique window based on schedule
-	uniqueWindow := calculateUniqueWindow(schedule)
-
-	// Register with scheduler
-	entryID, err := s.scheduler.Register(schedule, task,
-		asynq.Queue(QueueName),     // Use dedicated scheduler queue
-		asynq.Unique(uniqueWindow), // Prevent duplicate triggers
-		asynq.MaxRetry(0),
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to register %s with schedule %s: %w", taskType, schedule, err)
-	}
-
-	s.log.WithFields(logrus.Fields{
-		"task_type":     taskType,
-		"schedule":      schedule,
-		"unique_window": uniqueWindow.String(),
-	}).Debug("Registered scheduled task with calculated unique window")
-
-	// Check if this is the consolidation task (special case)
-	if taskType == ConsolidationTaskType {
-		s.log.WithFields(logrus.Fields{
-			"task_type": taskType,
-			"schedule":  schedule,
-			"entry_id":  entryID,
-		}).Info("Registered consolidation task")
-
-		// Update metrics for consolidation
-		observability.RecordScheduledTaskRegistered("consolidation", "maintenance")
-	} else {
-		// Regular transformation task
-		modelID := extractModelID(taskType)
-		operation := coordinator.DirectionForward
-		if strings.HasSuffix(taskType, fmt.Sprintf(":%s", coordinator.DirectionBack)) {
-			operation = coordinator.DirectionBack
-		}
-
-		s.log.WithFields(logrus.Fields{
-			"task_type": taskType,
-			"model_id":  modelID,
-			"operation": operation,
-			"schedule":  schedule,
-			"entry_id":  entryID,
-		}).Info("Registered scheduled task")
-
-		// Update metrics
-		observability.RecordScheduledTaskRegistered(modelID, string(operation))
-	}
-
-	return nil
-}
-
 // extractModelID extracts the model ID from a task type
 // Example: "transformation:analytics.block_propagation:forward" -> "analytics.block_propagation"
 func extractModelID(taskType string) string {
@@ -747,58 +738,6 @@ func (s *service) HandleScheduledForward(_ context.Context, t *asynq.Task) error
 	return nil
 }
 
-// runPeriodicCleanup periodically removes duplicate scheduled tasks
-func (s *service) runPeriodicCleanup() {
-	defer s.wg.Done()
-
-	for {
-		// Random interval between 1-2 minutes
-		intervalBig, _ := rand.Int(rand.Reader, big.NewInt(60))
-		interval := time.Duration(60+intervalBig.Int64()) * time.Second
-		timer := time.NewTimer(interval)
-
-		select {
-		case <-s.done:
-			timer.Stop()
-			return
-		case <-timer.C:
-			// Only perform cleanup if we're the leader
-			if !s.elector.IsLeader() {
-				continue
-			}
-
-			// Get all scheduled task entries
-			entries, err := s.inspector.SchedulerEntries()
-			if err != nil {
-				continue
-			}
-
-			// Group by task type to find duplicates
-			taskGroups := make(map[string][]*asynq.SchedulerEntry, 10) // Add capacity hint
-			for _, entry := range entries {
-				// Only process our tasks (transformation, consolidation, bounds orchestrator, or external)
-				taskType := entry.Task.Type()
-				if strings.HasPrefix(taskType, TransformationTaskPrefix) ||
-					taskType == ConsolidationTaskType ||
-					taskType == BoundsOrchestratorTaskType ||
-					strings.HasPrefix(taskType, ExternalTaskPrefix) {
-					taskGroups[taskType] = append(taskGroups[taskType], entry)
-				}
-			}
-
-			// Remove duplicates, keeping the first one
-			for _, group := range taskGroups {
-				if len(group) > 1 {
-					// Keep first, remove rest
-					for i := 1; i < len(group); i++ {
-						_ = s.scheduler.Unregister(group[i].ID)
-					}
-				}
-			}
-		}
-	}
-}
-
 // HandleExternalIncremental processes incremental scan for external model
 func (s *service) HandleExternalIncremental(_ context.Context, t *asynq.Task) error {
 	// Extract model ID from task type: external:{model_id}:incremental
@@ -831,72 +770,6 @@ func (s *service) HandleExternalFull(_ context.Context, t *asynq.Task) error {
 	// Process the full scan
 	s.coordinator.ProcessExternalScan(modelID, "full")
 	return nil
-}
-
-// removeObsoleteTasks removes scheduled tasks that exist but are no longer desired
-func (s *service) removeObsoleteTasks(desiredTasks map[string]string, existingTasks map[string]*asynq.SchedulerEntry) int {
-	removed := 0
-
-	for taskType, entry := range existingTasks {
-		// Check if this task is one we manage
-		isOurTask := strings.HasPrefix(taskType, TransformationTaskPrefix) ||
-			strings.HasPrefix(taskType, ExternalTaskPrefix) ||
-			taskType == ConsolidationTaskType ||
-			taskType == BoundsOrchestratorTaskType
-
-		if !isOurTask {
-			// Skip tasks we don't manage
-			continue
-		}
-
-		// Check if task is still desired
-		if _, exists := desiredTasks[taskType]; !exists {
-			// Task exists but is no longer desired - remove it
-			s.log.WithFields(logrus.Fields{
-				"task_type": taskType,
-				"entry_id":  entry.ID,
-			}).Info("Removing obsolete scheduled task")
-
-			if err := s.scheduler.Unregister(entry.ID); err != nil {
-				s.log.WithError(err).WithField("task_type", taskType).Error("Failed to unregister obsolete task")
-			} else {
-				removed++
-			}
-		}
-	}
-
-	return removed
-}
-
-// calculateUniqueWindow calculates an appropriate unique window based on the schedule
-func calculateUniqueWindow(schedule string) time.Duration {
-	// Default for cron expressions or unparseable schedules
-	const defaultWindow = 30 * time.Second
-
-	// Check if it's an @every format
-	if !strings.HasPrefix(schedule, "@every ") {
-		return defaultWindow
-	}
-
-	// Parse the duration
-	durationStr := strings.TrimPrefix(schedule, "@every ")
-	interval, err := time.ParseDuration(durationStr)
-	if err != nil {
-		return defaultWindow
-	}
-
-	// Calculate 80% of interval as unique window
-	uniqueWindow := time.Duration(float64(interval) * 0.8)
-
-	// Apply bounds: minimum 1 second, maximum 5 minutes
-	if uniqueWindow < time.Second {
-		return time.Second
-	}
-	if uniqueWindow > 5*time.Minute {
-		return 5 * time.Minute
-	}
-
-	return uniqueWindow
 }
 
 // triggerInitialExternalScans checks for external models without cache and triggers initial scans
