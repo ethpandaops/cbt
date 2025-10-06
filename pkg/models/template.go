@@ -188,9 +188,10 @@ func (t *TemplateEngine) processExternalDependency(dep Node, depID, originalDep 
 }
 
 // GetTransformationEnvironmentVariables builds environment variables for transformation execution
-func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error) {
+func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time, globalEnv map[string]string) (*[]string, error) {
 	config := model.GetConfig()
 
+	// Start with built-in environment variables
 	env := []string{
 		fmt.Sprintf("CLICKHOUSE_URL=%s", t.clickhouseCfg.URL),
 		fmt.Sprintf("SELF_DATABASE=%s", config.Database),
@@ -206,6 +207,16 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 		env = append(env,
 			fmt.Sprintf("CLICKHOUSE_CLUSTER=%s", t.clickhouseCfg.Cluster),
 			fmt.Sprintf("CLICKHOUSE_LOCAL_SUFFIX=%s", t.clickhouseCfg.LocalSuffix))
+	}
+
+	// Add global custom environment variables
+	for key, value := range globalEnv {
+		env = append(env, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	// Add transformation-specific environment variables (override globals)
+	for key, value := range config.Env {
+		env = append(env, fmt.Sprintf("%s=%s", key, value))
 	}
 
 	// Process all dependencies from handler

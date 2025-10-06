@@ -27,9 +27,10 @@ var (
 // Config is the minimal configuration used to determine the transformation type
 // Each type has its own complete configuration structure
 type Config struct {
-	Type     Type   `yaml:"type"`     // Required: "incremental" or "scheduled"
-	Database string `yaml:"database"` // Optional, can fall back to default
-	Table    string `yaml:"table"`    // Required
+	Type     Type              `yaml:"type"`     // Required: "incremental" or "scheduled"
+	Database string            `yaml:"database"` // Optional, can fall back to default
+	Table    string            `yaml:"table"`    // Required
+	Env      map[string]string `yaml:"env,omitempty"`
 }
 
 // Validate checks if the base configuration is valid

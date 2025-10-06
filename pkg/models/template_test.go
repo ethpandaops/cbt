@@ -461,7 +461,8 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 	}
 
 	startTime := time.Now()
-	envVars, err := engine.GetTransformationEnvironmentVariables(model, 1000, 100, startTime)
+	globalEnv := map[string]string{}
+	envVars, err := engine.GetTransformationEnvironmentVariables(model, 1000, 100, startTime, globalEnv)
 	require.NoError(t, err)
 	require.NotNil(t, envVars)
 
@@ -492,6 +493,65 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 		}
 		assert.True(t, found, "Expected environment variable not found: %s", expected)
 	}
+}
+
+// Test GetTransformationEnvironmentVariables with custom env vars
+func TestGetTransformationEnvironmentVariables_CustomEnv(t *testing.T) {
+	chConfig := &clickhouse.Config{
+		Cluster:     "test_cluster",
+		LocalSuffix: "_local",
+		URL:         "http://localhost:8123",
+	}
+	dag := NewDependencyGraph()
+	engine := NewTemplateEngine(chConfig, dag)
+
+	// Create model with transformation-specific env vars
+	model := &mockTransformationWithTemplate{
+		id: "test_db.test_table",
+		config: transformation.Config{
+			Database: "test_db",
+			Table:    "test_table",
+			Env: map[string]string{
+				"MODEL_SPECIFIC": "value1",
+				"API_KEY":        "model_override",
+			},
+		},
+		value: "SELECT * FROM test",
+	}
+
+	startTime := time.Now()
+
+	// Global env vars from config
+	globalEnv := map[string]string{
+		"GLOBAL_VAR":  "global_value",
+		"API_KEY":     "global_key",
+		"ENVIRONMENT": "production",
+	}
+
+	envVars, err := engine.GetTransformationEnvironmentVariables(model, 1000, 100, startTime, globalEnv)
+	require.NoError(t, err)
+	require.NotNil(t, envVars)
+
+	// Convert to map for easier checking
+	envMap := make(map[string]string)
+	for _, v := range *envVars {
+		parts := strings.SplitN(v, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	// Check global env vars are present
+	assert.Equal(t, "global_value", envMap["GLOBAL_VAR"], "Global env var should be present")
+	assert.Equal(t, "production", envMap["ENVIRONMENT"], "Global env var should be present")
+
+	// Check transformation-specific env vars override globals
+	assert.Equal(t, "model_override", envMap["API_KEY"], "Transformation env should override global")
+	assert.Equal(t, "value1", envMap["MODEL_SPECIFIC"], "Transformation-specific env should be present")
+
+	// Check built-in vars are still present
+	assert.Equal(t, "test_db", envMap["SELF_DATABASE"], "Built-in env var should be present")
+	assert.Equal(t, "test_table", envMap["SELF_TABLE"], "Built-in env var should be present")
 }
 
 // Test buildTransformationVariables with missing dependency

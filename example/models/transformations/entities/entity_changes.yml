@@ -15,3 +15,8 @@ tags:
 dependencies:
   - "{{external}}.validator_entity"
 exec: "python3 /app/scripts/entity_changes.py"
+# Optional: Transformation-specific environment variables
+# These override global env vars from config.yaml
+env:
+  API_KEY: "entity_changes_override_key"
+  CUSTOM_PARAM: "entity_specific_value_xyz"

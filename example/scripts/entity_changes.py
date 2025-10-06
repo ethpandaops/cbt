@@ -52,29 +52,38 @@ def execute_clickhouse_query(host, query):
 def main():
     # Get environment variables provided by CBT worker
     ch_url = os.environ['CLICKHOUSE_URL']
-    
+
     # Parse to get hostname (ignore port since we'll use 8123 for HTTP)
     parsed = urlparse(ch_url)
     ch_host = parsed.hostname or 'clickhouse'
-    
+
     # Task context
     bounds_start = int(os.environ['BOUNDS_START'])
     bounds_end = int(os.environ['BOUNDS_END'])
     task_start = int(os.environ['TASK_START'])
-    
+
     # Model info
     target_db = os.environ['SELF_DATABASE']
     target_table = os.environ['SELF_TABLE']
-    
+
     # Dependency info
     dep_db = os.environ.get('DEP_ETHEREUM_VALIDATOR_ENTITY_DATABASE', 'ethereum')
     dep_table = os.environ.get('DEP_ETHEREUM_VALIDATOR_ENTITY_TABLE', 'validator_entity')
-    
+
+    # Custom environment variables (example)
+    api_key = os.environ.get('API_KEY', 'not_set')
+    environment = os.environ.get('ENVIRONMENT', 'not_set')
+    custom_param = os.environ.get('CUSTOM_PARAM', 'not_set')
+
     print(f"=== Python Transformation Model Execution ===")
     print(f"Time range: {datetime.fromtimestamp(bounds_start)} to {datetime.fromtimestamp(bounds_end)}")
     print(f"Source: {dep_db}.{dep_table}")
     print(f"Target: {target_db}.{target_table}")
     print(f"ClickHouse host: {ch_host}")
+    print(f"\n=== Custom Environment Variables ===")
+    print(f"API_KEY: {api_key}")
+    print(f"ENVIRONMENT: {environment}")
+    print(f"CUSTOM_PARAM: {custom_param}")
     
     try:
         # Create target table if it doesn't exist

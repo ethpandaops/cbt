@@ -15,8 +15,9 @@ type ExternalConfig struct {
 
 // TransformationConfig defines configuration for transformation models
 type TransformationConfig struct {
-	Paths           []string `yaml:"paths"`
-	DefaultDatabase string   `yaml:"defaultDatabase"`
+	Paths           []string          `yaml:"paths"`
+	DefaultDatabase string            `yaml:"defaultDatabase"`
+	Env             map[string]string `yaml:"env,omitempty"`
 }
 
 // Validate validates and sets defaults for the configuration

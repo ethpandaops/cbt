@@ -88,3 +88,7 @@ worker:
 #     paths:
 #       - "models/transformations" # default
 #       - "/additional/transformation/models"
+#     # Optional: Global custom environment variables for all transformations
+#     env:
+#       API_KEY: "your_api_key_here"
+#       ENVIRONMENT: "production"
