@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
-	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,25 +52,13 @@ func (m *mockScheduleTracker) GetAllTaskIDs(_ context.Context) ([]string, error)
 }
 
 func TestTickerService(t *testing.T) {
-	t.Skip("Skipping Redis integration tests - run manually with Redis available")
-
-	// Skip if Redis not available
-	redisOpt := &redis.Options{
-		Addr: "localhost:6379",
-		DB:   15, // Use test DB
-	}
-	client := redis.NewClient(redisOpt)
-	ctx := context.Background()
-
-	if err := client.Ping(ctx).Err(); err != nil {
-		t.Skip("Redis not available, skipping ticker tests")
-	}
-	defer client.Close()
-
+	// Tests use mock tracker, no Redis needed
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel)
 
 	t.Run("ticker enqueues task when interval elapsed", func(t *testing.T) {
+		t.Skip("Requires Asynq client - integration test only")
+
 		mockTracker := newMockScheduleTracker()
 		asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: "localhost:6379", DB: 15})
 		defer asynqClient.Close()
@@ -110,6 +97,8 @@ func TestTickerService(t *testing.T) {
 	})
 
 	t.Run("ticker does not enqueue task when interval not elapsed", func(t *testing.T) {
+		t.Skip("Requires Asynq client - integration test only")
+
 		mockTracker := newMockScheduleTracker()
 		asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: "localhost:6379", DB: 15})
 		defer asynqClient.Close()
@@ -148,6 +137,8 @@ func TestTickerService(t *testing.T) {
 	})
 
 	t.Run("ticker enqueues task on first run (zero time)", func(t *testing.T) {
+		t.Skip("Requires Asynq client - integration test only")
+
 		mockTracker := newMockScheduleTracker()
 		asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: "localhost:6379", DB: 15})
 		defer asynqClient.Close()
@@ -186,6 +177,8 @@ func TestTickerService(t *testing.T) {
 	})
 
 	t.Run("ticker stops gracefully on context cancel", func(t *testing.T) {
+		t.Skip("Requires Asynq client - integration test only")
+
 		mockTracker := newMockScheduleTracker()
 		asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: "localhost:6379", DB: 15})
 		defer asynqClient.Close()
@@ -226,6 +219,8 @@ func TestTickerService(t *testing.T) {
 	})
 
 	t.Run("ticker stops gracefully on Stop call", func(t *testing.T) {
+		t.Skip("Requires Asynq client - integration test only")
+
 		mockTracker := newMockScheduleTracker()
 		asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: "localhost:6379", DB: 15})
 		defer asynqClient.Close()
