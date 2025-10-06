@@ -1,0 +1,111 @@
+openapi: 3.0.0
+info:
+  title: CBT API
+  version: 1.0.0
+  description: ClickHouse Build Tool API for managing transformation models
+servers:
+  - url: http://localhost:8080/api/v1
+
+paths:
+  /models:
+    get:
+      summary: List all models
+      operationId: getModels
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [transformation, external]
+        - name: database
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of models
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelsResponse'
+
+  /models/{model_id}:
+    get:
+      summary: Get model by ID
+      operationId: getModelByID
+      parameters:
+        - name: model_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "default.users"
+      responses:
+        '200':
+          description: Model details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  schemas:
+    ModelsResponse:
+      type: object
+      required: [models, total]
+      properties:
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelDetail'
+        total:
+          type: integer
+
+    ModelDetail:
+      type: object
+      required: [id, type, database, table, config]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        database:
+          type: string
+        table:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+        dependencies:
+          type: array
+          items:
+            type: string
+        dependents:
+          type: array
+          items:
+            type: string
+
+    Error:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+        code:
+          type: integer
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
