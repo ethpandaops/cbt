@@ -4,6 +4,7 @@ package engine
 import (
 	"errors"
 
+	"github.com/ethpandaops/cbt/pkg/api"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/scheduler"
@@ -35,6 +36,9 @@ type Config struct {
 
 	// Models configuration
 	Models models.Config `yaml:"models"`
+
+	// API service configuration
+	API api.Config `yaml:"api"`
 }
 
 // RedisConfig represents Redis connection configuration
@@ -60,5 +64,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 
-	return c.Models.Validate()
+	if err := c.Models.Validate(); err != nil {
+		return err
+	}
+
+	return c.API.Validate()
 }

@@ -13,6 +13,11 @@ healthCheckAddr: ":8080"
 # Optional pprof profiling
 # pprofAddr: ":6060"
 
+# API server configuration
+api:
+  enabled: true
+  addr: ":8888"  # API listens on port 8888
+
 # ClickHouse configuration (used by all components)
 clickhouse:
   url: "http://clickhouse:8123"

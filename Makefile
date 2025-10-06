@@ -89,8 +89,16 @@ docker-build:
 	@echo "Building Docker image..."
 	@docker build -t $(BINARY_NAME):latest .
 
+# Generate API code from OpenAPI spec
+generate-api:
+	@echo "Generating API code from OpenAPI spec..."
+	@oapi-codegen -generate fiber,types,spec -package generated -o pkg/api/generated/server.gen.go api/openapi.yaml
+	@sed -i 's/github.com\/gofiber\/fiber\/v2/github.com\/gofiber\/fiber\/v3/g' pkg/api/generated/server.gen.go
+	@sed -i 's/\*fiber\.Ctx/fiber.Ctx/g' pkg/api/generated/server.gen.go
+	@echo "API code generated successfully"
+
 # Generate mocks (if needed)
-generate:
+generate: generate-api
 	@echo "Generating code..."
 	@$(GO) generate ./...
 

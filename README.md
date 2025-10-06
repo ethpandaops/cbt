@@ -639,13 +639,14 @@ The example deployment demonstrates CBT's capabilities with sample models includ
 
 #### What's Included
 - **External Models**: `beacon_blocks`, `validator_entity` (simulated data sources)
-- **SQL Transformations**: 
+- **SQL Transformations**:
   - `block_propagation` - Aggregates block propagation metrics
   - `block_entity` - Joins blocks with validator entities
   - `entity_network_effects` - Complex aggregation across multiple dependencies
 - **Python Model**: `entity_changes` - Demonstrates external script execution with ClickHouse HTTP API
 - **Data Generator**: Continuously inserts sample blockchain data
 - **Chaos Generator**: Simulates data gaps and out-of-order arrivals for resilience testing
+- **REST API**: Enabled on port 8888 for querying model metadata and dependencies
 
 #### Running the Example
 
@@ -660,9 +661,9 @@ docker-compose up -d
 ```bash
 # Check if models are processing
 docker exec cbt-clickhouse clickhouse-client -q "
-  SELECT table, COUNT(*) as rows 
-  FROM system.tables 
-  WHERE database = 'analytics' 
+  SELECT table, COUNT(*) as rows
+  FROM system.tables
+  WHERE database = 'analytics'
   GROUP BY table"
 
 # View logs
@@ -670,12 +671,27 @@ docker-compose logs -f
 
 # Check admin table for completed tasks
 docker exec cbt-clickhouse clickhouse-client -q "
-  SELECT database, table, COUNT(*) as runs 
-  FROM admin.cbt 
+  SELECT database, table, COUNT(*) as runs
+  FROM admin.cbt
   GROUP BY database, table"
 
 # View task queue web UI
 open http://localhost:8080  # Asynqmon dashboard
+
+# Query the API to list all models (replica 1 on port 8888, replica 2 on port 8889)
+curl http://localhost:8888/api/v1/models
+
+# Get details for a specific model
+curl http://localhost:8888/api/v1/models/analytics.block_propagation
+
+# Filter models by type
+curl "http://localhost:8888/api/v1/models?type=transformation"
+
+# Filter models by database
+curl "http://localhost:8888/api/v1/models?database=analytics"
+
+# Pretty print JSON response
+curl -s http://localhost:8888/api/v1/models | jq
 ```
 
 ## Usage
@@ -1061,6 +1077,91 @@ This validation system ensures that:
 1. No model processes data before its dependencies are ready
 1. Processing can automatically resume when dependencies become available
 1. Data consistency is maintained even in distributed environments
+
+## API Server
+
+CBT includes an optional REST API for querying model metadata and transformation state.
+
+### Configuration
+
+Enable the API server in your `config.yaml`:
+
+```yaml
+api:
+  enabled: true
+  addr: ":8080"  # Listen address (default: :8080)
+```
+
+### Endpoints
+
+#### List Models
+```bash
+GET /api/v1/models
+
+Query Parameters:
+- type (optional): Filter by "transformation" or "external"
+- database (optional): Filter by database name
+
+Example:
+curl http://localhost:8080/api/v1/models?type=transformation&database=analytics
+```
+
+Response:
+```json
+{
+  "models": [
+    {
+      "id": "analytics.block_stats",
+      "type": "transformation",
+      "database": "analytics",
+      "table": "block_stats",
+      "config": {
+        "type": "incremental",
+        "database": "analytics",
+        "table": "block_stats"
+      },
+      "dependencies": ["ethereum.beacon_blocks"],
+      "dependents": ["analytics.hourly_rollup"]
+    }
+  ],
+  "total": 1
+}
+```
+
+#### Get Model Details
+```bash
+GET /api/v1/models/{model_id}
+
+Example:
+curl http://localhost:8080/api/v1/models/analytics.block_stats
+```
+
+Response:
+```json
+{
+  "id": "analytics.block_stats",
+  "type": "transformation",
+  "database": "analytics",
+  "table": "block_stats",
+  "config": {
+    "type": "incremental",
+    "interval": { "max": 3600, "min": 0 }
+  },
+  "dependencies": ["default.block_entity"],
+  "dependents": ["analytics.hourly_rollup"]
+}
+```
+
+### API Documentation
+
+The full OpenAPI specification is available at `/api/openapi.yaml`.
+
+### Development
+
+Regenerate API code after modifying the OpenAPI spec:
+```bash
+make generate-api
+```
 
 ## License
 
