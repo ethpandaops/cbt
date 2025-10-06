@@ -191,6 +191,11 @@ func (h *Handler) IsForwardFillEnabled() bool {
 	return h.config.Schedules != nil && h.config.Schedules.ForwardFill != ""
 }
 
+// IsBackfillEnabled returns true if backfill schedule is configured
+func (h *Handler) IsBackfillEnabled() bool {
+	return h.config.Schedules != nil && h.config.Schedules.Backfill != ""
+}
+
 // AllowsPartialIntervals returns true if min interval is 0 (allows partial processing)
 func (h *Handler) AllowsPartialIntervals() bool {
 	return h.config.Interval != nil && h.config.Interval.Min == 0
