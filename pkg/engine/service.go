@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/admin"
+	"github.com/ethpandaops/cbt/pkg/api"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/coordinator"
 	"github.com/ethpandaops/cbt/pkg/models"
@@ -31,6 +32,7 @@ type Service struct {
 	worker      worker.Service
 	admin       admin.Service
 	models      models.Service
+	api         api.Service
 
 	// Servers
 	healthServer *http.Server
@@ -88,6 +90,8 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 		return nil, fmt.Errorf("failed to create worker service: %w", err)
 	}
 
+	apiService := api.NewService(&cfg.API, modelsService, log)
+
 	return &Service{
 		log:    log,
 		config: cfg,
@@ -100,6 +104,7 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 		worker:       workerService,
 		admin:        adminManager,
 		models:       modelsService,
+		api:          apiService,
 	}, nil
 }
 
@@ -148,6 +153,11 @@ func (a *Service) Start() error {
 		return fmt.Errorf("failed to start worker: %w", err)
 	}
 
+	// Start API service
+	if err := a.api.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start API service: %w", err)
+	}
+
 	a.log.Info("CBT Engine started successfully")
 
 	return nil
@@ -172,6 +182,9 @@ func (a *Service) Stop() error {
 	}
 
 	// Stop all services
+	if a.api != nil {
+		stopService("API service", a.api.Stop)
+	}
 	if a.worker != nil {
 		stopService("worker service", a.worker.Stop)
 	}

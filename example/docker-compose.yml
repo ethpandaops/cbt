@@ -1,3 +1,14 @@
+# CBT Example Docker Compose Configuration
+#
+# Exposed Ports:
+#   8123       - ClickHouse HTTP interface
+#   9000       - ClickHouse native protocol
+#   8080       - Asynqmon task queue monitoring UI
+#   8081       - Redis Commander
+#   8888-8889  - CBT REST API (2 replicas for HA)
+#
+# The example demonstrates CBT capabilities with simulated blockchain data
+
 services:
   # ClickHouse database
   clickhouse:
@@ -46,6 +57,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    ports:
+      - "8888-8889:8888"  # API server (mapped to multiple replicas)
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./models:/app/models:ro
@@ -137,7 +150,7 @@ services:
     platform: linux/amd64
     container_name: cbt-asynqmon
     ports:
-      - "8080:8080"
+      - "8080:8080"  # Asynqmon web UI
     environment:
       - REDIS_URL=redis://redis:6379
     depends_on:

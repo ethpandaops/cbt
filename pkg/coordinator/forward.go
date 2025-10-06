@@ -31,13 +31,23 @@ func (s *service) processForward(trans models.Transformation) {
 		return
 	}
 
-	// Get and adjust interval based on limits and dependencies
-	interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, nextPos, maxLimit)
-	if shouldReturn {
-		return
-	}
+	// Route to gap-aware processing for incremental transformations
+	// which process sequential positions (0, 1, 2, ...) and can have gaps
+	// in their dependency data that need to be skipped. Scheduled
+	// transformations run on time schedules (hourly, daily) and don't have
+	// position-based gaps, so they use the normal processing path.
+	if handler.ShouldTrackPosition() {
+		// Gap-aware path: detect and skip gaps in dependencies
+		s.processForwardWithGapSkipping(ctx, trans, nextPos, maxLimit)
+	} else {
+		// Normal path: for scheduled transformations that don't track positions
+		interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, nextPos, maxLimit)
+		if shouldReturn {
+			return
+		}
 
-	s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval)
+		s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval)
+	}
 }
 
 // isForwardFillEnabled checks if forward fill is enabled for the handler
@@ -198,4 +208,77 @@ func (s *service) adjustIntervalForDependencies(ctx context.Context, trans model
 	}).Info("Using partial interval due to dependency limits")
 
 	return availableInterval, false
+}
+
+// processForwardWithGapSkipping processes forward fill with gap detection and skipping.
+//
+// This function processes ONE position per call.
+// The coordinator calls processForward periodically, which then calls this function.
+//
+// Gap Skipping Logic:
+// 1. Validate dependencies at the current position
+// 2. If dependencies are satisfied -> enqueue the task
+// 3. If a gap is detected -> recursively skip to the next valid position
+// 4. This ensures we don't waste resources trying to process positions with missing data
+//
+// Example Flow:
+//
+//	Position 100: Gap detected in dependency, NextValidPos=110
+//	-> Recursively calls with position 110
+//	Position 110: Dependencies satisfied
+//	-> Enqueues task for position 110
+func (s *service) processForwardWithGapSkipping(
+	ctx context.Context,
+	trans models.Transformation,
+	startPos, maxLimit uint64,
+) {
+	var (
+		handler    = trans.GetHandler()
+		modelID    = trans.GetID()
+		currentPos = startPos
+	)
+
+	// Calculate interval for this position
+	interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, currentPos, maxLimit)
+	if shouldReturn {
+		return
+	}
+
+	// Validate dependencies for this position
+	result, err := s.validator.ValidateDependencies(ctx, modelID, currentPos, interval)
+	if err != nil {
+		s.log.WithError(err).WithField("model_id", modelID).Error("Critical validation error")
+		return
+	}
+
+	switch {
+	case result.CanProcess:
+		// Dependencies are satisfied at this position
+		// Enqueue the transformation task for processing
+		s.checkAndEnqueuePositionWithTrigger(ctx, trans, currentPos, interval)
+
+	case result.NextValidPos > currentPos:
+		// Dependencies have missing data in range [currentPos, currentPos+interval]
+		// NextValidPos indicates where the dependency data resumes
+		// Example: Gap [101-109] means we can't process 100, but can process 110
+		s.log.WithFields(logrus.Fields{
+			"model_id":  modelID,
+			"gap_start": currentPos,
+			"gap_end":   result.NextValidPos,
+		}).Info("Skipping gap in transformation dependencies")
+
+		// Safety check: Don't skip beyond configured limits
+		if maxLimit > 0 && result.NextValidPos >= maxLimit {
+			s.log.WithField("model_id", modelID).Debug("Next valid position beyond limit")
+			return
+		}
+
+		// Skip to the next valid position and try again
+		s.processForwardWithGapSkipping(ctx, trans, result.NextValidPos, maxLimit)
+
+	default:
+		// Dependencies don't have any more data available
+		// This is normal when we've caught up with real-time data
+		s.log.WithField("model_id", modelID).Debug("No more valid positions for forward fill")
+	}
 }
