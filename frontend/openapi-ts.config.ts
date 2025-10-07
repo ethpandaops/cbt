@@ -3,14 +3,14 @@ import { defineConfig } from '@hey-api/openapi-ts';
 export default defineConfig({
   input: '../api/openapi.yaml',
   output: {
-    path: 'src/client',
+    path: 'src/api',
     format: 'prettier',
     lint: 'eslint',
   },
   plugins: [
     {
       name: '@hey-api/client-fetch',
-      runtimeConfigPath: '../lib/api-config.ts',
+      runtimeConfigPath: '../utils/api-config.ts',
     },
     {
       metadata: true,
@@ -18,7 +18,6 @@ export default defineConfig({
     },
     '@tanstack/react-query',
     {
-      dates: true,
       name: '@hey-api/sdk',
       validator: 'zod',
     },

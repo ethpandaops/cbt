@@ -1,6 +1,6 @@
 import { type JSX } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getModelsOptions } from '../client/@tanstack/react-query.gen';
+import { getModelsOptions } from '@api/@tanstack/react-query.gen';
 
 export function ModelsList(): JSX.Element {
   const { data, error, isLoading } = useQuery(

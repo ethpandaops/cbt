@@ -11,7 +11,7 @@ import prettier from 'eslint-plugin-prettier/recommended';
 
 export default tseslint.config(
   {
-    ignores: ['dist', 'node_modules', 'coverage', 'eslint_report.json', 'src/api/generated'],
+    ignores: ['build', 'node_modules', 'coverage', 'eslint_report.json', 'src/api'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
