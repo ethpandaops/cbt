@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/ethpandaops/cbt/pkg/api/generated"
@@ -92,6 +93,11 @@ func (s *Server) GetModels(c fiber.Ctx, params generated.GetModelsParams) error 
 			modelDetails = append(modelDetails, detail)
 		}
 	}
+
+	// Sort models by ID for consistent ordering
+	sort.Slice(modelDetails, func(i, j int) bool {
+		return modelDetails[i].Id < modelDetails[j].Id
+	})
 
 	total := len(modelDetails)
 
