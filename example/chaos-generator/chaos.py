@@ -29,15 +29,15 @@ TRANSFORMATION_TABLES = [
     ('analytics', 'entity_network_effects')
 ]
 
-ADMIN_TABLE = ('admin', 'cbt')
+ADMIN_TABLE = ('admin', 'cbt_incremental')
 
 def get_random_positions(client, database, table, count=1):
     """Get random positions from a table"""
     try:
         # For admin table, get positions
-        if database == 'admin' and table == 'cbt':
+        if database == 'admin' and table == 'cbt_incremental':
             query = f"""
-                SELECT database, table, position 
+                SELECT database, table, position
                 FROM {database}.{table}
                 WHERE position > 0
                 ORDER BY rand()
@@ -83,35 +83,35 @@ def drop_external_data(client, database, table):
             print(f"  Error dropping data from {database}.{table}: {e}")
 
 def drop_transformation_data(client, database, table):
-    """Drop random data from transformation tables (admin.cbt only)
-    
+    """Drop random data from transformation tables (admin.cbt_incremental only)
+
     This simulates gaps in the tracking without removing the actual transformed data.
     The coordinator should detect these gaps and re-process them.
     """
     # Get random positions for this transformation
     query = f"""
         SELECT position, interval
-        FROM admin.cbt FINAL
-        WHERE database = '{database}' 
+        FROM admin.cbt_incremental FINAL
+        WHERE database = '{database}'
         AND table = '{table}'
         AND position > 0
         ORDER BY rand()
         LIMIT {random.randint(1, 2)}
     """
-    
+
     try:
         result = client.query(query)
         if not result.result_rows:
             print(f"  No data to drop from {database}.{table}")
             return
-        
+
         for row in result.result_rows:
             position = row[0]
             interval = row[1]
-            
-            # Delete ONLY from admin.cbt - this creates a gap that should be detected and refilled
+
+            # Delete ONLY from admin.cbt_incremental - this creates a gap that should be detected and refilled
             delete_query = f"""
-                DELETE FROM admin.cbt
+                DELETE FROM admin.cbt_incremental
                 WHERE database = '{database}'
                 AND table = '{table}'
                 AND position = {position}
@@ -119,12 +119,12 @@ def drop_transformation_data(client, database, table):
             client.command(delete_query)
             print(f"  💥 Dropped transformation tracking: {database}.{table} position={position} (interval={interval})")
             print(f"    └─ Gap created - coordinator should detect and reprocess this interval")
-                
+
     except Exception as e:
         print(f"  Error dropping transformation data: {e}")
 
 def cause_chaos(client):
-    """Main chaos function - only drops transformation tracking data (admin.cbt)"""
+    """Main chaos function - only drops transformation tracking data (admin.cbt_incremental)"""
     # Only do transformation chaos - never touch external data
     print(f"\n🎲 CHAOS EVENT: transformation chaos only (external data preserved)")
     
@@ -151,16 +151,16 @@ def check_table_status(client):
         except Exception as e:
             print(f"    {database}.{table}: Error - {e}")
     
-    # Check transformation status via admin.cbt
-    print("  Transformation Tables (admin.cbt):")
+    # Check transformation status via admin.cbt_incremental
+    print("  Transformation Tables (admin.cbt_incremental):")
     try:
         query = """
-            SELECT 
+            SELECT
                 database || '.' || table as model,
                 count() as intervals,
                 min(position) as min_pos,
                 max(position + interval) as max_pos
-            FROM admin.cbt FINAL
+            FROM admin.cbt_incremental FINAL
             GROUP BY database, table
             ORDER BY database, table
         """
@@ -174,7 +174,7 @@ def check_table_status(client):
             else:
                 print(f"    {model}: {intervals} intervals")
     except Exception as e:
-        print(f"    Error querying admin.cbt: {e}")
+        print(f"    Error querying admin.cbt_incremental: {e}")
 
 def main():
     print(f"🌪️  CHAOS GENERATOR STARTING")
