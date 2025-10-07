@@ -144,6 +144,11 @@ func (h *Handler) GetFlattenedDependencies() []string {
 	return result
 }
 
+// GetOriginalDependencies returns the original dependencies before placeholder substitution
+func (h *Handler) GetOriginalDependencies() []transformation.Dependency {
+	return h.config.OriginalDependencies
+}
+
 // SubstituteDependencyPlaceholders replaces {{external}} and {{transformation}} placeholders
 func (h *Handler) SubstituteDependencyPlaceholders(externalDefaultDB, transformationDefaultDB string) {
 	// Deep copy original dependencies before substitution

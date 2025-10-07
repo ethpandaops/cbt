@@ -110,9 +110,41 @@ func (t *TemplateEngine) buildDependencyVariables(model Transformation) (map[str
 		deps[database] = db
 	}
 
+	// Get original dependencies to preserve placeholder mappings
+	type origDepProvider interface {
+		GetOriginalDependencies() []transformation.Dependency
+	}
+
+	var originalDeps []transformation.Dependency
+	if origProvider, ok := handler.(origDepProvider); ok {
+		originalDeps = origProvider.GetOriginalDependencies()
+	}
+
 	allDeps := depProvider.GetFlattenedDependencies()
+
+	// Build mapping from resolved ID to original ID for placeholder tracking
+	resolvedToOriginal := make(map[string]string)
+	if len(originalDeps) > 0 {
+		// Flatten original dependencies and match them to resolved dependencies
+		idx := 0
+		for _, origDep := range originalDeps {
+			origIDs := origDep.GetAllDependencies()
+			for _, origID := range origIDs {
+				if idx < len(allDeps) {
+					resolvedToOriginal[allDeps[idx]] = origID
+					idx++
+				}
+			}
+		}
+	}
+
+	// Process all dependencies
 	for _, depID := range allDeps {
-		if err := t.processSingleDependencyID(depID, depID, addDepEntry); err != nil {
+		originalID := resolvedToOriginal[depID]
+		if originalID == "" {
+			originalID = depID
+		}
+		if err := t.processSingleDependencyID(depID, originalID, addDepEntry); err != nil {
 			return nil, err
 		}
 	}

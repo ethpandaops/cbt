@@ -11,8 +11,6 @@ import (
 var (
 	// ErrNonExistentDependency is returned when a model depends on a non-existent model
 	ErrNonExistentDependency = errors.New("model depends on non-existent model")
-	// ErrInconsistentGraph is returned when the dependency graph is inconsistent
-	ErrInconsistentGraph = errors.New("dependency graph is inconsistent: vertex count mismatch")
 	// ErrNotExternalModel is returned when a model is not an external model
 	ErrNotExternalModel = errors.New("model is not an external model")
 	// ErrNotTransformationModel is returned when a model is not a transformation model

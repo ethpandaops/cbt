@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
@@ -67,25 +68,94 @@ func TestServiceCreation(t *testing.T) {
 	// Those would be integration tests, not unit tests
 }
 
-// Test Process method logic (without actual Redis connection)
-func TestProcessLogic(t *testing.T) {
-	// Skip this test as Process requires queueManager which needs Redis
-	t.Skip("Process method requires Redis connection via queueManager - this is an integration test")
+// Test Process method logic with miniredis
+func TestProcessForward(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
 
-	// Note: The Process method depends on queueManager and inspector being initialized
-	// during Start(), which requires a valid Redis connection. Without Start being called,
-	// queueManager is nil and Process will panic with a nil pointer dereference.
-	// This functionality should be tested in integration tests with a real or mocked Redis.
+	// Start miniredis
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	redisOpt := &redis.Options{
+		Addr: mr.Addr(),
+	}
+
+	mockDAG := &mockDAGReader{
+		nodes: make(map[string]models.Node),
+	}
+	mockAdmin := &mockAdminService{
+		lastPositions: make(map[string]uint64),
+	}
+	mockValidator := validation.NewMockValidator()
+
+	svc, err := NewService(log, redisOpt, mockDAG, mockAdmin, mockValidator)
+	require.NoError(t, err)
+
+	// Start the service to initialize queueManager
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = svc.Start(ctx)
+	require.NoError(t, err)
+	defer svc.Stop()
+
+	// Create a mock transformation
+	mockTrans := &mockTransformation{
+		id:       "test.model",
+		interval: 100,
+	}
+
+	// Test that Process doesn't panic
+	svc.Process(mockTrans, DirectionForward)
+
+	// Test passes if no panic occurs
 }
 
-// Test concurrent access to service methods (without Redis)
-func TestConcurrentAccess(t *testing.T) {
-	// Skip this test as Process requires queueManager which needs Redis
-	t.Skip("Process method requires Redis connection via queueManager - this is an integration test")
+// Test concurrent access to Process method with miniredis
+func TestProcessBackfill(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
 
-	// Note: Testing concurrent access to Process method requires queueManager to be initialized,
-	// which only happens during Start() with a valid Redis connection.
-	// This functionality should be tested in integration tests with proper Redis mocking.
+	// Start miniredis
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	redisOpt := &redis.Options{
+		Addr: mr.Addr(),
+	}
+
+	mockDAG := &mockDAGReader{
+		nodes: make(map[string]models.Node),
+	}
+	mockAdmin := &mockAdminService{
+		lastPositions: make(map[string]uint64),
+	}
+	mockValidator := validation.NewMockValidator()
+
+	svc, err := NewService(log, redisOpt, mockDAG, mockAdmin, mockValidator)
+	require.NoError(t, err)
+
+	// Start the service to initialize queueManager
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = svc.Start(ctx)
+	require.NoError(t, err)
+	defer svc.Stop()
+
+	// Create a mock transformation
+	mockTrans := &mockTransformation{
+		id:       "test.model",
+		interval: 100,
+	}
+
+	// Test that Process doesn't panic with backfill direction
+	svc.Process(mockTrans, DirectionBack)
+
+	// Test passes if no panic occurs
 }
 
 // Benchmark service creation (without Redis)
