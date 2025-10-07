@@ -4,6 +4,8 @@ COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
+ARG VITE_API_URL=http://localhost:8888/api/v1
+ENV VITE_API_URL=${VITE_API_URL}
 RUN pnpm run build
 
 FROM golang:1.25 AS builder
