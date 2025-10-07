@@ -7,7 +7,7 @@ logging: info
 metricsAddr: ":9090"
 
 # Health check server address (optional)
-healthCheckAddr: ":8080"
+healthCheckAddr: ":8081"
 
 # Pprof server address for profiling (optional)
 # Uncomment to enable profiling
@@ -92,3 +92,10 @@ worker:
 #     env:
 #       API_KEY: "your_api_key_here"
 #       ENVIRONMENT: "production"
+
+# Frontend service configuration
+frontend:
+  # Enable or disable the frontend service
+  enabled: true
+  # Address to serve the frontend on
+  addr: ":8080"

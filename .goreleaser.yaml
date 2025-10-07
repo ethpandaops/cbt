@@ -4,6 +4,7 @@ before:
   hooks:
     - go mod tidy
     - go generate ./...
+    - make build-frontend
 builds:
   - env:
       - CGO_ENABLED=0

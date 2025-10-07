@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethpandaops/cbt/pkg/api"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
+	"github.com/ethpandaops/cbt/pkg/frontend"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/scheduler"
 	"github.com/ethpandaops/cbt/pkg/worker"
@@ -39,6 +40,9 @@ type Config struct {
 
 	// API service configuration
 	API api.Config `yaml:"api"`
+
+	// Frontend service configuration
+	Frontend frontend.Config `yaml:"frontend"`
 }
 
 // RedisConfig represents Redis connection configuration
@@ -68,5 +72,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 
-	return c.API.Validate()
+	if err := c.API.Validate(); err != nil {
+		return err
+	}
+
+	return c.Frontend.Validate()
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/ethpandaops/cbt/pkg/api"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/coordinator"
+	"github.com/ethpandaops/cbt/pkg/frontend"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/ethpandaops/cbt/pkg/scheduler"
@@ -33,6 +34,7 @@ type Service struct {
 	admin       admin.Service
 	models      models.Service
 	api         api.Service
+	frontend    frontend.Service
 
 	// Servers
 	healthServer *http.Server
@@ -92,6 +94,8 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 
 	apiService := api.NewService(&cfg.API, modelsService, log)
 
+	frontendService := frontend.NewService(&cfg.Frontend, log)
+
 	return &Service{
 		log:    log,
 		config: cfg,
@@ -105,6 +109,7 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 		admin:        adminManager,
 		models:       modelsService,
 		api:          apiService,
+		frontend:     frontendService,
 	}, nil
 }
 
@@ -158,6 +163,11 @@ func (a *Service) Start() error {
 		return fmt.Errorf("failed to start API service: %w", err)
 	}
 
+	// Start frontend service
+	if err := a.frontend.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start frontend service: %w", err)
+	}
+
 	a.log.Info("CBT Engine started successfully")
 
 	return nil
@@ -182,6 +192,9 @@ func (a *Service) Stop() error {
 	}
 
 	// Stop all services
+	if a.frontend != nil {
+		stopService("frontend service", a.frontend.Stop)
+	}
 	if a.api != nil {
 		stopService("API service", a.api.Stop)
 	}
