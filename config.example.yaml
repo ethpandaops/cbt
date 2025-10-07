@@ -93,6 +93,13 @@ worker:
 #       API_KEY: "your_api_key_here"
 #       ENVIRONMENT: "production"
 
+# API service configuration
+api:
+  # Enable or disable the API service
+  enabled: true
+  # Address to serve the API on
+  addr: ":8888"
+
 # Frontend service configuration
 frontend:
   # Enable or disable the frontend service
