@@ -2,9 +2,11 @@ package scheduler
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/hibiken/asynq"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -13,6 +15,7 @@ import (
 
 // mockScheduleTracker implements scheduleTracker for testing
 type mockScheduleTracker struct {
+	mu       sync.RWMutex
 	lastRuns map[string]time.Time
 	setRuns  map[string]time.Time
 }
@@ -25,6 +28,8 @@ func newMockScheduleTracker() *mockScheduleTracker {
 }
 
 func (m *mockScheduleTracker) GetLastRun(_ context.Context, taskID string) (time.Time, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if lastRun, ok := m.lastRuns[taskID]; ok {
 		return lastRun, nil
 	}
@@ -32,18 +37,24 @@ func (m *mockScheduleTracker) GetLastRun(_ context.Context, taskID string) (time
 }
 
 func (m *mockScheduleTracker) SetLastRun(_ context.Context, taskID string, timestamp time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.setRuns[taskID] = timestamp
 	m.lastRuns[taskID] = timestamp
 	return nil
 }
 
 func (m *mockScheduleTracker) DeleteLastRun(_ context.Context, taskID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.lastRuns, taskID)
 	delete(m.setRuns, taskID)
 	return nil
 }
 
 func (m *mockScheduleTracker) GetAllTaskIDs(_ context.Context) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	ids := make([]string, 0, len(m.lastRuns))
 	for id := range m.lastRuns {
 		ids = append(ids, id)
@@ -51,21 +62,45 @@ func (m *mockScheduleTracker) GetAllTaskIDs(_ context.Context) ([]string, error)
 	return ids, nil
 }
 
+// getSetRuns returns a copy of the setRuns map (thread-safe)
+func (m *mockScheduleTracker) getSetRuns() map[string]time.Time {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make(map[string]time.Time, len(m.setRuns))
+	for k, v := range m.setRuns {
+		result[k] = v
+	}
+	return result
+}
+
+// setInitialLastRun sets the initial last run time for a task (thread-safe)
+func (m *mockScheduleTracker) setInitialLastRun(taskID string, timestamp time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastRuns[taskID] = timestamp
+}
+
 func TestTickerService(t *testing.T) {
-	// Tests use mock tracker, no Redis needed
+	// Start miniredis for all ticker tests
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel)
 
 	t.Run("ticker enqueues task when interval elapsed", func(t *testing.T) {
-		t.Skip("Requires Asynq client - integration test only")
-
 		mockTracker := newMockScheduleTracker()
-		asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: "localhost:6379", DB: 15})
+
+		// Create Asynq client connected to miniredis
+		asynqClient := asynq.NewClient(asynq.RedisClientOpt{
+			Addr: mr.Addr(),
+		})
 		defer asynqClient.Close()
 
 		// Task that should run (last run was 2 seconds ago, interval is 1 second)
 		taskID := "test:task1"
-		mockTracker.lastRuns[taskID] = time.Now().Add(-2 * time.Second)
+		mockTracker.setInitialLastRun(taskID, time.Now().Add(-2*time.Second))
 
 		tasks := []scheduledTask{
 			{
@@ -93,19 +128,21 @@ func TestTickerService(t *testing.T) {
 		ticker.Stop()
 
 		// Verify task was enqueued by checking if SetLastRun was called
-		assert.Contains(t, mockTracker.setRuns, taskID, "Task should have been enqueued and timestamp updated")
+		setRuns := mockTracker.getSetRuns()
+		assert.Contains(t, setRuns, taskID, "Task should have been enqueued and timestamp updated")
 	})
 
 	t.Run("ticker does not enqueue task when interval not elapsed", func(t *testing.T) {
-		t.Skip("Requires Asynq client - integration test only")
-
 		mockTracker := newMockScheduleTracker()
-		asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: "localhost:6379", DB: 15})
+
+		asynqClient := asynq.NewClient(asynq.RedisClientOpt{
+			Addr: mr.Addr(),
+		})
 		defer asynqClient.Close()
 
 		// Task that should NOT run (last run was 500ms ago, interval is 1 minute)
 		taskID := "test:task2"
-		mockTracker.lastRuns[taskID] = time.Now().Add(-500 * time.Millisecond)
+		mockTracker.setInitialLastRun(taskID, time.Now().Add(-500*time.Millisecond))
 
 		tasks := []scheduledTask{
 			{
@@ -133,14 +170,16 @@ func TestTickerService(t *testing.T) {
 		ticker.Stop()
 
 		// Verify task was NOT enqueued
-		assert.NotContains(t, mockTracker.setRuns, taskID, "Task should not have been enqueued")
+		setRuns := mockTracker.getSetRuns()
+		assert.NotContains(t, setRuns, taskID, "Task should not have been enqueued")
 	})
 
 	t.Run("ticker enqueues task on first run (zero time)", func(t *testing.T) {
-		t.Skip("Requires Asynq client - integration test only")
-
 		mockTracker := newMockScheduleTracker()
-		asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: "localhost:6379", DB: 15})
+
+		asynqClient := asynq.NewClient(asynq.RedisClientOpt{
+			Addr: mr.Addr(),
+		})
 		defer asynqClient.Close()
 
 		// Task that has never run (zero time)
@@ -173,14 +212,16 @@ func TestTickerService(t *testing.T) {
 		ticker.Stop()
 
 		// Verify task was enqueued on first run
-		assert.Contains(t, mockTracker.setRuns, taskID, "Task should be enqueued on first run")
+		setRuns := mockTracker.getSetRuns()
+		assert.Contains(t, setRuns, taskID, "Task should be enqueued on first run")
 	})
 
 	t.Run("ticker stops gracefully on context cancel", func(t *testing.T) {
-		t.Skip("Requires Asynq client - integration test only")
-
 		mockTracker := newMockScheduleTracker()
-		asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: "localhost:6379", DB: 15})
+
+		asynqClient := asynq.NewClient(asynq.RedisClientOpt{
+			Addr: mr.Addr(),
+		})
 		defer asynqClient.Close()
 
 		tasks := []scheduledTask{
@@ -219,10 +260,11 @@ func TestTickerService(t *testing.T) {
 	})
 
 	t.Run("ticker stops gracefully on Stop call", func(t *testing.T) {
-		t.Skip("Requires Asynq client - integration test only")
-
 		mockTracker := newMockScheduleTracker()
-		asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: "localhost:6379", DB: 15})
+
+		asynqClient := asynq.NewClient(asynq.RedisClientOpt{
+			Addr: mr.Addr(),
+		})
 		defer asynqClient.Close()
 
 		tasks := []scheduledTask{

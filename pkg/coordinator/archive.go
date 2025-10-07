@@ -158,11 +158,4 @@ func (h *archiveHandler) processArchivedTask(queueName string, taskInfo *asynq.T
 	}
 }
 
-// noopHandler is a no-op implementation when archive handling is disabled
-type noopHandler struct{}
-
-func (n *noopHandler) Start(_ context.Context) error { return nil }
-func (n *noopHandler) Stop() error                   { return nil }
-
 var _ ArchiveHandler = (*archiveHandler)(nil)
-var _ ArchiveHandler = (*noopHandler)(nil)

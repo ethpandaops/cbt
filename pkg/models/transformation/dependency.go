@@ -61,14 +61,6 @@ func (d *Dependency) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
-// MarshalYAML implements custom YAML marshaling for mixed dependency types
-func (d Dependency) MarshalYAML() (interface{}, error) {
-	if d.IsGroup {
-		return d.GroupDeps, nil
-	}
-	return d.SingleDep, nil
-}
-
 // GetAllDependencies returns all dependency IDs from this dependency (flattened)
 func (d *Dependency) GetAllDependencies() []string {
 	if d.IsGroup {
