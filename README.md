@@ -1,4 +1,4 @@
-<img align="left" height="120px" src="logo.png">
+<img align="left" height="120px" src="frontend/public/logo.png">
   <h1> CBT - ClickHouse Build Tool </h1>
 </img>
 
