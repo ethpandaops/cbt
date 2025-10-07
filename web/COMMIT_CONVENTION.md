@@ -6,7 +6,7 @@ This project follows the [Conventional Commits](https://www.conventionalcommits.
 
 Each commit message consists of a **header**, an optional **body**, and an optional **footer**.
 
-```
+```markdown
 <type>(<scope>): <subject>
 
 <body>
@@ -18,7 +18,7 @@ Each commit message consists of a **header**, an optional **body**, and an optio
 
 The header is mandatory and must conform to the following format:
 
-```
+```markdown
 <type>(<scope>): <subject>
 ```
 
@@ -45,6 +45,7 @@ The header is mandatory and must conform to the following format:
 ### Body
 
 The body is optional. When used, it should:
+
 - Explain the motivation for the change
 - Contrast this with previous behavior
 - Use the imperative, present tense
@@ -52,18 +53,21 @@ The body is optional. When used, it should:
 ### Footer
 
 The footer is optional and can contain:
+
 - Breaking changes (prefixed with `BREAKING CHANGE:`)
 - Issue references (e.g., `Closes #123`, `Fixes #456`)
 
 ## Examples
 
 ### Simple feature addition
-```
+
+```markdown
 feat(eth): add support for blob sidecars
 ```
 
 ### Bug fix with scope
-```
+
+```markdown
 fix(pubsub): handle nil pointer in message validation
 
 Prevent panic when validating messages with missing fields
@@ -73,7 +77,8 @@ Fixes #789
 ```
 
 ### Breaking change
-```
+
+```markdown
 feat(api): change response format for beacon blocks
 
 BREAKING CHANGE: The beacon block response now returns a versioned
@@ -82,12 +87,14 @@ their parsing logic.
 ```
 
 ### Documentation update
-```
+
+```markdown
 docs: update README with new installation instructions
 ```
 
 ### Multiple issues
-```
+
+```markdown
 fix(eth): correct attestation subnet calculation
 
 - Fix off-by-one error in subnet index calculation

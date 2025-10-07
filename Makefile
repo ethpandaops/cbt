@@ -1,4 +1,6 @@
-.PHONY: generate-api build-web
+.PHONY: all generate-api build-web
+
+all: generate-api build-web
 
 generate-api:
 	@oapi-codegen -generate fiber,types,spec -package generated -o pkg/api/generated/server.gen.go api/openapi.yaml
@@ -6,5 +8,5 @@ generate-api:
 	@sed -i 's/\*fiber\.Ctx/fiber.Ctx/g' pkg/api/generated/server.gen.go
 
 build-web:
-	@echo "Building frontend..."
-	@pnpm --prefix ./frontend install && pnpm --prefix ./frontend run build
+	@echo "Building web frontend..."
+	@pnpm --prefix ./web install && pnpm --prefix ./web run build
