@@ -5,18 +5,6 @@ import (
 	"fmt"
 )
 
-// EnsureDatabase creates a database if it doesn't exist
-func EnsureDatabase(ctx context.Context, client ClientInterface, database, cluster string) error {
-	var query string
-	if cluster != "" {
-		query = fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s` ON CLUSTER '%s'", database, cluster)
-	} else {
-		query = fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", database)
-	}
-	_, err := client.Execute(ctx, query)
-	return err
-}
-
 // TableExists checks if a table exists in the given database
 func TableExists(ctx context.Context, client ClientInterface, database, table string) (bool, error) {
 	query := fmt.Sprintf(`

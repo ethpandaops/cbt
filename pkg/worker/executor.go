@@ -202,12 +202,20 @@ func (e *ModelExecutor) queryExternalBounds(ctx context.Context, modelID string,
 
 // updateBoundsCache updates the bounds cache with new values
 func (e *ModelExecutor) updateBoundsCache(ctx context.Context, modelID string, minBound, maxBound uint64, existingCache *admin.BoundsCache, isIncrementalScan, isFullScan bool, now time.Time) error {
+	// Preserve previous bounds from existing cache, or use new bounds if no cache exists
+	prevMin := minBound
+	prevMax := maxBound
+	if existingCache != nil {
+		prevMin = existingCache.Min
+		prevMax = existingCache.Max
+	}
+
 	newCache := &admin.BoundsCache{
 		ModelID:             modelID,
 		Min:                 minBound,
 		Max:                 maxBound,
-		PreviousMin:         minBound,
-		PreviousMax:         maxBound,
+		PreviousMin:         prevMin,
+		PreviousMax:         prevMax,
 		UpdatedAt:           now,
 		InitialScanComplete: true, // Set to true after any successful scan
 	}

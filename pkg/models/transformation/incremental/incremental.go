@@ -135,6 +135,11 @@ func (h *Handler) GetMinInterval() uint64 {
 	return 0
 }
 
+// GetDependencies returns the dependencies (after placeholder substitution)
+func (h *Handler) GetDependencies() []transformation.Dependency {
+	return h.config.Dependencies
+}
+
 // GetFlattenedDependencies returns all dependencies as a flat string array
 func (h *Handler) GetFlattenedDependencies() []string {
 	result := []string{}

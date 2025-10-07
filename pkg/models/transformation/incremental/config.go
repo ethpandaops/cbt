@@ -37,6 +37,7 @@ type Config struct {
 	Dependencies []transformation.Dependency `yaml:"dependencies"`
 	Tags         []string                    `yaml:"tags,omitempty"`
 	Exec         string                      `yaml:"exec,omitempty"`
+	Env          map[string]string           `yaml:"env,omitempty"`
 	SQL          string                      `yaml:"-"` // SQL content from separate file
 
 	// OriginalDependencies stores the dependencies before placeholder substitution

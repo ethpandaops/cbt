@@ -17,8 +17,9 @@ const TransformationTypeExec = "exec"
 
 // Exec represents a transformation exec model with YAML config
 type Exec struct {
-	Config `yaml:",inline"`
-	Exec   string `yaml:"exec"`
+	Config  `yaml:",inline"`
+	Exec    string  `yaml:"exec"`
+	Handler Handler `yaml:"-"` // Type-specific handler
 }
 
 // ExecParser parses exec transformation models
@@ -31,6 +32,19 @@ func NewTransformationExec(content []byte) (*Exec, error) {
 		return nil, fmt.Errorf("failed to parse yaml: %w", err)
 	}
 
+	// Create the appropriate handler based on the type using the factory
+	adminTable := AdminTable{
+		Database: "admin", // This will be set properly by the service
+		Table:    "",      // This will be set properly by the service
+	}
+
+	handler, err := CreateHandler(config.Type, content, adminTable)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create handler for type %s: %w", config.Type, err)
+	}
+
+	config.Handler = handler
+
 	return config, nil
 }
 
@@ -40,7 +54,16 @@ func (c *Exec) Validate() error {
 		return ErrExecRequired
 	}
 
-	return c.Config.Validate()
+	if err := c.Config.Validate(); err != nil {
+		return err
+	}
+
+	// Validate type-specific configuration
+	if c.Handler != nil {
+		return c.Handler.Validate()
+	}
+
+	return nil
 }
 
 // GetType returns the transformation model type
@@ -68,8 +91,7 @@ func (c *Exec) GetID() string {
 	return c.Config.GetID()
 }
 
-// GetHandler returns the type-specific handler (nil for exec types)
+// GetHandler returns the type-specific handler
 func (c *Exec) GetHandler() Handler {
-	// Exec types don't have handlers currently
-	return nil
+	return c.Handler
 }

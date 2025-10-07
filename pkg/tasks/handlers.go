@@ -12,6 +12,7 @@ import (
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/ethpandaops/cbt/pkg/validation"
 	"github.com/hibiken/asynq"
@@ -235,6 +236,28 @@ func (h *TaskHandler) validateAndExecute(ctx context.Context, payload TaskPayloa
 
 // recordTaskSuccess records metrics for successful task completion
 func (h *TaskHandler) recordTaskSuccess(ctx context.Context, payload TaskPayload, taskCtx *taskContextData) {
+	// Record completion in admin table using the transformation handler
+	handler := taskCtx.transformation.GetHandler()
+	if handler != nil {
+		// Build task info from the payload
+		var direction string
+		if incPayload, ok := payload.(IncrementalTaskPayload); ok {
+			direction = incPayload.Direction
+		}
+
+		taskInfo := transformation.TaskInfo{
+			Position:  taskCtx.position,
+			Interval:  taskCtx.interval,
+			Timestamp: taskCtx.executionTime,
+			Direction: direction,
+		}
+
+		if err := handler.RecordCompletion(ctx, h.admin, payload.GetModelID(), taskInfo); err != nil {
+			h.log.WithError(err).WithField("model_id", payload.GetModelID()).Error("Failed to record completion in admin table")
+			// Don't fail the task, just log the error
+		}
+	}
+
 	// Record transformation bounds in metrics (only for incremental transformations)
 	if !taskCtx.transformation.GetConfig().IsScheduledType() {
 		minPos, _ := h.admin.GetFirstPosition(ctx, payload.GetModelID())
