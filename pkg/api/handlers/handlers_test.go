@@ -141,6 +141,7 @@ type mockTransformation struct {
 	table    string
 	typ      transformation.Type
 	env      map[string]string
+	query    string
 }
 
 func (m *mockTransformation) GetID() string {
@@ -165,7 +166,10 @@ func (m *mockTransformation) GetHandler() transformation.Handler {
 }
 
 func (m *mockTransformation) GetValue() string {
-	return ""
+	if m.query != "" {
+		return m.query
+	}
+	return "SELECT 1"
 }
 
 func (m *mockTransformation) SetDefaultDatabase(defaultDB string) {
@@ -231,7 +235,7 @@ func TestNewServer(t *testing.T) {
 	var _ generated.ServerInterface = server
 }
 
-func TestBuildTransformationDetail(t *testing.T) {
+func TestBuildTransformationModel(t *testing.T) {
 	mockDAG := &mockDAGReader{
 		dependencies: map[string][]string{
 			"test.model": {"dep1.table"},
@@ -249,24 +253,20 @@ func TestBuildTransformationDetail(t *testing.T) {
 		env:      map[string]string{"KEY": "value"},
 	}
 
-	detail := buildTransformationDetail("test.model", mockTrans, mockDAG)
+	model := buildTransformationModel("test.model", mockTrans, mockDAG)
 
-	assert.Equal(t, "test.model", detail.Id)
-	assert.Equal(t, "transformation", detail.Type)
-	assert.Equal(t, "test", detail.Database)
-	assert.Equal(t, "model", detail.Table)
-	assert.NotNil(t, detail.Config)
-	assert.Equal(t, "incremental", detail.Config["type"])
-	assert.Equal(t, "test", detail.Config["database"])
-	assert.Equal(t, "model", detail.Config["table"])
-	assert.Equal(t, map[string]string{"KEY": "value"}, detail.Config["env"])
-	assert.NotNil(t, detail.Dependencies)
-	assert.Equal(t, []string{"dep1.table"}, *detail.Dependencies)
-	assert.NotNil(t, detail.Dependents)
-	assert.Equal(t, []string{"dependent1.table"}, *detail.Dependents)
+	assert.Equal(t, "test.model", model.Id)
+	assert.Equal(t, "test", model.Database)
+	assert.Equal(t, "model", model.Table)
+	assert.Equal(t, generated.TransformationModelTypeIncremental, model.Type)
+	assert.NotNil(t, model.DependsOn)
+	assert.Equal(t, []string{"dep1.table"}, *model.DependsOn)
+	// Content and other fields populated from handler
+	assert.NotEmpty(t, model.Content)
+	assert.Equal(t, generated.TransformationModelContentTypeSql, model.ContentType)
 }
 
-func TestBuildExternalDetail(t *testing.T) {
+func TestBuildExternalModel(t *testing.T) {
 	mockDAG := &mockDAGReader{
 		dependents: map[string][]string{
 			"external.table": {"dependent1.table"},
@@ -279,15 +279,12 @@ func TestBuildExternalDetail(t *testing.T) {
 		table:    "table",
 	}
 
-	detail := buildExternalDetail("external.table", mockExt, mockDAG)
+	model := buildExternalModel("external.table", mockExt, mockDAG)
 
-	assert.Equal(t, "external.table", detail.Id)
-	assert.Equal(t, "external", detail.Type)
-	assert.Equal(t, "external", detail.Database)
-	assert.Equal(t, "table", detail.Table)
-	assert.NotNil(t, detail.Config)
-	assert.Equal(t, "external", detail.Config["database"])
-	assert.Equal(t, "table", detail.Config["table"])
-	assert.NotNil(t, detail.Dependents)
-	assert.Equal(t, []string{"dependent1.table"}, *detail.Dependents)
+	assert.Equal(t, "external.table", model.Id)
+	assert.Equal(t, "external", model.Database)
+	assert.Equal(t, "table", model.Table)
+	// Cache and Lag are optional fields populated from domain model when available
+	assert.Nil(t, model.Cache)
+	assert.Nil(t, model.Lag)
 }

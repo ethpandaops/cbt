@@ -11,61 +11,316 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gofiber/fiber/v3"
 	"github.com/oapi-codegen/runtime"
 )
 
-// Defines values for GetModelsParamsType.
+// Defines values for ModelSummaryType.
 const (
-	External       GetModelsParamsType = "external"
-	Transformation GetModelsParamsType = "transformation"
+	ModelSummaryTypeExternal       ModelSummaryType = "external"
+	ModelSummaryTypeTransformation ModelSummaryType = "transformation"
+)
+
+// Defines values for TransformationModelContentType.
+const (
+	TransformationModelContentTypeExec TransformationModelContentType = "exec"
+	TransformationModelContentTypeSql  TransformationModelContentType = "sql"
+)
+
+// Defines values for TransformationModelMetadataLastRunStatus.
+const (
+	TransformationModelMetadataLastRunStatusFailed  TransformationModelMetadataLastRunStatus = "failed"
+	TransformationModelMetadataLastRunStatusPending TransformationModelMetadataLastRunStatus = "pending"
+	TransformationModelMetadataLastRunStatusRunning TransformationModelMetadataLastRunStatus = "running"
+	TransformationModelMetadataLastRunStatusSuccess TransformationModelMetadataLastRunStatus = "success"
+)
+
+// Defines values for TransformationModelType.
+const (
+	TransformationModelTypeIncremental TransformationModelType = "incremental"
+	TransformationModelTypeScheduled   TransformationModelType = "scheduled"
+)
+
+// Defines values for TransformationModelBaseContentType.
+const (
+	TransformationModelBaseContentTypeExec TransformationModelBaseContentType = "exec"
+	TransformationModelBaseContentTypeSql  TransformationModelBaseContentType = "sql"
+)
+
+// Defines values for TransformationModelBaseMetadataLastRunStatus.
+const (
+	TransformationModelBaseMetadataLastRunStatusFailed  TransformationModelBaseMetadataLastRunStatus = "failed"
+	TransformationModelBaseMetadataLastRunStatusPending TransformationModelBaseMetadataLastRunStatus = "pending"
+	TransformationModelBaseMetadataLastRunStatusRunning TransformationModelBaseMetadataLastRunStatus = "running"
+	TransformationModelBaseMetadataLastRunStatusSuccess TransformationModelBaseMetadataLastRunStatus = "success"
+)
+
+// Defines values for TransformationModelBaseType.
+const (
+	TransformationModelBaseTypeIncremental TransformationModelBaseType = "incremental"
+	TransformationModelBaseTypeScheduled   TransformationModelBaseType = "scheduled"
+)
+
+// Defines values for ListAllModelsParamsType.
+const (
+	ListAllModelsParamsTypeExternal       ListAllModelsParamsType = "external"
+	ListAllModelsParamsTypeTransformation ListAllModelsParamsType = "transformation"
+)
+
+// Defines values for ListTransformationsParamsType.
+const (
+	Incremental ListTransformationsParamsType = "incremental"
+	Scheduled   ListTransformationsParamsType = "scheduled"
+)
+
+// Defines values for ListTransformationsParamsStatus.
+const (
+	Failed  ListTransformationsParamsStatus = "failed"
+	Pending ListTransformationsParamsStatus = "pending"
+	Running ListTransformationsParamsStatus = "running"
+	Success ListTransformationsParamsStatus = "success"
 )
 
 // Error defines model for Error.
 type Error struct {
-	Code  int    `json:"code"`
+	// Code HTTP status code
+	Code int `json:"code"`
+
+	// Error Human-readable error message
 	Error string `json:"error"`
 }
 
-// ModelDetail defines model for ModelDetail.
-type ModelDetail struct {
-	Config       map[string]interface{} `json:"config"`
-	Database     string                 `json:"database"`
-	Dependencies *[]string              `json:"dependencies,omitempty"`
-	Dependents   *[]string              `json:"dependents,omitempty"`
-	Id           string                 `json:"id"`
-	Table        string                 `json:"table"`
-	Type         string                 `json:"type"`
+// ExternalModel defines model for ExternalModel.
+type ExternalModel struct {
+	// Cache Cache configuration for external source
+	Cache *struct {
+		// FullScanInterval Interval for full cache refresh
+		FullScanInterval *string `json:"full_scan_interval,omitempty"`
+
+		// IncrementalScanInterval Interval for incremental cache updates
+		IncrementalScanInterval *string `json:"incremental_scan_interval,omitempty"`
+	} `json:"cache,omitempty"`
+	Database    string  `json:"database"`
+	Description *string `json:"description,omitempty"`
+
+	// Id Fully qualified ID (database.table)
+	Id string `json:"id"`
+
+	// Lag Number of blocks/slots to lag behind head
+	Lag *int `json:"lag,omitempty"`
+
+	// Metadata System-managed metadata
+	Metadata *struct {
+		CreatedAt    *time.Time `json:"created_at,omitempty"`
+		LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
+
+		// RowCount Approximate row count in destination table
+		RowCount *int `json:"row_count,omitempty"`
+
+		// SizeBytes Approximate table size in bytes
+		SizeBytes *int       `json:"size_bytes,omitempty"`
+		UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	} `json:"metadata,omitempty"`
+	Table string `json:"table"`
 }
 
-// ModelsResponse defines model for ModelsResponse.
-type ModelsResponse struct {
-	Models []ModelDetail `json:"models"`
-	Total  int           `json:"total"`
+// ModelSummary Lightweight model representation for listings
+type ModelSummary struct {
+	Database    string  `json:"database"`
+	Description *string `json:"description,omitempty"`
+
+	// Id Fully qualified ID (database.table)
+	Id    string `json:"id"`
+	Table string `json:"table"`
+
+	// Type Model type
+	Type ModelSummaryType `json:"type"`
 }
+
+// ModelSummaryType Model type
+type ModelSummaryType string
+
+// TransformationModel defines model for TransformationModel.
+type TransformationModel struct {
+	// Content SQL query or exec command defining the transformation
+	Content string `json:"content"`
+
+	// ContentType Execution method (SQL query or shell command)
+	ContentType TransformationModelContentType `json:"content_type"`
+	Database    string                         `json:"database"`
+
+	// DependsOn Upstream model dependencies
+	DependsOn   *[]string `json:"depends_on,omitempty"`
+	Description *string   `json:"description,omitempty"`
+
+	// Id Fully qualified ID (database.table)
+	Id string `json:"id"`
+
+	// Interval Interval configuration (present when type=incremental)
+	Interval *struct {
+		// Max Maximum interval size
+		Max *int `json:"max,omitempty"`
+
+		// Min Minimum interval size
+		Min *int `json:"min,omitempty"`
+	} `json:"interval,omitempty"`
+
+	// Limits Limits (present when type=incremental)
+	Limits *struct {
+		// Max Maximum position limit
+		Max *int `json:"max,omitempty"`
+
+		// Min Minimum position limit
+		Min *int `json:"min,omitempty"`
+	} `json:"limits,omitempty"`
+
+	// Metadata System-managed metadata
+	Metadata *struct {
+		CreatedAt     *time.Time                                `json:"created_at,omitempty"`
+		LastRunAt     *time.Time                                `json:"last_run_at,omitempty"`
+		LastRunStatus *TransformationModelMetadataLastRunStatus `json:"last_run_status,omitempty"`
+		RowCount      *int                                      `json:"row_count,omitempty"`
+		SizeBytes     *int                                      `json:"size_bytes,omitempty"`
+		UpdatedAt     *time.Time                                `json:"updated_at,omitempty"`
+	} `json:"metadata,omitempty"`
+
+	// Schedule Cron expression (present when type=scheduled)
+	Schedule *string `json:"schedule,omitempty"`
+
+	// Schedules Schedules (present when type=incremental)
+	Schedules *struct {
+		// Backfill Backfill schedule
+		Backfill *string `json:"backfill,omitempty"`
+
+		// Forwardfill Forward fill schedule
+		Forwardfill *string `json:"forwardfill,omitempty"`
+	} `json:"schedules,omitempty"`
+	Table string `json:"table"`
+
+	// Tags Tags for categorization
+	Tags *[]string `json:"tags,omitempty"`
+
+	// Type Transformation type (scheduled or incremental)
+	Type TransformationModelType `json:"type"`
+}
+
+// TransformationModelContentType Execution method (SQL query or shell command)
+type TransformationModelContentType string
+
+// TransformationModelMetadataLastRunStatus defines model for TransformationModel.Metadata.LastRunStatus.
+type TransformationModelMetadataLastRunStatus string
+
+// TransformationModelType Transformation type (scheduled or incremental)
+type TransformationModelType string
+
+// TransformationModelBase defines model for TransformationModelBase.
+type TransformationModelBase struct {
+	// Content SQL query or exec command defining the transformation
+	Content string `json:"content"`
+
+	// ContentType Execution method (SQL query or shell command)
+	ContentType TransformationModelBaseContentType `json:"content_type"`
+	Database    string                             `json:"database"`
+
+	// DependsOn Upstream model dependencies
+	DependsOn   *[]string `json:"depends_on,omitempty"`
+	Description *string   `json:"description,omitempty"`
+
+	// Id Fully qualified ID (database.table)
+	Id string `json:"id"`
+
+	// Metadata System-managed metadata
+	Metadata *struct {
+		CreatedAt     *time.Time                                    `json:"created_at,omitempty"`
+		LastRunAt     *time.Time                                    `json:"last_run_at,omitempty"`
+		LastRunStatus *TransformationModelBaseMetadataLastRunStatus `json:"last_run_status,omitempty"`
+		RowCount      *int                                          `json:"row_count,omitempty"`
+		SizeBytes     *int                                          `json:"size_bytes,omitempty"`
+		UpdatedAt     *time.Time                                    `json:"updated_at,omitempty"`
+	} `json:"metadata,omitempty"`
+	Table string `json:"table"`
+
+	// Tags Tags for categorization
+	Tags *[]string `json:"tags,omitempty"`
+
+	// Type Transformation type (scheduled or incremental)
+	Type TransformationModelBaseType `json:"type"`
+}
+
+// TransformationModelBaseContentType Execution method (SQL query or shell command)
+type TransformationModelBaseContentType string
+
+// TransformationModelBaseMetadataLastRunStatus defines model for TransformationModelBase.Metadata.LastRunStatus.
+type TransformationModelBaseMetadataLastRunStatus string
+
+// TransformationModelBaseType Transformation type (scheduled or incremental)
+type TransformationModelBaseType string
+
+// InternalError defines model for InternalError.
+type InternalError = Error
 
 // NotFound defines model for NotFound.
 type NotFound = Error
 
-// GetModelsParams defines parameters for GetModels.
-type GetModelsParams struct {
-	Type     *GetModelsParamsType `form:"type,omitempty" json:"type,omitempty"`
-	Database *string              `form:"database,omitempty" json:"database,omitempty"`
+// ListAllModelsParams defines parameters for ListAllModels.
+type ListAllModelsParams struct {
+	// Type Filter by model type
+	Type *ListAllModelsParamsType `form:"type,omitempty" json:"type,omitempty"`
+
+	// Database Filter by database name
+	Database *string `form:"database,omitempty" json:"database,omitempty"`
+
+	// Search Search by model ID or description (case-insensitive)
+	Search *string `form:"search,omitempty" json:"search,omitempty"`
 }
 
-// GetModelsParamsType defines parameters for GetModels.
-type GetModelsParamsType string
+// ListAllModelsParamsType defines parameters for ListAllModels.
+type ListAllModelsParamsType string
+
+// ListExternalModelsParams defines parameters for ListExternalModels.
+type ListExternalModelsParams struct {
+	// Database Filter by database name
+	Database *string `form:"database,omitempty" json:"database,omitempty"`
+}
+
+// ListTransformationsParams defines parameters for ListTransformations.
+type ListTransformationsParams struct {
+	// Database Filter by database name
+	Database *string `form:"database,omitempty" json:"database,omitempty"`
+
+	// Type Filter by transformation type
+	Type *ListTransformationsParamsType `form:"type,omitempty" json:"type,omitempty"`
+
+	// Status Filter by last run status
+	Status *ListTransformationsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListTransformationsParamsType defines parameters for ListTransformations.
+type ListTransformationsParamsType string
+
+// ListTransformationsParamsStatus defines parameters for ListTransformations.
+type ListTransformationsParamsStatus string
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// List all models
+	// List all models (lightweight)
 	// (GET /models)
-	GetModels(c fiber.Ctx, params GetModelsParams) error
-	// Get model by ID
-	// (GET /models/{model_id})
-	GetModelByID(c fiber.Ctx, modelId string) error
+	ListAllModels(c fiber.Ctx, params ListAllModelsParams) error
+	// List external models
+	// (GET /models/external)
+	ListExternalModels(c fiber.Ctx, params ListExternalModelsParams) error
+	// Get external model by ID
+	// (GET /models/external/{id})
+	GetExternalModel(c fiber.Ctx, id string) error
+	// List transformation models
+	// (GET /models/transformations)
+	ListTransformations(c fiber.Ctx, params ListTransformationsParams) error
+	// Get transformation model by ID
+	// (GET /models/transformations/{id})
+	GetTransformation(c fiber.Ctx, id string) error
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -75,13 +330,13 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc fiber.Handler
 
-// GetModels operation middleware
-func (siw *ServerInterfaceWrapper) GetModels(c fiber.Ctx) error {
+// ListAllModels operation middleware
+func (siw *ServerInterfaceWrapper) ListAllModels(c fiber.Ctx) error {
 
 	var err error
 
 	// Parameter object where we will unmarshal all parameters from the context
-	var params GetModelsParams
+	var params ListAllModelsParams
 
 	var query url.Values
 	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
@@ -103,23 +358,108 @@ func (siw *ServerInterfaceWrapper) GetModels(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter database: %w", err).Error())
 	}
 
-	return siw.Handler.GetModels(c, params)
+	// ------------- Optional query parameter "search" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "search", query, &params.Search)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter search: %w", err).Error())
+	}
+
+	return siw.Handler.ListAllModels(c, params)
 }
 
-// GetModelByID operation middleware
-func (siw *ServerInterfaceWrapper) GetModelByID(c fiber.Ctx) error {
+// ListExternalModels operation middleware
+func (siw *ServerInterfaceWrapper) ListExternalModels(c fiber.Ctx) error {
 
 	var err error
 
-	// ------------- Path parameter "model_id" -------------
-	var modelId string
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListExternalModelsParams
 
-	err = runtime.BindStyledParameterWithOptions("simple", "model_id", c.Params("model_id"), &modelId, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter model_id: %w", err).Error())
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
 	}
 
-	return siw.Handler.GetModelByID(c, modelId)
+	// ------------- Optional query parameter "database" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "database", query, &params.Database)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter database: %w", err).Error())
+	}
+
+	return siw.Handler.ListExternalModels(c, params)
+}
+
+// GetExternalModel operation middleware
+func (siw *ServerInterfaceWrapper) GetExternalModel(c fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Params("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter id: %w", err).Error())
+	}
+
+	return siw.Handler.GetExternalModel(c, id)
+}
+
+// ListTransformations operation middleware
+func (siw *ServerInterfaceWrapper) ListTransformations(c fiber.Ctx) error {
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTransformationsParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "database" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "database", query, &params.Database)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter database: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "type" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "type", query, &params.Type)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter type: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "status", query, &params.Status)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter status: %w", err).Error())
+	}
+
+	return siw.Handler.ListTransformations(c, params)
+}
+
+// GetTransformation operation middleware
+func (siw *ServerInterfaceWrapper) GetTransformation(c fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Params("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter id: %w", err).Error())
+	}
+
+	return siw.Handler.GetTransformation(c, id)
 }
 
 // FiberServerOptions provides options for the Fiber server.
@@ -143,26 +483,56 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 		router.Use(fiber.Handler(m))
 	}
 
-	router.Get(options.BaseURL+"/models", wrapper.GetModels)
+	router.Get(options.BaseURL+"/models", wrapper.ListAllModels)
 
-	router.Get(options.BaseURL+"/models/:model_id", wrapper.GetModelByID)
+	router.Get(options.BaseURL+"/models/external", wrapper.ListExternalModels)
+
+	router.Get(options.BaseURL+"/models/external/:id", wrapper.GetExternalModel)
+
+	router.Get(options.BaseURL+"/models/transformations", wrapper.ListTransformations)
+
+	router.Get(options.BaseURL+"/models/transformations/:id", wrapper.GetTransformation)
 
 }
 
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"H4sIAAAAAAAC/8RVUU/cMAz+K5W3x4qWjQfUtwEbO2lMCPGG0JRr3LuwNAmOizid+t+npC3t3RXQpEl7",
-	"ai62v8/+7Pi2UNraWYOGPRRbIPTOGo/xx0/L32xjZDiX1jAaDkfhnFalYGVN9uCtCXe+XGMtwukjYQUF",
-	"fMhG4Kyz+uwrkSVo2zYFib4k5QIIFHCD3jZUYmIsJ1XkDE59XIDtQostOLIOiVWXYmklhi9vHEIByjCu",
-	"kKBNAYeA3uSZlFlFWMLHRhFKKO56t7QDuk8Hb7t8wJIDzpWVqC+QhdJz9KZSqyiKlCoUI/T1xIOpwRlM",
-	"KVgshceZ9IIyDo1EU/YcirH2s579hSASm2kk/2WckvNuYqnxDYD3pFUSetdJxQNsOmj3qub+pp/FQ9nr",
-	"aN8p8q2xm7Zwpny2LPTcEO3V07MOAYeJhwBlKhuwduf7XKvy93fbeEzOGqVlcmutTr5cL5LKUlILI1bK",
-	"rBImYXxlqY6PKxkJFYdOwPnZbQiCFJ6QfAd9fJQf5aEM69AIp6CAz/EqBSd4HcXJRsFWGN9wUDOSLCQU",
-	"cIl8NXA5QaJGRvJQ3G1BBY7HBmkDKRhRhzT6no5vHk1TB4V284cU8JmRzI5Y47DMg08mZSTYj71PdzfV",
-	"pzz/Z0tqb/hmttUP5Tmx1dCfuKmauha0GYxC66m11z/bxu8vJdt3W3G2WVwcdgOfRe3iKEisRKP5qPHB",
-	"lnZShoaPSg5kMB3jbiP9R2WHd3goazQnMtp9mOiT/OQ1yJccs5c/qd02XCJ3HUiWm2Rx0fF5pKdByoY0",
-	"FLBmdkWWaVsKvbaei9P8NM+EU9nTMbT37Z8AAAD//9yccL4gBwAA",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

@@ -9,180 +9,351 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// GetModels handles GET /api/v1/models
-func (s *Server) GetModels(c fiber.Ctx, params generated.GetModelsParams) error {
+// ListAllModels handles GET /api/v1/models
+func (s *Server) ListAllModels(c fiber.Ctx, params generated.ListAllModelsParams) error {
 	dag := s.modelsService.GetDAG()
-	var modelDetails []generated.ModelDetail
+	summaries := make([]generated.ModelSummary, 0)
 
 	// Get transformation models
-	if params.Type == nil || *params.Type == generated.Transformation {
-		for _, transformationModel := range dag.GetTransformationNodes() {
-			cfg := transformationModel.GetConfig()
-			if params.Database != nil && cfg.Database != *params.Database {
-				continue
-			}
-
-			modelID := cfg.GetID()
-
-			// Build config map
-			configMap := make(map[string]interface{})
-			configMap["type"] = string(cfg.Type)
-			configMap["database"] = cfg.Database
-			configMap["table"] = cfg.Table
-			if cfg.Env != nil {
-				configMap["env"] = cfg.Env
-			}
-
-			// Get dependencies and dependents
-			deps := dag.GetDependencies(modelID)
-			dependents := dag.GetDependents(modelID)
-
-			detail := generated.ModelDetail{
-				Id:           modelID,
-				Type:         "transformation",
-				Database:     cfg.Database,
-				Table:        cfg.Table,
-				Config:       configMap,
-				Dependencies: &deps,
-				Dependents:   &dependents,
-			}
-
-			modelDetails = append(modelDetails, detail)
-		}
+	if s.shouldIncludeTransformations(params.Type) {
+		summaries = s.appendTransformationSummaries(summaries, dag, params)
 	}
 
 	// Get external models
-	if params.Type == nil || *params.Type == generated.External {
-		for _, node := range dag.GetExternalNodes() {
-			external, ok := node.Model.(models.External)
-			if !ok {
-				s.log.WithField("node", node).Debug("Node is not an external model")
-				continue
-			}
-
-			externalNode, err := dag.GetExternalNode(external.GetID())
-			if err != nil {
-				s.log.WithError(err).WithField("model_id", external.GetID()).Debug("Failed to get external node")
-				continue
-			}
-
-			cfg := externalNode.GetConfig()
-			if params.Database != nil && cfg.Database != *params.Database {
-				continue
-			}
-
-			modelID := cfg.GetID()
-
-			// Build config map
-			configMap := make(map[string]interface{})
-			configMap["database"] = cfg.Database
-			configMap["table"] = cfg.Table
-
-			// External models can still have dependents
-			dependents := dag.GetDependents(modelID)
-
-			detail := generated.ModelDetail{
-				Id:         modelID,
-				Type:       "external",
-				Database:   cfg.Database,
-				Table:      cfg.Table,
-				Config:     configMap,
-				Dependents: &dependents,
-			}
-
-			modelDetails = append(modelDetails, detail)
-		}
+	if s.shouldIncludeExternals(params.Type) {
+		summaries = s.appendExternalSummaries(summaries, dag, params)
 	}
 
-	// Sort models by ID for consistent ordering
-	sort.Slice(modelDetails, func(i, j int) bool {
-		return modelDetails[i].Id < modelDetails[j].Id
+	// Sort by ID for consistent ordering
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].Id < summaries[j].Id
 	})
 
-	total := len(modelDetails)
-
-	response := generated.ModelsResponse{
-		Models: modelDetails,
-		Total:  total,
+	response := map[string]interface{}{
+		"models": summaries,
+		"total":  len(summaries),
 	}
 
 	return c.Status(fiber.StatusOK).JSON(response)
 }
 
-// GetModelByID handles GET /api/v1/models/{model_id}
-func (s *Server) GetModelByID(c fiber.Ctx, modelID string) error {
+func (s *Server) shouldIncludeTransformations(typeParam *generated.ListAllModelsParamsType) bool {
+	return typeParam == nil || *typeParam == generated.ListAllModelsParamsTypeTransformation
+}
+
+func (s *Server) shouldIncludeExternals(typeParam *generated.ListAllModelsParamsType) bool {
+	return typeParam == nil || *typeParam == generated.ListAllModelsParamsTypeExternal
+}
+
+func (s *Server) appendTransformationSummaries(summaries []generated.ModelSummary, dag models.DAGReader, params generated.ListAllModelsParams) []generated.ModelSummary {
+	for _, transformationModel := range dag.GetTransformationNodes() {
+		cfg := transformationModel.GetConfig()
+		if params.Database != nil && cfg.Database != *params.Database {
+			continue
+		}
+
+		summary := generated.ModelSummary{
+			Id:       cfg.GetID(),
+			Type:     generated.ModelSummaryTypeTransformation,
+			Database: cfg.Database,
+			Table:    cfg.Table,
+		}
+
+		if s.matchesSearch(summary.Id, params.Search) {
+			summaries = append(summaries, summary)
+		}
+	}
+	return summaries
+}
+
+func (s *Server) appendExternalSummaries(summaries []generated.ModelSummary, dag models.DAGReader, params generated.ListAllModelsParams) []generated.ModelSummary {
+	for _, node := range dag.GetExternalNodes() {
+		external, ok := node.Model.(models.External)
+		if !ok {
+			s.log.WithField("node", node).Debug("Node is not an external model")
+			continue
+		}
+
+		cfg := external.GetConfig()
+		if params.Database != nil && cfg.Database != *params.Database {
+			continue
+		}
+
+		summary := generated.ModelSummary{
+			Id:       cfg.GetID(),
+			Type:     generated.ModelSummaryTypeExternal,
+			Database: cfg.Database,
+			Table:    cfg.Table,
+		}
+
+		if s.matchesSearch(summary.Id, params.Search) {
+			summaries = append(summaries, summary)
+		}
+	}
+	return summaries
+}
+
+func (s *Server) matchesSearch(id string, search *string) bool {
+	if search == nil {
+		return true
+	}
+	searchTerm := strings.ToLower(*search)
+	modelID := strings.ToLower(id)
+	return strings.Contains(modelID, searchTerm)
+}
+
+// ListExternalModels handles GET /api/v1/models/external
+func (s *Server) ListExternalModels(c fiber.Ctx, params generated.ListExternalModelsParams) error {
+	dag := s.modelsService.GetDAG()
+	externalModels := make([]generated.ExternalModel, 0)
+
+	for _, node := range dag.GetExternalNodes() {
+		external, ok := node.Model.(models.External)
+		if !ok {
+			s.log.WithField("node", node).Debug("Node is not an external model")
+			continue
+		}
+
+		cfg := external.GetConfig()
+		if params.Database != nil && cfg.Database != *params.Database {
+			continue
+		}
+
+		model := buildExternalModel(cfg.GetID(), external, dag)
+		externalModels = append(externalModels, model)
+	}
+
+	// Sort by ID for consistent ordering
+	sort.Slice(externalModels, func(i, j int) bool {
+		return externalModels[i].Id < externalModels[j].Id
+	})
+
+	response := map[string]interface{}{
+		"models": externalModels,
+		"total":  len(externalModels),
+	}
+
+	return c.Status(fiber.StatusOK).JSON(response)
+}
+
+// GetExternalModel handles GET /api/v1/models/external/{id}
+func (s *Server) GetExternalModel(c fiber.Ctx, id string) error {
 	// Validate model ID format (should be database.table)
-	if !strings.Contains(modelID, ".") {
+	if !strings.Contains(id, ".") {
 		return ErrInvalidModelID
 	}
 
 	dag := s.modelsService.GetDAG()
-	_, err := dag.GetNode(modelID)
+	externalNode, err := dag.GetExternalNode(id)
 	if err != nil {
 		return ErrModelNotFound
 	}
 
-	// Try to get transformation node
-	transformationNode, transformErr := dag.GetTransformationNode(modelID)
-	if transformErr == nil {
-		detail := buildTransformationDetail(modelID, transformationNode, dag)
-		return c.Status(fiber.StatusOK).JSON(detail)
-	}
-
-	// Try to get external node
-	externalNode, externalErr := dag.GetExternalNode(modelID)
-	if externalErr == nil {
-		detail := buildExternalDetail(modelID, externalNode, dag)
-		return c.Status(fiber.StatusOK).JSON(detail)
-	}
-
-	// Model exists but couldn't determine type
-	return ErrModelNotFound
+	model := buildExternalModel(id, externalNode, dag)
+	return c.Status(fiber.StatusOK).JSON(model)
 }
 
-func buildTransformationDetail(modelID string, node models.Transformation, dag models.DAGReader) generated.ModelDetail {
-	cfg := node.GetConfig()
-	configMap := make(map[string]interface{})
-	configMap["type"] = string(cfg.Type)
-	configMap["database"] = cfg.Database
-	configMap["table"] = cfg.Table
-	if cfg.Env != nil {
-		configMap["env"] = cfg.Env
+// ListTransformations handles GET /api/v1/models/transformations
+func (s *Server) ListTransformations(c fiber.Ctx, params generated.ListTransformationsParams) error {
+	dag := s.modelsService.GetDAG()
+	transformationModels := make([]generated.TransformationModel, 0)
+
+	for _, transformationModel := range dag.GetTransformationNodes() {
+		cfg := transformationModel.GetConfig()
+		if params.Database != nil && cfg.Database != *params.Database {
+			continue
+		}
+
+		// Type and status filtering will be implemented when domain models support these fields
+		_ = params.Type   // nolint:staticcheck
+		_ = params.Status // nolint:staticcheck
+
+		model := buildTransformationModel(cfg.GetID(), transformationModel, dag)
+		transformationModels = append(transformationModels, model)
 	}
 
-	deps := dag.GetDependencies(modelID)
-	dependents := dag.GetDependents(modelID)
+	// Sort by ID for consistent ordering
+	sort.Slice(transformationModels, func(i, j int) bool {
+		return transformationModels[i].Id < transformationModels[j].Id
+	})
 
-	return generated.ModelDetail{
-		Id:           modelID,
-		Type:         "transformation",
-		Database:     cfg.Database,
-		Table:        cfg.Table,
-		Config:       configMap,
-		Dependencies: &deps,
-		Dependents:   &dependents,
+	response := map[string]interface{}{
+		"models": transformationModels,
+		"total":  len(transformationModels),
 	}
+
+	return c.Status(fiber.StatusOK).JSON(response)
 }
 
-func buildExternalDetail(modelID string, node models.External, dag models.DAGReader) generated.ModelDetail {
+// GetTransformation handles GET /api/v1/models/transformations/{id}
+func (s *Server) GetTransformation(c fiber.Ctx, id string) error {
+	// Validate model ID format (should be database.table)
+	if !strings.Contains(id, ".") {
+		return ErrInvalidModelID
+	}
+
+	dag := s.modelsService.GetDAG()
+	transformationNode, err := dag.GetTransformationNode(id)
+	if err != nil {
+		return ErrModelNotFound
+	}
+
+	model := buildTransformationModel(id, transformationNode, dag)
+	return c.Status(fiber.StatusOK).JSON(model)
+}
+
+// buildExternalModel constructs an ExternalModel from domain model
+func buildExternalModel(modelID string, node models.External, _ models.DAGReader) generated.ExternalModel {
 	cfg := node.GetConfig()
-	configMap := make(map[string]interface{})
-	configMap["database"] = cfg.Database
-	configMap["table"] = cfg.Table
 
-	dependents := dag.GetDependents(modelID)
-
-	detail := generated.ModelDetail{
+	model := generated.ExternalModel{
 		Id:       modelID,
-		Type:     "external",
 		Database: cfg.Database,
 		Table:    cfg.Table,
-		Config:   configMap,
 	}
 
-	if len(dependents) > 0 {
-		detail.Dependents = &dependents
+	// Populate cache configuration if available
+	if cfg.Cache != nil {
+		incrementalInterval := cfg.Cache.IncrementalScanInterval.String()
+		fullInterval := cfg.Cache.FullScanInterval.String()
+
+		model.Cache = &struct {
+			FullScanInterval        *string `json:"full_scan_interval,omitempty"`
+			IncrementalScanInterval *string `json:"incremental_scan_interval,omitempty"`
+		}{
+			IncrementalScanInterval: &incrementalInterval,
+			FullScanInterval:        &fullInterval,
+		}
 	}
 
-	return detail
+	// Populate lag if set
+	if cfg.Lag > 0 {
+		// Safe conversion from uint64 to int
+		lag := int(cfg.Lag) // nolint:gosec
+		model.Lag = &lag
+	}
+
+	return model
+}
+
+// buildTransformationModel constructs a TransformationModel from domain model
+func buildTransformationModel(modelID string, node models.Transformation, dag models.DAGReader) generated.TransformationModel {
+	cfg := node.GetConfig()
+
+	model := generated.TransformationModel{
+		Id:       modelID,
+		Database: cfg.Database,
+		Table:    cfg.Table,
+		Content:  node.GetValue(),
+	}
+
+	// Determine content type based on node type
+	nodeType := node.GetType()
+	switch nodeType {
+	case "sql":
+		model.ContentType = generated.TransformationModelContentTypeSql
+	case "exec":
+		model.ContentType = generated.TransformationModelContentTypeExec
+	default:
+		// Default to SQL for unknown types
+		model.ContentType = generated.TransformationModelContentTypeSql
+	}
+
+	// Map transformation type
+	if cfg.IsScheduledType() {
+		model.Type = generated.TransformationModelTypeScheduled
+		populateScheduledFields(&model, node)
+	} else {
+		model.Type = generated.TransformationModelTypeIncremental
+		populateIncrementalFields(&model, node)
+	}
+
+	// Get dependencies
+	deps := dag.GetDependencies(modelID)
+	if len(deps) > 0 {
+		model.DependsOn = &deps
+	}
+
+	return model
+}
+
+func populateScheduledFields(model *generated.TransformationModel, node models.Transformation) {
+	handler := node.GetHandler()
+	if scheduledHandler, ok := handler.(interface {
+		GetSchedule() string
+		GetTags() []string
+	}); ok {
+		schedule := scheduledHandler.GetSchedule()
+		model.Schedule = &schedule
+
+		tags := scheduledHandler.GetTags()
+		if len(tags) > 0 {
+			model.Tags = &tags
+		}
+	}
+}
+
+func populateIncrementalFields(model *generated.TransformationModel, node models.Transformation) {
+	handler := node.GetHandler()
+	if incrementalHandler, ok := handler.(interface {
+		GetInterval() (minInterval uint64, maxInterval uint64)
+		GetSchedules() (forwardfill string, backfill string)
+		GetLimits() (minLimit uint64, maxLimit uint64)
+		GetTags() []string
+		GetDependencies() []string
+	}); ok {
+		// Interval
+		minInterval, maxInterval := incrementalHandler.GetInterval()
+		model.Interval = &struct {
+			Max *int `json:"max,omitempty"`
+			Min *int `json:"min,omitempty"`
+		}{
+			Min: intPtr(int(minInterval)), // nolint:gosec
+			Max: intPtr(int(maxInterval)), // nolint:gosec
+		}
+
+		// Schedules
+		forwardfill, backfill := incrementalHandler.GetSchedules()
+		if forwardfill != "" || backfill != "" {
+			model.Schedules = &struct {
+				Backfill    *string `json:"backfill,omitempty"`
+				Forwardfill *string `json:"forwardfill,omitempty"`
+			}{
+				Forwardfill: stringPtr(forwardfill),
+				Backfill:    stringPtr(backfill),
+			}
+		}
+
+		// Limits
+		minLimit, maxLimit := incrementalHandler.GetLimits()
+		if minLimit > 0 || maxLimit > 0 {
+			model.Limits = &struct {
+				Max *int `json:"max,omitempty"`
+				Min *int `json:"min,omitempty"`
+			}{
+				Min: intPtr(int(minLimit)), // nolint:gosec
+				Max: intPtr(int(maxLimit)), // nolint:gosec
+			}
+		}
+
+		// Tags
+		tags := incrementalHandler.GetTags()
+		if len(tags) > 0 {
+			model.Tags = &tags
+		}
+	}
+}
+
+func intPtr(i int) *int {
+	if i == 0 {
+		return nil
+	}
+	return &i
+}
+
+func stringPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

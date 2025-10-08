@@ -1,12 +1,11 @@
-import { type JSX, useState } from 'react';
+import { type JSX } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getModelsOptions } from '@api/@tanstack/react-query.gen';
+import { listAllModelsOptions } from '@api/@tanstack/react-query.gen';
 import { CircleStackIcon, TableCellsIcon, ArchiveBoxIcon, XCircleIcon } from '@heroicons/react/24/outline';
 import { ArrowPathIcon } from '@heroicons/react/24/solid';
 
 export function ModelsList(): JSX.Element {
-  const { data, error, isLoading } = useQuery(getModelsOptions());
-  const [hoveredDep, setHoveredDep] = useState<string | null>(null);
+  const { data, error, isLoading } = useQuery(listAllModelsOptions());
 
   if (isLoading) {
     return (
@@ -44,11 +43,7 @@ export function ModelsList(): JSX.Element {
           <div
             key={model.id}
             id={`model-${model.id}`}
-            className={`group relative overflow-hidden rounded-lg border p-5 shadow-sm transition-all ${
-              hoveredDep === model.id
-                ? 'border-indigo-400 bg-indigo-50 shadow-lg ring-2 ring-indigo-400 ring-offset-2'
-                : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-md'
-            }`}
+            className="group relative overflow-hidden rounded-lg border border-gray-200 bg-white p-5 shadow-sm transition-all hover:border-gray-300 hover:shadow-md"
           >
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
@@ -76,22 +71,9 @@ export function ModelsList(): JSX.Element {
                 </div>
               </div>
 
-              {model.dependencies && model.dependencies.length > 0 && (
-                <div className="space-y-1 border-t border-gray-100 pt-3">
-                  <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Dependencies</div>
-                  <div className="flex flex-wrap gap-1">
-                    {model.dependencies.map(dep => (
-                      <span
-                        key={dep}
-                        className="inline-flex cursor-pointer items-center rounded-md bg-gray-100 px-2 py-1 font-mono text-xs text-gray-700 transition-all hover:border-indigo-500 hover:bg-indigo-100 hover:text-indigo-800 hover:ring-2 hover:ring-indigo-500"
-                        title={dep}
-                        onMouseEnter={() => setHoveredDep(dep)}
-                        onMouseLeave={() => setHoveredDep(null)}
-                      >
-                        <span className="max-w-[150px] truncate">{dep}</span>
-                      </span>
-                    ))}
-                  </div>
+              {model.description && (
+                <div className="border-t border-gray-100 pt-3">
+                  <p className="text-xs text-gray-600">{model.description}</p>
                 </div>
               )}
             </div>

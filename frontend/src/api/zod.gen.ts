@@ -2,51 +2,442 @@
 
 import { z } from 'zod';
 
-export const zModelDetail = z.object({
-  id: z.string(),
-  type: z.string(),
+/**
+ * Lightweight model representation for listings
+ */
+export const zModelSummary = z
+  .object({
+    id: z.string().register(z.globalRegistry, {
+      description: 'Fully qualified ID (database.table)',
+    }),
+    type: z.enum(['external', 'transformation']).register(z.globalRegistry, {
+      description: 'Model type',
+    }),
+    database: z.string(),
+    table: z.string(),
+    description: z.optional(z.string()),
+  })
+  .register(z.globalRegistry, {
+    description: 'Lightweight model representation for listings',
+  });
+
+export const zExternalModel = z.object({
+  id: z.string().register(z.globalRegistry, {
+    description: 'Fully qualified ID (database.table)',
+  }),
   database: z.string(),
   table: z.string(),
-  config: z.record(z.string(), z.unknown()),
-  dependencies: z.optional(z.array(z.string())),
-  dependents: z.optional(z.array(z.string())),
+  description: z.optional(z.string()),
+  cache: z.optional(
+    z
+      .object({
+        incremental_scan_interval: z.optional(
+          z.string().register(z.globalRegistry, {
+            description: 'Interval for incremental cache updates',
+          })
+        ),
+        full_scan_interval: z.optional(
+          z.string().register(z.globalRegistry, {
+            description: 'Interval for full cache refresh',
+          })
+        ),
+      })
+      .register(z.globalRegistry, {
+        description: 'Cache configuration for external source',
+      })
+  ),
+  lag: z.optional(
+    z.int().register(z.globalRegistry, {
+      description: 'Number of blocks/slots to lag behind head',
+    })
+  ),
+  metadata: z.optional(
+    z
+      .object({
+        created_at: z.optional(z.iso.datetime()),
+        updated_at: z.optional(z.iso.datetime()),
+        last_synced_at: z.optional(z.iso.datetime()),
+        row_count: z.optional(
+          z.int().register(z.globalRegistry, {
+            description: 'Approximate row count in destination table',
+          })
+        ),
+        size_bytes: z.optional(
+          z.int().register(z.globalRegistry, {
+            description: 'Approximate table size in bytes',
+          })
+        ),
+      })
+      .register(z.globalRegistry, {
+        description: 'System-managed metadata',
+      })
+      .readonly()
+  ),
 });
 
-export const zModelsResponse = z.object({
-  models: z.array(zModelDetail),
-  total: z.int(),
+export const zTransformationModelBase = z.object({
+  id: z.string().register(z.globalRegistry, {
+    description: 'Fully qualified ID (database.table)',
+  }),
+  database: z.string(),
+  table: z.string(),
+  description: z.optional(z.string()),
+  type: z.enum(['scheduled', 'incremental']).register(z.globalRegistry, {
+    description: 'Transformation type (scheduled or incremental)',
+  }),
+  content_type: z.enum(['sql', 'exec']).register(z.globalRegistry, {
+    description: 'Execution method (SQL query or shell command)',
+  }),
+  content: z.string().register(z.globalRegistry, {
+    description: 'SQL query or exec command defining the transformation',
+  }),
+  tags: z.optional(
+    z.array(z.string()).register(z.globalRegistry, {
+      description: 'Tags for categorization',
+    })
+  ),
+  depends_on: z.optional(
+    z.array(z.string()).register(z.globalRegistry, {
+      description: 'Upstream model dependencies',
+    })
+  ),
+  metadata: z.optional(
+    z
+      .object({
+        created_at: z.optional(z.iso.datetime()),
+        updated_at: z.optional(z.iso.datetime()),
+        last_run_at: z.optional(z.iso.datetime()),
+        last_run_status: z.optional(z.enum(['success', 'failed', 'running', 'pending'])),
+        row_count: z.optional(z.int()),
+        size_bytes: z.optional(z.int()),
+      })
+      .register(z.globalRegistry, {
+        description: 'System-managed metadata',
+      })
+      .readonly()
+  ),
 });
+
+export const zScheduledTransformation = zTransformationModelBase.and(
+  z.object({
+    type: z.optional(z.enum(['scheduled'])),
+    schedule: z.string().register(z.globalRegistry, {
+      description: 'Cron expression (REQUIRED for scheduled type)',
+    }),
+  })
+);
+
+export const zIncrementalTransformation = zTransformationModelBase.and(
+  z.object({
+    type: z.optional(z.enum(['incremental'])),
+    interval: z
+      .object({
+        min: z.int().register(z.globalRegistry, {
+          description: 'Minimum interval size (0 = allow any partial size)',
+        }),
+        max: z.int().register(z.globalRegistry, {
+          description: 'Maximum interval size for processing',
+        }),
+      })
+      .register(z.globalRegistry, {
+        description: 'Interval configuration (REQUIRED for incremental type)',
+      }),
+    schedules: z.optional(
+      z
+        .object({
+          forwardfill: z.optional(
+            z.string().register(z.globalRegistry, {
+              description: 'Forward fill schedule',
+            })
+          ),
+          backfill: z.optional(
+            z.string().register(z.globalRegistry, {
+              description: 'Backfill schedule',
+            })
+          ),
+        })
+        .register(z.globalRegistry, {
+          description: 'Forwardfill and backfill schedules (for incremental type)',
+        })
+    ),
+    limits: z.optional(
+      z
+        .object({
+          min: z.optional(
+            z.int().register(z.globalRegistry, {
+              description: 'Minimum position limit',
+            })
+          ),
+          max: z.optional(
+            z.int().register(z.globalRegistry, {
+              description: 'Maximum position limit',
+            })
+          ),
+        })
+        .register(z.globalRegistry, {
+          description: 'Position limits for incremental processing',
+        })
+    ),
+  })
+);
+
+export const zTransformationModel = zTransformationModelBase.and(
+  z.object({
+    schedule: z.optional(
+      z.string().register(z.globalRegistry, {
+        description: 'Cron expression (present when type=scheduled)',
+      })
+    ),
+    interval: z.optional(
+      z
+        .object({
+          min: z.optional(
+            z.int().register(z.globalRegistry, {
+              description: 'Minimum interval size',
+            })
+          ),
+          max: z.optional(
+            z.int().register(z.globalRegistry, {
+              description: 'Maximum interval size',
+            })
+          ),
+        })
+        .register(z.globalRegistry, {
+          description: 'Interval configuration (present when type=incremental)',
+        })
+    ),
+    schedules: z.optional(
+      z
+        .object({
+          forwardfill: z.optional(
+            z.string().register(z.globalRegistry, {
+              description: 'Forward fill schedule',
+            })
+          ),
+          backfill: z.optional(
+            z.string().register(z.globalRegistry, {
+              description: 'Backfill schedule',
+            })
+          ),
+        })
+        .register(z.globalRegistry, {
+          description: 'Schedules (present when type=incremental)',
+        })
+    ),
+    limits: z.optional(
+      z
+        .object({
+          min: z.optional(
+            z.int().register(z.globalRegistry, {
+              description: 'Minimum position limit',
+            })
+          ),
+          max: z.optional(
+            z.int().register(z.globalRegistry, {
+              description: 'Maximum position limit',
+            })
+          ),
+        })
+        .register(z.globalRegistry, {
+          description: 'Limits (present when type=incremental)',
+        })
+    ),
+  })
+);
 
 export const zError = z.object({
-  error: z.string(),
-  code: z.int(),
+  error: z.string().register(z.globalRegistry, {
+    description: 'Human-readable error message',
+  }),
+  code: z.int().register(z.globalRegistry, {
+    description: 'HTTP status code',
+  }),
 });
 
-export const zGetModelsData = z.object({
+export const zExternalModelWritable = z.object({
+  id: z.string().register(z.globalRegistry, {
+    description: 'Fully qualified ID (database.table)',
+  }),
+  database: z.string(),
+  table: z.string(),
+  description: z.optional(z.string()),
+  cache: z.optional(
+    z
+      .object({
+        incremental_scan_interval: z.optional(
+          z.string().register(z.globalRegistry, {
+            description: 'Interval for incremental cache updates',
+          })
+        ),
+        full_scan_interval: z.optional(
+          z.string().register(z.globalRegistry, {
+            description: 'Interval for full cache refresh',
+          })
+        ),
+      })
+      .register(z.globalRegistry, {
+        description: 'Cache configuration for external source',
+      })
+  ),
+  lag: z.optional(
+    z.int().register(z.globalRegistry, {
+      description: 'Number of blocks/slots to lag behind head',
+    })
+  ),
+});
+
+export const zTransformationModelBaseWritable = z.object({
+  id: z.string().register(z.globalRegistry, {
+    description: 'Fully qualified ID (database.table)',
+  }),
+  database: z.string(),
+  table: z.string(),
+  description: z.optional(z.string()),
+  type: z.enum(['scheduled', 'incremental']).register(z.globalRegistry, {
+    description: 'Transformation type (scheduled or incremental)',
+  }),
+  content_type: z.enum(['sql', 'exec']).register(z.globalRegistry, {
+    description: 'Execution method (SQL query or shell command)',
+  }),
+  content: z.string().register(z.globalRegistry, {
+    description: 'SQL query or exec command defining the transformation',
+  }),
+  tags: z.optional(
+    z.array(z.string()).register(z.globalRegistry, {
+      description: 'Tags for categorization',
+    })
+  ),
+  depends_on: z.optional(
+    z.array(z.string()).register(z.globalRegistry, {
+      description: 'Upstream model dependencies',
+    })
+  ),
+});
+
+export const zListAllModelsData = z.object({
   body: z.optional(z.never()),
   path: z.optional(z.never()),
   query: z.optional(
     z.object({
-      type: z.optional(z.enum(['transformation', 'external'])),
-      database: z.optional(z.string()),
+      type: z.optional(
+        z.enum(['external', 'transformation']).register(z.globalRegistry, {
+          description: 'Filter by model type',
+        })
+      ),
+      database: z.optional(
+        z.string().register(z.globalRegistry, {
+          description: 'Filter by database name',
+        })
+      ),
+      search: z.optional(
+        z.string().register(z.globalRegistry, {
+          description: 'Search by model ID or description (case-insensitive)',
+        })
+      ),
     })
   ),
 });
 
 /**
- * List of models
+ * List of all models (summary view)
  */
-export const zGetModelsResponse = zModelsResponse;
+export const zListAllModelsResponse = z
+  .object({
+    models: z.array(zModelSummary),
+    total: z.int(),
+  })
+  .register(z.globalRegistry, {
+    description: 'List of all models (summary view)',
+  });
 
-export const zGetModelByIdData = z.object({
+export const zListExternalModelsData = z.object({
+  body: z.optional(z.never()),
+  path: z.optional(z.never()),
+  query: z.optional(
+    z.object({
+      database: z.optional(
+        z.string().register(z.globalRegistry, {
+          description: 'Filter by database name',
+        })
+      ),
+    })
+  ),
+});
+
+/**
+ * List of external models
+ */
+export const zListExternalModelsResponse = z
+  .object({
+    models: z.array(zExternalModel),
+    total: z.int(),
+  })
+  .register(z.globalRegistry, {
+    description: 'List of external models',
+  });
+
+export const zGetExternalModelData = z.object({
   body: z.optional(z.never()),
   path: z.object({
-    model_id: z.string(),
+    id: z.string().register(z.globalRegistry, {
+      description: 'Fully qualified model ID (database.table)',
+    }),
   }),
   query: z.optional(z.never()),
 });
 
 /**
- * Model details
+ * External model details
  */
-export const zGetModelByIdResponse = zModelDetail;
+export const zGetExternalModelResponse = zExternalModel;
+
+export const zListTransformationsData = z.object({
+  body: z.optional(z.never()),
+  path: z.optional(z.never()),
+  query: z.optional(
+    z.object({
+      database: z.optional(
+        z.string().register(z.globalRegistry, {
+          description: 'Filter by database name',
+        })
+      ),
+      type: z.optional(
+        z.enum(['scheduled', 'incremental']).register(z.globalRegistry, {
+          description: 'Filter by transformation type',
+        })
+      ),
+      status: z.optional(
+        z.enum(['success', 'failed', 'running', 'pending']).register(z.globalRegistry, {
+          description: 'Filter by last run status',
+        })
+      ),
+    })
+  ),
+});
+
+/**
+ * List of transformation models
+ */
+export const zListTransformationsResponse = z
+  .object({
+    models: z.array(zTransformationModel),
+    total: z.int(),
+  })
+  .register(z.globalRegistry, {
+    description: 'List of transformation models',
+  });
+
+export const zGetTransformationData = z.object({
+  body: z.optional(z.never()),
+  path: z.object({
+    id: z.string().register(z.globalRegistry, {
+      description: 'Fully qualified model ID (database.table)',
+    }),
+  }),
+  query: z.optional(z.never()),
+});
+
+/**
+ * Transformation model details
+ */
+export const zGetTransformationResponse = zTransformationModel;

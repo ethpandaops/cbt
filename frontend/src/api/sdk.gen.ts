@@ -3,13 +3,34 @@
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
 import type {
-  GetModelByIdData,
-  GetModelByIdErrors,
-  GetModelByIdResponses,
-  GetModelsData,
-  GetModelsResponses,
+  GetExternalModelData,
+  GetExternalModelErrors,
+  GetExternalModelResponses,
+  GetTransformationData,
+  GetTransformationErrors,
+  GetTransformationResponses,
+  ListAllModelsData,
+  ListAllModelsErrors,
+  ListAllModelsResponses,
+  ListExternalModelsData,
+  ListExternalModelsErrors,
+  ListExternalModelsResponses,
+  ListTransformationsData,
+  ListTransformationsErrors,
+  ListTransformationsResponses,
 } from './types.gen';
-import { zGetModelByIdData, zGetModelByIdResponse, zGetModelsData, zGetModelsResponse } from './zod.gen';
+import {
+  zGetExternalModelData,
+  zGetExternalModelResponse,
+  zGetTransformationData,
+  zGetTransformationResponse,
+  zListAllModelsData,
+  zListAllModelsResponse,
+  zListExternalModelsData,
+  zListExternalModelsResponse,
+  zListTransformationsData,
+  zListTransformationsResponse,
+} from './zod.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<
   TData,
@@ -29,15 +50,21 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 };
 
 /**
- * List all models
+ * List all models (lightweight)
+ * Returns a lightweight list of all models across all types.
+ * Use this for navigation, search, or building dependency graphs.
+ * For full model details, use type-specific endpoints.
+ *
  */
-export const getModels = <ThrowOnError extends boolean = false>(options?: Options<GetModelsData, ThrowOnError>) => {
-  return (options?.client ?? client).get<GetModelsResponses, unknown, ThrowOnError>({
+export const listAllModels = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAllModelsData, ThrowOnError>
+) => {
+  return (options?.client ?? client).get<ListAllModelsResponses, ListAllModelsErrors, ThrowOnError>({
     requestValidator: async data => {
-      return await zGetModelsData.parseAsync(data);
+      return await zListAllModelsData.parseAsync(data);
     },
     responseValidator: async data => {
-      return await zGetModelsResponse.parseAsync(data);
+      return await zListAllModelsResponse.parseAsync(data);
     },
     url: '/models',
     ...options,
@@ -45,19 +72,73 @@ export const getModels = <ThrowOnError extends boolean = false>(options?: Option
 };
 
 /**
- * Get model by ID
+ * List external models
  */
-export const getModelById = <ThrowOnError extends boolean = false>(
-  options: Options<GetModelByIdData, ThrowOnError>
+export const listExternalModels = <ThrowOnError extends boolean = false>(
+  options?: Options<ListExternalModelsData, ThrowOnError>
 ) => {
-  return (options.client ?? client).get<GetModelByIdResponses, GetModelByIdErrors, ThrowOnError>({
+  return (options?.client ?? client).get<ListExternalModelsResponses, ListExternalModelsErrors, ThrowOnError>({
     requestValidator: async data => {
-      return await zGetModelByIdData.parseAsync(data);
+      return await zListExternalModelsData.parseAsync(data);
     },
     responseValidator: async data => {
-      return await zGetModelByIdResponse.parseAsync(data);
+      return await zListExternalModelsResponse.parseAsync(data);
     },
-    url: '/models/{model_id}',
+    url: '/models/external',
+    ...options,
+  });
+};
+
+/**
+ * Get external model by ID
+ */
+export const getExternalModel = <ThrowOnError extends boolean = false>(
+  options: Options<GetExternalModelData, ThrowOnError>
+) => {
+  return (options.client ?? client).get<GetExternalModelResponses, GetExternalModelErrors, ThrowOnError>({
+    requestValidator: async data => {
+      return await zGetExternalModelData.parseAsync(data);
+    },
+    responseValidator: async data => {
+      return await zGetExternalModelResponse.parseAsync(data);
+    },
+    url: '/models/external/{id}',
+    ...options,
+  });
+};
+
+/**
+ * List transformation models
+ */
+export const listTransformations = <ThrowOnError extends boolean = false>(
+  options?: Options<ListTransformationsData, ThrowOnError>
+) => {
+  return (options?.client ?? client).get<ListTransformationsResponses, ListTransformationsErrors, ThrowOnError>({
+    requestValidator: async data => {
+      return await zListTransformationsData.parseAsync(data);
+    },
+    responseValidator: async data => {
+      return await zListTransformationsResponse.parseAsync(data);
+    },
+    url: '/models/transformations',
+    ...options,
+  });
+};
+
+/**
+ * Get transformation model by ID
+ */
+export const getTransformation = <ThrowOnError extends boolean = false>(
+  options: Options<GetTransformationData, ThrowOnError>
+) => {
+  return (options.client ?? client).get<GetTransformationResponses, GetTransformationErrors, ThrowOnError>({
+    requestValidator: async data => {
+      return await zGetTransformationData.parseAsync(data);
+    },
+    responseValidator: async data => {
+      return await zGetTransformationResponse.parseAsync(data);
+    },
+    url: '/models/transformations/{id}',
     ...options,
   });
 };

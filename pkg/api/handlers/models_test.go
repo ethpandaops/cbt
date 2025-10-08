@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGetModels(t *testing.T) {
+func TestListAllModels(t *testing.T) {
 	tests := []struct {
 		name           string
 		queryParams    string
@@ -172,11 +172,11 @@ func TestGetModels(t *testing.T) {
 
 			app := fiber.New()
 			app.Get("/models", func(c fiber.Ctx) error {
-				params := generated.GetModelsParams{}
+				params := generated.ListAllModelsParams{}
 				if err := c.Bind().Query(&params); err != nil {
 					return err
 				}
-				return server.GetModels(c, params)
+				return server.ListAllModels(c, params)
 			})
 
 			// Execute
@@ -192,7 +192,10 @@ func TestGetModels(t *testing.T) {
 			body, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 
-			var response generated.ModelsResponse
+			var response struct {
+				Models []generated.ModelSummary `json:"models"`
+				Total  int                      `json:"total"`
+			}
 			err = json.Unmarshal(body, &response)
 			require.NoError(t, err)
 
@@ -209,13 +212,12 @@ func TestGetModels(t *testing.T) {
 	}
 }
 
-func TestGetModelByID(t *testing.T) {
+func TestGetTransformation(t *testing.T) {
 	tests := []struct {
 		name       string
 		modelID    string
 		setupMocks func() *mockDAGReader
 		wantStatus int
-		wantType   string
 		wantError  bool
 	}{
 		{
@@ -223,9 +225,6 @@ func TestGetModelByID(t *testing.T) {
 			modelID: "analytics.block_stats",
 			setupMocks: func() *mockDAGReader {
 				return &mockDAGReader{
-					nodeByID: map[string]models.Node{
-						"analytics.block_stats": {},
-					},
 					transformationByID: map[string]models.Transformation{
 						"analytics.block_stats": &mockTransformation{
 							id:       "analytics.block_stats",
@@ -239,29 +238,6 @@ func TestGetModelByID(t *testing.T) {
 				}
 			},
 			wantStatus: 200,
-			wantType:   "transformation",
-		},
-		{
-			name:    "returns external model",
-			modelID: "ethereum.blocks",
-			setupMocks: func() *mockDAGReader {
-				return &mockDAGReader{
-					nodeByID: map[string]models.Node{
-						"ethereum.blocks": {},
-					},
-					externalByID: map[string]models.External{
-						"ethereum.blocks": &mockExternal{
-							id:       "ethereum.blocks",
-							database: "ethereum",
-							table:    "blocks",
-						},
-					},
-					dependencies: make(map[string][]string),
-					dependents:   make(map[string][]string),
-				}
-			},
-			wantStatus: 200,
-			wantType:   "external",
 		},
 		{
 			name:    "returns 400 for invalid model ID format",
@@ -277,7 +253,7 @@ func TestGetModelByID(t *testing.T) {
 			modelID: "nonexistent.model",
 			setupMocks: func() *mockDAGReader {
 				return &mockDAGReader{
-					getNodeErr: errNodeNotFound,
+					getTransformationErr: errNodeNotFound,
 				}
 			},
 			wantStatus: 404,
@@ -307,12 +283,12 @@ func TestGetModelByID(t *testing.T) {
 					return c.Status(code).JSON(fiber.Map{"error": message, "code": code})
 				},
 			})
-			app.Get("/models/:model_id", func(c fiber.Ctx) error {
-				return server.GetModelByID(c, c.Params("model_id"))
+			app.Get("/models/transformations/:id", func(c fiber.Ctx) error {
+				return server.GetTransformation(c, c.Params("id"))
 			})
 
 			// Execute
-			req := httptest.NewRequest("GET", "/models/"+tt.modelID, http.NoBody)
+			req := httptest.NewRequest("GET", "/models/transformations/"+tt.modelID, http.NoBody)
 			resp, err := app.Test(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
@@ -329,11 +305,111 @@ func TestGetModelByID(t *testing.T) {
 				require.NoError(t, err)
 				assert.Contains(t, errResp, "error")
 			} else {
-				var detail generated.ModelDetail
-				err = json.Unmarshal(body, &detail)
+				var model generated.TransformationModel
+				err = json.Unmarshal(body, &model)
 				require.NoError(t, err)
-				assert.Equal(t, tt.modelID, detail.Id)
-				assert.Equal(t, tt.wantType, detail.Type)
+				assert.Equal(t, tt.modelID, model.Id)
+			}
+		})
+	}
+}
+
+func TestGetExternalModel(t *testing.T) {
+	tests := []struct {
+		name       string
+		modelID    string
+		setupMocks func() *mockDAGReader
+		wantStatus int
+		wantError  bool
+	}{
+		{
+			name:    "returns external model",
+			modelID: "ethereum.blocks",
+			setupMocks: func() *mockDAGReader {
+				return &mockDAGReader{
+					externalByID: map[string]models.External{
+						"ethereum.blocks": &mockExternal{
+							id:       "ethereum.blocks",
+							database: "ethereum",
+							table:    "blocks",
+						},
+					},
+					dependencies: make(map[string][]string),
+					dependents:   make(map[string][]string),
+				}
+			},
+			wantStatus: 200,
+		},
+		{
+			name:    "returns 400 for invalid model ID format",
+			modelID: "invalid",
+			setupMocks: func() *mockDAGReader {
+				return &mockDAGReader{}
+			},
+			wantStatus: 400,
+			wantError:  true,
+		},
+		{
+			name:    "returns 404 for non-existent model",
+			modelID: "nonexistent.model",
+			setupMocks: func() *mockDAGReader {
+				return &mockDAGReader{
+					getExternalErr: errNodeNotFound,
+				}
+			},
+			wantStatus: 404,
+			wantError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+
+			mockDAG := tt.setupMocks()
+			mockService := &mockModelsService{dag: mockDAG}
+			server := NewServer(mockService, log)
+
+			app := fiber.New(fiber.Config{
+				ErrorHandler: func(c fiber.Ctx, err error) error {
+					code := fiber.StatusInternalServerError
+					message := "Internal Server Error"
+					var fiberErr *fiber.Error
+					if ok := errors.As(err, &fiberErr); ok {
+						code = fiberErr.Code
+						message = fiberErr.Message
+					}
+					return c.Status(code).JSON(fiber.Map{"error": message, "code": code})
+				},
+			})
+			app.Get("/models/external/:id", func(c fiber.Ctx) error {
+				return server.GetExternalModel(c, c.Params("id"))
+			})
+
+			// Execute
+			req := httptest.NewRequest("GET", "/models/external/"+tt.modelID, http.NoBody)
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			// Assert
+			assert.Equal(t, tt.wantStatus, resp.StatusCode)
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			if tt.wantError {
+				var errResp map[string]interface{}
+				err = json.Unmarshal(body, &errResp)
+				require.NoError(t, err)
+				assert.Contains(t, errResp, "error")
+			} else {
+				var model generated.ExternalModel
+				err = json.Unmarshal(body, &model)
+				require.NoError(t, err)
+				assert.Equal(t, tt.modelID, model.Id)
 			}
 		})
 	}

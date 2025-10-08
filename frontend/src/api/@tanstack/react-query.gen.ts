@@ -3,8 +3,21 @@
 import { queryOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { getModelById, getModels, type Options } from '../sdk.gen';
-import type { GetModelByIdData, GetModelsData } from '../types.gen';
+import {
+  getExternalModel,
+  getTransformation,
+  listAllModels,
+  listExternalModels,
+  listTransformations,
+  type Options,
+} from '../sdk.gen';
+import type {
+  GetExternalModelData,
+  GetTransformationData,
+  ListAllModelsData,
+  ListExternalModelsData,
+  ListTransformationsData,
+} from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
   Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -45,15 +58,19 @@ const createQueryKey = <TOptions extends Options>(
   return [params];
 };
 
-export const getModelsQueryKey = (options?: Options<GetModelsData>) => createQueryKey('getModels', options);
+export const listAllModelsQueryKey = (options?: Options<ListAllModelsData>) => createQueryKey('listAllModels', options);
 
 /**
- * List all models
+ * List all models (lightweight)
+ * Returns a lightweight list of all models across all types.
+ * Use this for navigation, search, or building dependency graphs.
+ * For full model details, use type-specific endpoints.
+ *
  */
-export const getModelsOptions = (options?: Options<GetModelsData>) => {
+export const listAllModelsOptions = (options?: Options<ListAllModelsData>) => {
   return queryOptions({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getModels({
+      const { data } = await listAllModels({
         ...options,
         ...queryKey[0],
         signal,
@@ -61,19 +78,20 @@ export const getModelsOptions = (options?: Options<GetModelsData>) => {
       });
       return data;
     },
-    queryKey: getModelsQueryKey(options),
+    queryKey: listAllModelsQueryKey(options),
   });
 };
 
-export const getModelByIdQueryKey = (options: Options<GetModelByIdData>) => createQueryKey('getModelById', options);
+export const listExternalModelsQueryKey = (options?: Options<ListExternalModelsData>) =>
+  createQueryKey('listExternalModels', options);
 
 /**
- * Get model by ID
+ * List external models
  */
-export const getModelByIdOptions = (options: Options<GetModelByIdData>) => {
+export const listExternalModelsOptions = (options?: Options<ListExternalModelsData>) => {
   return queryOptions({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getModelById({
+      const { data } = await listExternalModels({
         ...options,
         ...queryKey[0],
         signal,
@@ -81,6 +99,69 @@ export const getModelByIdOptions = (options: Options<GetModelByIdData>) => {
       });
       return data;
     },
-    queryKey: getModelByIdQueryKey(options),
+    queryKey: listExternalModelsQueryKey(options),
+  });
+};
+
+export const getExternalModelQueryKey = (options: Options<GetExternalModelData>) =>
+  createQueryKey('getExternalModel', options);
+
+/**
+ * Get external model by ID
+ */
+export const getExternalModelOptions = (options: Options<GetExternalModelData>) => {
+  return queryOptions({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getExternalModel({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getExternalModelQueryKey(options),
+  });
+};
+
+export const listTransformationsQueryKey = (options?: Options<ListTransformationsData>) =>
+  createQueryKey('listTransformations', options);
+
+/**
+ * List transformation models
+ */
+export const listTransformationsOptions = (options?: Options<ListTransformationsData>) => {
+  return queryOptions({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listTransformations({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listTransformationsQueryKey(options),
+  });
+};
+
+export const getTransformationQueryKey = (options: Options<GetTransformationData>) =>
+  createQueryKey('getTransformation', options);
+
+/**
+ * Get transformation model by ID
+ */
+export const getTransformationOptions = (options: Options<GetTransformationData>) => {
+  return queryOptions({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getTransformation({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getTransformationQueryKey(options),
   });
 };

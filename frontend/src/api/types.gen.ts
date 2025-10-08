@@ -4,70 +4,451 @@ export type ClientOptions = {
   baseUrl: 'http://localhost:8080/api/v1' | (string & {});
 };
 
-export type ModelsResponse = {
-  models: Array<ModelDetail>;
-  total: number;
-};
-
-export type ModelDetail = {
+/**
+ * Lightweight model representation for listings
+ */
+export type ModelSummary = {
+  /**
+   * Fully qualified ID (database.table)
+   */
   id: string;
-  type: string;
+  /**
+   * Model type
+   */
+  type: 'external' | 'transformation';
   database: string;
   table: string;
-  config: {
-    [key: string]: unknown;
+  description?: string;
+};
+
+export type ExternalModel = {
+  /**
+   * Fully qualified ID (database.table)
+   */
+  id: string;
+  database: string;
+  table: string;
+  description?: string;
+  /**
+   * Cache configuration for external source
+   */
+  cache?: {
+    /**
+     * Interval for incremental cache updates
+     */
+    incremental_scan_interval?: string;
+    /**
+     * Interval for full cache refresh
+     */
+    full_scan_interval?: string;
   };
-  dependencies?: Array<string>;
-  dependents?: Array<string>;
+  /**
+   * Number of blocks/slots to lag behind head
+   */
+  lag?: number;
+  /**
+   * System-managed metadata
+   */
+  readonly metadata?: {
+    created_at?: string;
+    updated_at?: string;
+    last_synced_at?: string;
+    /**
+     * Approximate row count in destination table
+     */
+    row_count?: number;
+    /**
+     * Approximate table size in bytes
+     */
+    size_bytes?: number;
+  };
+};
+
+export type TransformationModelBase = {
+  /**
+   * Fully qualified ID (database.table)
+   */
+  id: string;
+  database: string;
+  table: string;
+  description?: string;
+  /**
+   * Transformation type (scheduled or incremental)
+   */
+  type: 'scheduled' | 'incremental';
+  /**
+   * Execution method (SQL query or shell command)
+   */
+  content_type: 'sql' | 'exec';
+  /**
+   * SQL query or exec command defining the transformation
+   */
+  content: string;
+  /**
+   * Tags for categorization
+   */
+  tags?: Array<string>;
+  /**
+   * Upstream model dependencies
+   */
+  depends_on?: Array<string>;
+  /**
+   * System-managed metadata
+   */
+  readonly metadata?: {
+    created_at?: string;
+    updated_at?: string;
+    last_run_at?: string;
+    last_run_status?: 'success' | 'failed' | 'running' | 'pending';
+    row_count?: number;
+    size_bytes?: number;
+  };
+};
+
+export type ScheduledTransformation = TransformationModelBase & {
+  type?: 'scheduled';
+  /**
+   * Cron expression (REQUIRED for scheduled type)
+   */
+  schedule: string;
+};
+
+export type IncrementalTransformation = TransformationModelBase & {
+  type?: 'incremental';
+  /**
+   * Interval configuration (REQUIRED for incremental type)
+   */
+  interval: {
+    /**
+     * Minimum interval size (0 = allow any partial size)
+     */
+    min: number;
+    /**
+     * Maximum interval size for processing
+     */
+    max: number;
+  };
+  /**
+   * Forwardfill and backfill schedules (for incremental type)
+   */
+  schedules?: {
+    /**
+     * Forward fill schedule
+     */
+    forwardfill?: string;
+    /**
+     * Backfill schedule
+     */
+    backfill?: string;
+  };
+  /**
+   * Position limits for incremental processing
+   */
+  limits?: {
+    /**
+     * Minimum position limit
+     */
+    min?: number;
+    /**
+     * Maximum position limit
+     */
+    max?: number;
+  };
+};
+
+export type TransformationModel = TransformationModelBase & {
+  /**
+   * Cron expression (present when type=scheduled)
+   */
+  schedule?: string;
+  /**
+   * Interval configuration (present when type=incremental)
+   */
+  interval?: {
+    /**
+     * Minimum interval size
+     */
+    min?: number;
+    /**
+     * Maximum interval size
+     */
+    max?: number;
+  };
+  /**
+   * Schedules (present when type=incremental)
+   */
+  schedules?: {
+    /**
+     * Forward fill schedule
+     */
+    forwardfill?: string;
+    /**
+     * Backfill schedule
+     */
+    backfill?: string;
+  };
+  /**
+   * Limits (present when type=incremental)
+   */
+  limits?: {
+    /**
+     * Minimum position limit
+     */
+    min?: number;
+    /**
+     * Maximum position limit
+     */
+    max?: number;
+  };
 };
 
 export type _Error = {
+  /**
+   * Human-readable error message
+   */
   error: string;
+  /**
+   * HTTP status code
+   */
   code: number;
 };
 
-export type GetModelsData = {
+export type ExternalModelWritable = {
+  /**
+   * Fully qualified ID (database.table)
+   */
+  id: string;
+  database: string;
+  table: string;
+  description?: string;
+  /**
+   * Cache configuration for external source
+   */
+  cache?: {
+    /**
+     * Interval for incremental cache updates
+     */
+    incremental_scan_interval?: string;
+    /**
+     * Interval for full cache refresh
+     */
+    full_scan_interval?: string;
+  };
+  /**
+   * Number of blocks/slots to lag behind head
+   */
+  lag?: number;
+};
+
+export type TransformationModelBaseWritable = {
+  /**
+   * Fully qualified ID (database.table)
+   */
+  id: string;
+  database: string;
+  table: string;
+  description?: string;
+  /**
+   * Transformation type (scheduled or incremental)
+   */
+  type: 'scheduled' | 'incremental';
+  /**
+   * Execution method (SQL query or shell command)
+   */
+  content_type: 'sql' | 'exec';
+  /**
+   * SQL query or exec command defining the transformation
+   */
+  content: string;
+  /**
+   * Tags for categorization
+   */
+  tags?: Array<string>;
+  /**
+   * Upstream model dependencies
+   */
+  depends_on?: Array<string>;
+};
+
+export type ListAllModelsData = {
   body?: never;
   path?: never;
   query?: {
-    type?: 'transformation' | 'external';
+    /**
+     * Filter by model type
+     */
+    type?: 'external' | 'transformation';
+    /**
+     * Filter by database name
+     */
     database?: string;
+    /**
+     * Search by model ID or description (case-insensitive)
+     */
+    search?: string;
   };
   url: '/models';
 };
 
-export type GetModelsResponses = {
+export type ListAllModelsErrors = {
   /**
-   * List of models
+   * Internal server error
    */
-  200: ModelsResponse;
+  500: _Error;
 };
 
-export type GetModelsResponse = GetModelsResponses[keyof GetModelsResponses];
+export type ListAllModelsError = ListAllModelsErrors[keyof ListAllModelsErrors];
 
-export type GetModelByIdData = {
+export type ListAllModelsResponses = {
+  /**
+   * List of all models (summary view)
+   */
+  200: {
+    models: Array<ModelSummary>;
+    total: number;
+  };
+};
+
+export type ListAllModelsResponse = ListAllModelsResponses[keyof ListAllModelsResponses];
+
+export type ListExternalModelsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Filter by database name
+     */
+    database?: string;
+  };
+  url: '/models/external';
+};
+
+export type ListExternalModelsErrors = {
+  /**
+   * Internal server error
+   */
+  500: _Error;
+};
+
+export type ListExternalModelsError = ListExternalModelsErrors[keyof ListExternalModelsErrors];
+
+export type ListExternalModelsResponses = {
+  /**
+   * List of external models
+   */
+  200: {
+    models: Array<ExternalModel>;
+    total: number;
+  };
+};
+
+export type ListExternalModelsResponse = ListExternalModelsResponses[keyof ListExternalModelsResponses];
+
+export type GetExternalModelData = {
   body?: never;
   path: {
-    model_id: string;
+    /**
+     * Fully qualified model ID (database.table)
+     */
+    id: string;
   };
   query?: never;
-  url: '/models/{model_id}';
+  url: '/models/external/{id}';
 };
 
-export type GetModelByIdErrors = {
+export type GetExternalModelErrors = {
   /**
    * Resource not found
    */
   404: _Error;
-};
-
-export type GetModelByIdError = GetModelByIdErrors[keyof GetModelByIdErrors];
-
-export type GetModelByIdResponses = {
   /**
-   * Model details
+   * Internal server error
    */
-  200: ModelDetail;
+  500: _Error;
 };
 
-export type GetModelByIdResponse = GetModelByIdResponses[keyof GetModelByIdResponses];
+export type GetExternalModelError = GetExternalModelErrors[keyof GetExternalModelErrors];
+
+export type GetExternalModelResponses = {
+  /**
+   * External model details
+   */
+  200: ExternalModel;
+};
+
+export type GetExternalModelResponse = GetExternalModelResponses[keyof GetExternalModelResponses];
+
+export type ListTransformationsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Filter by database name
+     */
+    database?: string;
+    /**
+     * Filter by transformation type
+     */
+    type?: 'scheduled' | 'incremental';
+    /**
+     * Filter by last run status
+     */
+    status?: 'success' | 'failed' | 'running' | 'pending';
+  };
+  url: '/models/transformations';
+};
+
+export type ListTransformationsErrors = {
+  /**
+   * Internal server error
+   */
+  500: _Error;
+};
+
+export type ListTransformationsError = ListTransformationsErrors[keyof ListTransformationsErrors];
+
+export type ListTransformationsResponses = {
+  /**
+   * List of transformation models
+   */
+  200: {
+    models: Array<TransformationModel>;
+    total: number;
+  };
+};
+
+export type ListTransformationsResponse = ListTransformationsResponses[keyof ListTransformationsResponses];
+
+export type GetTransformationData = {
+  body?: never;
+  path: {
+    /**
+     * Fully qualified model ID (database.table)
+     */
+    id: string;
+  };
+  query?: never;
+  url: '/models/transformations/{id}';
+};
+
+export type GetTransformationErrors = {
+  /**
+   * Resource not found
+   */
+  404: _Error;
+  /**
+   * Internal server error
+   */
+  500: _Error;
+};
+
+export type GetTransformationError = GetTransformationErrors[keyof GetTransformationErrors];
+
+export type GetTransformationResponses = {
+  /**
+   * Transformation model details
+   */
+  200: TransformationModel;
+};
+
+export type GetTransformationResponse = GetTransformationResponses[keyof GetTransformationResponses];
