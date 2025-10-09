@@ -213,6 +213,18 @@ func buildExternalModel(modelID string, node models.External, _ models.DAGReader
 		Table:    cfg.Table,
 	}
 
+	// Populate interval configuration if available
+	if intervalProvider, ok := node.(interface{ GetIntervalType() string }); ok {
+		intervalType := intervalProvider.GetIntervalType()
+		if intervalType != "" {
+			model.Interval = &struct {
+				Type *string `json:"type,omitempty"`
+			}{
+				Type: &intervalType,
+			}
+		}
+	}
+
 	// Populate cache configuration if available
 	if cfg.Cache != nil {
 		incrementalInterval := cfg.Cache.IncrementalScanInterval.String()
@@ -297,20 +309,30 @@ func populateScheduledFields(model *generated.TransformationModel, node models.T
 func populateIncrementalFields(model *generated.TransformationModel, node models.Transformation) {
 	handler := node.GetHandler()
 	if incrementalHandler, ok := handler.(interface {
-		GetInterval() (minInterval uint64, maxInterval uint64)
-		GetSchedules() (forwardfill string, backfill string)
-		GetLimits() (minLimit uint64, maxLimit uint64)
+		GetInterval() (minInterval, maxInterval uint64)
+		GetSchedules() (forwardfill, backfill string)
 		GetTags() []string
-		GetDependencies() []string
+		GetFlattenedDependencies() []string
 	}); ok {
 		// Interval
 		minInterval, maxInterval := incrementalHandler.GetInterval()
+
+		// Get interval type if available
+		var intervalType *string
+		if intervalProvider, ok := handler.(interface{ GetIntervalType() string }); ok {
+			if it := intervalProvider.GetIntervalType(); it != "" {
+				intervalType = &it
+			}
+		}
+
 		model.Interval = &struct {
-			Max *int `json:"max,omitempty"`
-			Min *int `json:"min,omitempty"`
+			Max  *int    `json:"max,omitempty"`
+			Min  *int    `json:"min,omitempty"`
+			Type *string `json:"type,omitempty"`
 		}{
-			Min: intPtr(int(minInterval)), // nolint:gosec
-			Max: intPtr(int(maxInterval)), // nolint:gosec
+			Min:  intPtr(int(minInterval)), // nolint:gosec
+			Max:  intPtr(int(maxInterval)), // nolint:gosec
+			Type: intervalType,
 		}
 
 		// Schedules
@@ -326,14 +348,16 @@ func populateIncrementalFields(model *generated.TransformationModel, node models
 		}
 
 		// Limits
-		minLimit, maxLimit := incrementalHandler.GetLimits()
-		if minLimit > 0 || maxLimit > 0 {
-			model.Limits = &struct {
-				Max *int `json:"max,omitempty"`
-				Min *int `json:"min,omitempty"`
-			}{
-				Min: intPtr(int(minLimit)), // nolint:gosec
-				Max: intPtr(int(maxLimit)), // nolint:gosec
+		if limitsProvider, ok := handler.(interface{ GetLimits() *struct{ Min, Max uint64 } }); ok {
+			limits := limitsProvider.GetLimits()
+			if limits != nil && (limits.Min > 0 || limits.Max > 0) {
+				model.Limits = &struct {
+					Max *int `json:"max,omitempty"`
+					Min *int `json:"min,omitempty"`
+				}{
+					Min: intPtr(int(limits.Min)), // nolint:gosec
+					Max: intPtr(int(limits.Max)), // nolint:gosec
+				}
 			}
 		}
 

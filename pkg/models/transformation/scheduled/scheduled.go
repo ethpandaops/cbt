@@ -110,3 +110,8 @@ func (h *Handler) GetID() string {
 func (h *Handler) GetSchedule() string {
 	return h.config.Schedule
 }
+
+// GetTags returns the tags for this transformation
+func (h *Handler) GetTags() []string {
+	return h.config.Tags
+}

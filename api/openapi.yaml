@@ -441,6 +441,14 @@ components:
         description:
           type: string
           example: Beacon chain blocks from production cluster
+        interval:
+          type: object
+          description: Interval configuration for external source
+          properties:
+            type:
+              type: string
+              description: Type of interval (e.g., "second", "slot", "epoch", "block")
+              example: "slot"
         cache:
           type: object
           description: Cache configuration for external source
@@ -581,7 +589,7 @@ components:
               enum: [incremental]
             interval:
               type: object
-              required: [min, max]
+              required: [min, max, type]
               description: Interval configuration (REQUIRED for incremental type)
               properties:
                 min:
@@ -592,6 +600,10 @@ components:
                   type: integer
                   description: Maximum interval size for processing
                   example: 60
+                type:
+                  type: string
+                  description: Type of interval (e.g., "second", "slot", "epoch", "block")
+                  example: "slot"
             schedules:
               type: object
               description: Forwardfill and backfill schedules (for incremental type)
@@ -640,6 +652,9 @@ components:
                 max:
                   type: integer
                   description: Maximum interval size
+                type:
+                  type: string
+                  description: Type of interval (e.g., "second", "slot", "epoch", "block")
             schedules:
               type: object
               description: Schedules (present when type=incremental)
