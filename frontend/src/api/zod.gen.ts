@@ -28,6 +28,19 @@ export const zExternalModel = z.object({
   database: z.string(),
   table: z.string(),
   description: z.optional(z.string()),
+  interval: z.optional(
+    z
+      .object({
+        type: z.optional(
+          z.string().register(z.globalRegistry, {
+            description: 'Type of interval (e.g., "second", "slot", "epoch", "block")',
+          })
+        ),
+      })
+      .register(z.globalRegistry, {
+        description: 'Interval configuration for external source',
+      })
+  ),
   cache: z.optional(
     z
       .object({
@@ -138,6 +151,9 @@ export const zIncrementalTransformation = zTransformationModelBase.and(
         max: z.int().register(z.globalRegistry, {
           description: 'Maximum interval size for processing',
         }),
+        type: z.string().register(z.globalRegistry, {
+          description: 'Type of interval (e.g., "second", "slot", "epoch", "block")',
+        }),
       })
       .register(z.globalRegistry, {
         description: 'Interval configuration (REQUIRED for incremental type)',
@@ -201,6 +217,11 @@ export const zTransformationModel = zTransformationModelBase.and(
               description: 'Maximum interval size',
             })
           ),
+          type: z.optional(
+            z.string().register(z.globalRegistry, {
+              description: 'Type of interval (e.g., "second", "slot", "epoch", "block")',
+            })
+          ),
         })
         .register(z.globalRegistry, {
           description: 'Interval configuration (present when type=incremental)',
@@ -245,6 +266,86 @@ export const zTransformationModel = zTransformationModelBase.and(
   })
 );
 
+export const zExternalBounds = z.object({
+  id: z.string().register(z.globalRegistry, {
+    description: 'Fully qualified model ID (database.table)',
+  }),
+  min: z.int().register(z.globalRegistry, {
+    description: 'Minimum position in external source',
+  }),
+  max: z.int().register(z.globalRegistry, {
+    description: 'Maximum position in external source',
+  }),
+  previous_min: z.optional(
+    z.int().register(z.globalRegistry, {
+      description: 'Previous minimum position (for tracking changes)',
+    })
+  ),
+  previous_max: z.optional(
+    z.int().register(z.globalRegistry, {
+      description: 'Previous maximum position (for tracking changes)',
+    })
+  ),
+  last_incremental_scan: z.optional(
+    z.iso.datetime().register(z.globalRegistry, {
+      description: 'Timestamp of last incremental scan',
+    })
+  ),
+  last_full_scan: z.optional(
+    z.iso.datetime().register(z.globalRegistry, {
+      description: 'Timestamp of last full scan',
+    })
+  ),
+  initial_scan_complete: z.optional(
+    z.boolean().register(z.globalRegistry, {
+      description: 'Whether initial scan is complete',
+    })
+  ),
+  initial_scan_started: z.optional(
+    z.iso.datetime().register(z.globalRegistry, {
+      description: 'Timestamp when initial scan started',
+    })
+  ),
+});
+
+export const zRange = z.object({
+  position: z.int().register(z.globalRegistry, {
+    description: 'Starting position of processed range',
+  }),
+  interval: z.int().register(z.globalRegistry, {
+    description: 'Size of processed range',
+  }),
+});
+
+export const zCoverageSummary = z.object({
+  id: z.string().register(z.globalRegistry, {
+    description: 'Fully qualified model ID (database.table)',
+  }),
+  ranges: z.array(zRange).register(z.globalRegistry, {
+    description: 'Processed ranges from admin_incremental table',
+  }),
+});
+
+export const zCoverageDetail = z.object({
+  id: z.string().register(z.globalRegistry, {
+    description: 'Fully qualified model ID (database.table)',
+  }),
+  ranges: z.array(zRange).register(z.globalRegistry, {
+    description: 'All processed ranges from admin_incremental table',
+  }),
+});
+
+export const zScheduledRun = z.object({
+  id: z.string().register(z.globalRegistry, {
+    description: 'Fully qualified model ID (database.table)',
+  }),
+  last_run: z.optional(
+    z.iso.datetime().register(z.globalRegistry, {
+      description: 'Timestamp of last execution',
+    })
+  ),
+});
+
 export const zError = z.object({
   error: z.string().register(z.globalRegistry, {
     description: 'Human-readable error message',
@@ -261,6 +362,19 @@ export const zExternalModelWritable = z.object({
   database: z.string(),
   table: z.string(),
   description: z.optional(z.string()),
+  interval: z.optional(
+    z
+      .object({
+        type: z.optional(
+          z.string().register(z.globalRegistry, {
+            description: 'Type of interval (e.g., "second", "slot", "epoch", "block")',
+          })
+        ),
+      })
+      .register(z.globalRegistry, {
+        description: 'Interval configuration for external source',
+      })
+  ),
   cache: z.optional(
     z
       .object({
@@ -441,3 +555,118 @@ export const zGetTransformationData = z.object({
  * Transformation model details
  */
 export const zGetTransformationResponse = zTransformationModel;
+
+export const zListExternalBoundsData = z.object({
+  body: z.optional(z.never()),
+  path: z.optional(z.never()),
+  query: z.optional(z.never()),
+});
+
+/**
+ * List of external model bounds
+ */
+export const zListExternalBoundsResponse = z
+  .object({
+    bounds: z.array(zExternalBounds),
+    total: z.int(),
+  })
+  .register(z.globalRegistry, {
+    description: 'List of external model bounds',
+  });
+
+export const zGetExternalBoundsData = z.object({
+  body: z.optional(z.never()),
+  path: z.object({
+    id: z.string().register(z.globalRegistry, {
+      description: 'Fully qualified model ID (database.table)',
+    }),
+  }),
+  query: z.optional(z.never()),
+});
+
+/**
+ * External model bounds details
+ */
+export const zGetExternalBoundsResponse = zExternalBounds;
+
+export const zListTransformationCoverageData = z.object({
+  body: z.optional(z.never()),
+  path: z.optional(z.never()),
+  query: z.optional(
+    z.object({
+      database: z.optional(
+        z.string().register(z.globalRegistry, {
+          description: 'Filter by database name',
+        })
+      ),
+    })
+  ),
+});
+
+/**
+ * List of transformation coverage
+ */
+export const zListTransformationCoverageResponse = z
+  .object({
+    coverage: z.array(zCoverageSummary),
+    total: z.int(),
+  })
+  .register(z.globalRegistry, {
+    description: 'List of transformation coverage',
+  });
+
+export const zGetTransformationCoverageData = z.object({
+  body: z.optional(z.never()),
+  path: z.object({
+    id: z.string().register(z.globalRegistry, {
+      description: 'Fully qualified model ID (database.table)',
+    }),
+  }),
+  query: z.optional(z.never()),
+});
+
+/**
+ * Transformation coverage details
+ */
+export const zGetTransformationCoverageResponse = zCoverageDetail;
+
+export const zListScheduledRunsData = z.object({
+  body: z.optional(z.never()),
+  path: z.optional(z.never()),
+  query: z.optional(
+    z.object({
+      database: z.optional(
+        z.string().register(z.globalRegistry, {
+          description: 'Filter by database name',
+        })
+      ),
+    })
+  ),
+});
+
+/**
+ * List of scheduled transformation runs
+ */
+export const zListScheduledRunsResponse = z
+  .object({
+    runs: z.array(zScheduledRun),
+    total: z.int(),
+  })
+  .register(z.globalRegistry, {
+    description: 'List of scheduled transformation runs',
+  });
+
+export const zGetScheduledRunData = z.object({
+  body: z.optional(z.never()),
+  path: z.object({
+    id: z.string().register(z.globalRegistry, {
+      description: 'Fully qualified model ID (database.table)',
+    }),
+  }),
+  query: z.optional(z.never()),
+});
+
+/**
+ * Scheduled transformation run details
+ */
+export const zGetScheduledRunResponse = zScheduledRun;

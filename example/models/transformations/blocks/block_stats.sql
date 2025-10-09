@@ -12,7 +12,7 @@ interval:
   type: slot
 schedules:
   forwardfill: "@every 5m"
-  backfill: "@every 5m"
+  backfill: "@every 5s"
 tags:
   - aggregation
   - hourly

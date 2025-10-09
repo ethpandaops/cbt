@@ -30,6 +30,15 @@ export type ExternalModel = {
   table: string;
   description?: string;
   /**
+   * Interval configuration for external source
+   */
+  interval?: {
+    /**
+     * Type of interval (e.g., "second", "slot", "epoch", "block")
+     */
+    type?: string;
+  };
+  /**
    * Cache configuration for external source
    */
   cache?: {
@@ -127,6 +136,10 @@ export type IncrementalTransformation = TransformationModelBase & {
      * Maximum interval size for processing
      */
     max: number;
+    /**
+     * Type of interval (e.g., "second", "slot", "epoch", "block")
+     */
+    type: string;
   };
   /**
    * Forwardfill and backfill schedules (for incremental type)
@@ -173,6 +186,10 @@ export type TransformationModel = TransformationModelBase & {
      * Maximum interval size
      */
     max?: number;
+    /**
+     * Type of interval (e.g., "second", "slot", "epoch", "block")
+     */
+    type?: string;
   };
   /**
    * Schedules (present when type=incremental)
@@ -202,6 +219,89 @@ export type TransformationModel = TransformationModelBase & {
   };
 };
 
+export type ExternalBounds = {
+  /**
+   * Fully qualified model ID (database.table)
+   */
+  id: string;
+  /**
+   * Minimum position in external source
+   */
+  min: number;
+  /**
+   * Maximum position in external source
+   */
+  max: number;
+  /**
+   * Previous minimum position (for tracking changes)
+   */
+  previous_min?: number;
+  /**
+   * Previous maximum position (for tracking changes)
+   */
+  previous_max?: number;
+  /**
+   * Timestamp of last incremental scan
+   */
+  last_incremental_scan?: string;
+  /**
+   * Timestamp of last full scan
+   */
+  last_full_scan?: string;
+  /**
+   * Whether initial scan is complete
+   */
+  initial_scan_complete?: boolean;
+  /**
+   * Timestamp when initial scan started
+   */
+  initial_scan_started?: string;
+};
+
+export type Range = {
+  /**
+   * Starting position of processed range
+   */
+  position: number;
+  /**
+   * Size of processed range
+   */
+  interval: number;
+};
+
+export type CoverageSummary = {
+  /**
+   * Fully qualified model ID (database.table)
+   */
+  id: string;
+  /**
+   * Processed ranges from admin_incremental table
+   */
+  ranges: Array<Range>;
+};
+
+export type CoverageDetail = {
+  /**
+   * Fully qualified model ID (database.table)
+   */
+  id: string;
+  /**
+   * All processed ranges from admin_incremental table
+   */
+  ranges: Array<Range>;
+};
+
+export type ScheduledRun = {
+  /**
+   * Fully qualified model ID (database.table)
+   */
+  id: string;
+  /**
+   * Timestamp of last execution
+   */
+  last_run?: string;
+};
+
 export type _Error = {
   /**
    * Human-readable error message
@@ -221,6 +321,15 @@ export type ExternalModelWritable = {
   database: string;
   table: string;
   description?: string;
+  /**
+   * Interval configuration for external source
+   */
+  interval?: {
+    /**
+     * Type of interval (e.g., "second", "slot", "epoch", "block")
+     */
+    type?: string;
+  };
   /**
    * Cache configuration for external source
    */
@@ -452,3 +561,209 @@ export type GetTransformationResponses = {
 };
 
 export type GetTransformationResponse = GetTransformationResponses[keyof GetTransformationResponses];
+
+export type ListExternalBoundsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/models/external/bounds';
+};
+
+export type ListExternalBoundsErrors = {
+  /**
+   * Internal server error
+   */
+  500: _Error;
+};
+
+export type ListExternalBoundsError = ListExternalBoundsErrors[keyof ListExternalBoundsErrors];
+
+export type ListExternalBoundsResponses = {
+  /**
+   * List of external model bounds
+   */
+  200: {
+    bounds: Array<ExternalBounds>;
+    total: number;
+  };
+};
+
+export type ListExternalBoundsResponse = ListExternalBoundsResponses[keyof ListExternalBoundsResponses];
+
+export type GetExternalBoundsData = {
+  body?: never;
+  path: {
+    /**
+     * Fully qualified model ID (database.table)
+     */
+    id: string;
+  };
+  query?: never;
+  url: '/models/external/{id}/bounds';
+};
+
+export type GetExternalBoundsErrors = {
+  /**
+   * Resource not found
+   */
+  404: _Error;
+  /**
+   * Internal server error
+   */
+  500: _Error;
+};
+
+export type GetExternalBoundsError = GetExternalBoundsErrors[keyof GetExternalBoundsErrors];
+
+export type GetExternalBoundsResponses = {
+  /**
+   * External model bounds details
+   */
+  200: ExternalBounds;
+};
+
+export type GetExternalBoundsResponse = GetExternalBoundsResponses[keyof GetExternalBoundsResponses];
+
+export type ListTransformationCoverageData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Filter by database name
+     */
+    database?: string;
+  };
+  url: '/models/transformations/coverage';
+};
+
+export type ListTransformationCoverageErrors = {
+  /**
+   * Internal server error
+   */
+  500: _Error;
+};
+
+export type ListTransformationCoverageError = ListTransformationCoverageErrors[keyof ListTransformationCoverageErrors];
+
+export type ListTransformationCoverageResponses = {
+  /**
+   * List of transformation coverage
+   */
+  200: {
+    coverage: Array<CoverageSummary>;
+    total: number;
+  };
+};
+
+export type ListTransformationCoverageResponse =
+  ListTransformationCoverageResponses[keyof ListTransformationCoverageResponses];
+
+export type GetTransformationCoverageData = {
+  body?: never;
+  path: {
+    /**
+     * Fully qualified model ID (database.table)
+     */
+    id: string;
+  };
+  query?: never;
+  url: '/models/transformations/{id}/coverage';
+};
+
+export type GetTransformationCoverageErrors = {
+  /**
+   * Model is not incremental type
+   */
+  400: _Error;
+  /**
+   * Resource not found
+   */
+  404: _Error;
+  /**
+   * Internal server error
+   */
+  500: _Error;
+};
+
+export type GetTransformationCoverageError = GetTransformationCoverageErrors[keyof GetTransformationCoverageErrors];
+
+export type GetTransformationCoverageResponses = {
+  /**
+   * Transformation coverage details
+   */
+  200: CoverageDetail;
+};
+
+export type GetTransformationCoverageResponse =
+  GetTransformationCoverageResponses[keyof GetTransformationCoverageResponses];
+
+export type ListScheduledRunsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Filter by database name
+     */
+    database?: string;
+  };
+  url: '/models/transformations/runs';
+};
+
+export type ListScheduledRunsErrors = {
+  /**
+   * Internal server error
+   */
+  500: _Error;
+};
+
+export type ListScheduledRunsError = ListScheduledRunsErrors[keyof ListScheduledRunsErrors];
+
+export type ListScheduledRunsResponses = {
+  /**
+   * List of scheduled transformation runs
+   */
+  200: {
+    runs: Array<ScheduledRun>;
+    total: number;
+  };
+};
+
+export type ListScheduledRunsResponse = ListScheduledRunsResponses[keyof ListScheduledRunsResponses];
+
+export type GetScheduledRunData = {
+  body?: never;
+  path: {
+    /**
+     * Fully qualified model ID (database.table)
+     */
+    id: string;
+  };
+  query?: never;
+  url: '/models/transformations/{id}/runs';
+};
+
+export type GetScheduledRunErrors = {
+  /**
+   * Model is not scheduled type
+   */
+  400: _Error;
+  /**
+   * Resource not found
+   */
+  404: _Error;
+  /**
+   * Internal server error
+   */
+  500: _Error;
+};
+
+export type GetScheduledRunError = GetScheduledRunErrors[keyof GetScheduledRunErrors];
+
+export type GetScheduledRunResponses = {
+  /**
+   * Scheduled transformation run details
+   */
+  200: ScheduledRun;
+};
+
+export type GetScheduledRunResponse = GetScheduledRunResponses[keyof GetScheduledRunResponses];

@@ -679,7 +679,7 @@ func (a *service) GetLastScheduledExecution(ctx context.Context, modelID string)
 	`, a.scheduledAdminDatabase, a.scheduledAdminTable, parts[0], parts[1])
 
 	var result struct {
-		LastExecution *time.Time `json:"last_execution"`
+		LastExecution *string `json:"last_execution"`
 	}
 
 	err := a.client.QueryOne(ctx, query, &result)
@@ -690,7 +690,21 @@ func (a *service) GetLastScheduledExecution(ctx context.Context, modelID string)
 		return nil, err
 	}
 
-	return result.LastExecution, nil
+	if result.LastExecution == nil || *result.LastExecution == "" {
+		return nil, nil
+	}
+
+	// Parse ClickHouse datetime format: "2006-01-02 15:04:05.000"
+	t, err := time.Parse("2006-01-02 15:04:05.999", *result.LastExecution)
+	if err != nil {
+		// Try without milliseconds
+		t, err = time.Parse("2006-01-02 15:04:05", *result.LastExecution)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse datetime: %w", err)
+		}
+	}
+
+	return &t, nil
 }
 
 // Ensure service implements the interface

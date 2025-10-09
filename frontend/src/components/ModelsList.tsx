@@ -1,5 +1,6 @@
 import { type JSX } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { listAllModelsOptions } from '@api/@tanstack/react-query.gen';
 import { CircleStackIcon, TableCellsIcon, ArchiveBoxIcon, XCircleIcon } from '@heroicons/react/24/outline';
 import { ArrowPathIcon } from '@heroicons/react/24/solid';
@@ -40,14 +41,19 @@ export function ModelsList(): JSX.Element {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {data?.models.map(model => (
-          <div
+          <Link
             key={model.id}
+            to="/model/$model"
+            params={{ model: model.id }}
             id={`model-${model.id}`}
-            className="group relative overflow-hidden rounded-lg border border-gray-200 bg-white p-5 shadow-sm transition-all hover:border-gray-300 hover:shadow-md"
+            className="group relative overflow-hidden rounded-lg border border-gray-200 bg-white p-5 shadow-sm transition-all hover:border-indigo-300 hover:shadow-md"
           >
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
-                <h3 className="break-all font-mono text-sm font-semibold text-gray-900" title={model.id}>
+                <h3
+                  className="break-all font-mono text-sm font-semibold text-gray-900 group-hover:text-indigo-600"
+                  title={model.id}
+                >
                   {model.id}
                 </h3>
                 <span className="inline-flex shrink-0 items-center rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-800">
@@ -77,7 +83,7 @@ export function ModelsList(): JSX.Element {
                 </div>
               )}
             </div>
-          </div>
+          </Link>
         ))}
       </div>
 

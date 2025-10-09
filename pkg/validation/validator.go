@@ -644,14 +644,21 @@ func (v *dependencyValidator) processSingleDependency(ctx context.Context, depID
 		bounds.externalMaxs = append(bounds.externalMaxs, maxDep)
 
 	case models.NodeTypeTransformation:
-		// Check if transformation has been initialized (has data)
-		if minDep == 0 && maxDep == 0 {
-			// Transformation dependency has no data - cannot process
-			return fmt.Errorf("%w: %s", ErrUninitializedTransformation, depID)
+		// Only check bounds for incremental transformations
+		// Scheduled transformations don't track positions and should be excluded entirely
+		// from bounds calculation as they don't constrain the valid position range
+		if v.isIncrementalTransformation(depID) {
+			// For incremental transformations, check if initialized (has data)
+			if minDep == 0 && maxDep == 0 {
+				// Transformation dependency has no data - cannot process
+				return fmt.Errorf("%w: %s", ErrUninitializedTransformation, depID)
+			}
+			// Only add incremental transformation bounds to calculation
+			bounds.transformationMins = append(bounds.transformationMins, minDep)
+			bounds.transformationMaxs = append(bounds.transformationMaxs, maxDep)
 		}
-		// Include transformation bounds
-		bounds.transformationMins = append(bounds.transformationMins, minDep)
-		bounds.transformationMaxs = append(bounds.transformationMaxs, maxDep)
+		// Scheduled transformations are completely excluded - they provide reference data
+		// without position-based constraints
 
 	default:
 		return fmt.Errorf("%w: %s", ErrInvalidDependencyType, depNode.NodeType)

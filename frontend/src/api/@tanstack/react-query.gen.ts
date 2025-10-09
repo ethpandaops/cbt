@@ -4,18 +4,30 @@ import { queryOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
 import {
+  getExternalBounds,
   getExternalModel,
+  getScheduledRun,
   getTransformation,
+  getTransformationCoverage,
   listAllModels,
+  listExternalBounds,
   listExternalModels,
+  listScheduledRuns,
+  listTransformationCoverage,
   listTransformations,
   type Options,
 } from '../sdk.gen';
 import type {
+  GetExternalBoundsData,
   GetExternalModelData,
+  GetScheduledRunData,
+  GetTransformationCoverageData,
   GetTransformationData,
   ListAllModelsData,
+  ListExternalBoundsData,
   ListExternalModelsData,
+  ListScheduledRunsData,
+  ListTransformationCoverageData,
   ListTransformationsData,
 } from '../types.gen';
 
@@ -163,5 +175,137 @@ export const getTransformationOptions = (options: Options<GetTransformationData>
       return data;
     },
     queryKey: getTransformationQueryKey(options),
+  });
+};
+
+export const listExternalBoundsQueryKey = (options?: Options<ListExternalBoundsData>) =>
+  createQueryKey('listExternalBounds', options);
+
+/**
+ * List external model bounds
+ * Returns min/max positions from Redis cache for all external models
+ */
+export const listExternalBoundsOptions = (options?: Options<ListExternalBoundsData>) => {
+  return queryOptions({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listExternalBounds({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listExternalBoundsQueryKey(options),
+  });
+};
+
+export const getExternalBoundsQueryKey = (options: Options<GetExternalBoundsData>) =>
+  createQueryKey('getExternalBounds', options);
+
+/**
+ * Get external model bounds by ID
+ * Returns min/max positions and scan metadata from Redis cache
+ */
+export const getExternalBoundsOptions = (options: Options<GetExternalBoundsData>) => {
+  return queryOptions({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getExternalBounds({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getExternalBoundsQueryKey(options),
+  });
+};
+
+export const listTransformationCoverageQueryKey = (options?: Options<ListTransformationCoverageData>) =>
+  createQueryKey('listTransformationCoverage', options);
+
+/**
+ * List transformation coverage
+ * Returns processed ranges from admin_incremental table for all incremental transformations
+ */
+export const listTransformationCoverageOptions = (options?: Options<ListTransformationCoverageData>) => {
+  return queryOptions({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listTransformationCoverage({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listTransformationCoverageQueryKey(options),
+  });
+};
+
+export const getTransformationCoverageQueryKey = (options: Options<GetTransformationCoverageData>) =>
+  createQueryKey('getTransformationCoverage', options);
+
+/**
+ * Get transformation coverage by ID
+ * Returns all processed ranges from admin_incremental table
+ */
+export const getTransformationCoverageOptions = (options: Options<GetTransformationCoverageData>) => {
+  return queryOptions({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getTransformationCoverage({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getTransformationCoverageQueryKey(options),
+  });
+};
+
+export const listScheduledRunsQueryKey = (options?: Options<ListScheduledRunsData>) =>
+  createQueryKey('listScheduledRuns', options);
+
+/**
+ * List scheduled transformation runs
+ * Returns last run timestamps from admin_scheduled table for all scheduled transformations
+ */
+export const listScheduledRunsOptions = (options?: Options<ListScheduledRunsData>) => {
+  return queryOptions({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listScheduledRuns({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: listScheduledRunsQueryKey(options),
+  });
+};
+
+export const getScheduledRunQueryKey = (options: Options<GetScheduledRunData>) =>
+  createQueryKey('getScheduledRun', options);
+
+/**
+ * Get scheduled transformation run by ID
+ * Returns last run timestamp from admin_scheduled table
+ */
+export const getScheduledRunOptions = (options: Options<GetScheduledRunData>) => {
+  return queryOptions({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getScheduledRun({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getScheduledRunQueryKey(options),
   });
 };

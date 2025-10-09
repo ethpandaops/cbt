@@ -165,8 +165,21 @@ func (s *Server) ListTransformations(c fiber.Ctx, params generated.ListTransform
 			continue
 		}
 
-		// Type and status filtering will be implemented when domain models support these fields
-		_ = params.Type   // nolint:staticcheck
+		// Filter by transformation type if provided
+		if params.Type != nil {
+			switch *params.Type {
+			case generated.Scheduled:
+				if !cfg.IsScheduledType() {
+					continue
+				}
+			case generated.Incremental:
+				if !cfg.IsIncrementalType() {
+					continue
+				}
+			}
+		}
+
+		// Status filtering will be implemented when domain models support these fields
 		_ = params.Status // nolint:staticcheck
 
 		model := buildTransformationModel(cfg.GetID(), transformationModel, dag)

@@ -8,7 +8,7 @@ interval:
   type: slot
 schedules:
   forwardfill: "@every 1m"
-  backfill: "@every 5m"
+  backfill: "@every 5s"
 tags:
   - python
   - entity

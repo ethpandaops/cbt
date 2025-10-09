@@ -34,6 +34,6 @@
       "@assets/*": ["./src/assets/*"]
     }
   },
-  "include": ["src"],
+  "include": ["src", "src/routeTree.gen.ts"],
   "exclude": ["src/api/generated"]
 }

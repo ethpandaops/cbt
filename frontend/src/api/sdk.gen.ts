@@ -3,31 +3,61 @@
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
 import type {
+  GetExternalBoundsData,
+  GetExternalBoundsErrors,
+  GetExternalBoundsResponses,
   GetExternalModelData,
   GetExternalModelErrors,
   GetExternalModelResponses,
+  GetScheduledRunData,
+  GetScheduledRunErrors,
+  GetScheduledRunResponses,
+  GetTransformationCoverageData,
+  GetTransformationCoverageErrors,
+  GetTransformationCoverageResponses,
   GetTransformationData,
   GetTransformationErrors,
   GetTransformationResponses,
   ListAllModelsData,
   ListAllModelsErrors,
   ListAllModelsResponses,
+  ListExternalBoundsData,
+  ListExternalBoundsErrors,
+  ListExternalBoundsResponses,
   ListExternalModelsData,
   ListExternalModelsErrors,
   ListExternalModelsResponses,
+  ListScheduledRunsData,
+  ListScheduledRunsErrors,
+  ListScheduledRunsResponses,
+  ListTransformationCoverageData,
+  ListTransformationCoverageErrors,
+  ListTransformationCoverageResponses,
   ListTransformationsData,
   ListTransformationsErrors,
   ListTransformationsResponses,
 } from './types.gen';
 import {
+  zGetExternalBoundsData,
+  zGetExternalBoundsResponse,
   zGetExternalModelData,
   zGetExternalModelResponse,
+  zGetScheduledRunData,
+  zGetScheduledRunResponse,
+  zGetTransformationCoverageData,
+  zGetTransformationCoverageResponse,
   zGetTransformationData,
   zGetTransformationResponse,
   zListAllModelsData,
   zListAllModelsResponse,
+  zListExternalBoundsData,
+  zListExternalBoundsResponse,
   zListExternalModelsData,
   zListExternalModelsResponse,
+  zListScheduledRunsData,
+  zListScheduledRunsResponse,
+  zListTransformationCoverageData,
+  zListTransformationCoverageResponse,
   zListTransformationsData,
   zListTransformationsResponse,
 } from './zod.gen';
@@ -139,6 +169,128 @@ export const getTransformation = <ThrowOnError extends boolean = false>(
       return await zGetTransformationResponse.parseAsync(data);
     },
     url: '/models/transformations/{id}',
+    ...options,
+  });
+};
+
+/**
+ * List external model bounds
+ * Returns min/max positions from Redis cache for all external models
+ */
+export const listExternalBounds = <ThrowOnError extends boolean = false>(
+  options?: Options<ListExternalBoundsData, ThrowOnError>
+) => {
+  return (options?.client ?? client).get<ListExternalBoundsResponses, ListExternalBoundsErrors, ThrowOnError>({
+    requestValidator: async data => {
+      return await zListExternalBoundsData.parseAsync(data);
+    },
+    responseValidator: async data => {
+      return await zListExternalBoundsResponse.parseAsync(data);
+    },
+    url: '/models/external/bounds',
+    ...options,
+  });
+};
+
+/**
+ * Get external model bounds by ID
+ * Returns min/max positions and scan metadata from Redis cache
+ */
+export const getExternalBounds = <ThrowOnError extends boolean = false>(
+  options: Options<GetExternalBoundsData, ThrowOnError>
+) => {
+  return (options.client ?? client).get<GetExternalBoundsResponses, GetExternalBoundsErrors, ThrowOnError>({
+    requestValidator: async data => {
+      return await zGetExternalBoundsData.parseAsync(data);
+    },
+    responseValidator: async data => {
+      return await zGetExternalBoundsResponse.parseAsync(data);
+    },
+    url: '/models/external/{id}/bounds',
+    ...options,
+  });
+};
+
+/**
+ * List transformation coverage
+ * Returns processed ranges from admin_incremental table for all incremental transformations
+ */
+export const listTransformationCoverage = <ThrowOnError extends boolean = false>(
+  options?: Options<ListTransformationCoverageData, ThrowOnError>
+) => {
+  return (options?.client ?? client).get<
+    ListTransformationCoverageResponses,
+    ListTransformationCoverageErrors,
+    ThrowOnError
+  >({
+    requestValidator: async data => {
+      return await zListTransformationCoverageData.parseAsync(data);
+    },
+    responseValidator: async data => {
+      return await zListTransformationCoverageResponse.parseAsync(data);
+    },
+    url: '/models/transformations/coverage',
+    ...options,
+  });
+};
+
+/**
+ * Get transformation coverage by ID
+ * Returns all processed ranges from admin_incremental table
+ */
+export const getTransformationCoverage = <ThrowOnError extends boolean = false>(
+  options: Options<GetTransformationCoverageData, ThrowOnError>
+) => {
+  return (options.client ?? client).get<
+    GetTransformationCoverageResponses,
+    GetTransformationCoverageErrors,
+    ThrowOnError
+  >({
+    requestValidator: async data => {
+      return await zGetTransformationCoverageData.parseAsync(data);
+    },
+    responseValidator: async data => {
+      return await zGetTransformationCoverageResponse.parseAsync(data);
+    },
+    url: '/models/transformations/{id}/coverage',
+    ...options,
+  });
+};
+
+/**
+ * List scheduled transformation runs
+ * Returns last run timestamps from admin_scheduled table for all scheduled transformations
+ */
+export const listScheduledRuns = <ThrowOnError extends boolean = false>(
+  options?: Options<ListScheduledRunsData, ThrowOnError>
+) => {
+  return (options?.client ?? client).get<ListScheduledRunsResponses, ListScheduledRunsErrors, ThrowOnError>({
+    requestValidator: async data => {
+      return await zListScheduledRunsData.parseAsync(data);
+    },
+    responseValidator: async data => {
+      return await zListScheduledRunsResponse.parseAsync(data);
+    },
+    url: '/models/transformations/runs',
+    ...options,
+  });
+};
+
+/**
+ * Get scheduled transformation run by ID
+ * Returns last run timestamp from admin_scheduled table
+ */
+export const getScheduledRun = <ThrowOnError extends boolean = false>(
+  options: Options<GetScheduledRunData, ThrowOnError>
+) => {
+  return (options.client ?? client).get<GetScheduledRunResponses, GetScheduledRunErrors, ThrowOnError>({
+    requestValidator: async data => {
+      return await zGetScheduledRunData.parseAsync(data);
+    },
+    responseValidator: async data => {
+      return await zGetScheduledRunResponse.parseAsync(data);
+    },
+    url: '/models/transformations/{id}/runs',
     ...options,
   });
 };
