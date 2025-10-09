@@ -24,6 +24,8 @@ var (
 	ErrInvalidInterval = errors.New("interval.min cannot exceed interval.max")
 	// ErrInvalidLimits is returned when min limit is greater than max limit
 	ErrInvalidLimits = errors.New("min limit cannot be greater than max limit")
+	// ErrIntervalTypeRequired is returned when interval.type is not specified
+	ErrIntervalTypeRequired = errors.New("interval.type is required")
 )
 
 // Config defines the configuration for incremental transformation models
@@ -46,8 +48,9 @@ type Config struct {
 
 // IntervalConfig defines interval configuration for transformations
 type IntervalConfig struct {
-	Max uint64 `yaml:"max"` // Maximum interval size for processing
-	Min uint64 `yaml:"min"` // Minimum interval size (0 = allow any partial size)
+	Max  uint64 `yaml:"max"`              // Maximum interval size for processing
+	Min  uint64 `yaml:"min"`              // Minimum interval size (0 = allow any partial size)
+	Type string `yaml:"type" json:"type"` // Required: examples: "second", "slot", "epoch", "block"
 }
 
 // SchedulesConfig defines scheduling configuration for transformations
@@ -70,6 +73,10 @@ func (c *IntervalConfig) Validate() error {
 
 	if c.Min > c.Max {
 		return ErrInvalidInterval
+	}
+
+	if c.Type == "" {
+		return ErrIntervalTypeRequired
 	}
 
 	return nil

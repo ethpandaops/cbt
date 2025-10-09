@@ -6,6 +6,7 @@ table: block_entity
 interval:
   max: 60
   min: 40  # Allow partial intervals down to 40 seconds
+  type: slot
 schedules:
   forwardfill: "@every 10s"
   backfill: "@every 10s"

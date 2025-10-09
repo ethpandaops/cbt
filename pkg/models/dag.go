@@ -21,6 +21,8 @@ var (
 	ErrInvalidExternalModelType = errors.New("invalid external model type")
 	// ErrInvalidTransformationModelType is returned when a transformation model has an invalid type
 	ErrInvalidTransformationModelType = errors.New("invalid transformation model type")
+	// ErrIncompatibleIntervalType is returned when incremental model cannot depend on model with different interval_type
+	ErrIncompatibleIntervalType = errors.New("incremental model cannot depend on model with different interval_type")
 )
 
 // DAGReader provides read-only access to the dependency graph (ethPandaOps pattern)
@@ -171,8 +173,14 @@ func (d *DependencyGraph) addModelDependencies(model Transformation) error {
 	allDeps := depProvider.GetFlattenedDependencies()
 	for _, depID := range allDeps {
 		// Validate dependency exists
-		if _, err := d.dag.GetVertex(depID); err != nil {
+		depVertex, err := d.dag.GetVertex(depID)
+		if err != nil {
 			return fmt.Errorf("%w: %s depends on %s", ErrNonExistentDependency, model.GetID(), depID)
+		}
+
+		// Validate interval type compatibility for incremental models
+		if err := d.validateIntervalTypeCompatibility(model, depVertex, depID); err != nil {
+			return err
 		}
 
 		// AddEdge returns error if it would create a cycle
@@ -181,6 +189,98 @@ func (d *DependencyGraph) addModelDependencies(model Transformation) error {
 		}
 	}
 	return nil
+}
+
+// validateIntervalTypeCompatibility ensures incremental models only depend on models with matching interval_type
+func (d *DependencyGraph) validateIntervalTypeCompatibility(model Transformation, depVertex any, depID string) error {
+	modelIntervalType := d.getModelIntervalType(model)
+	if modelIntervalType == "" {
+		return nil // Not an incremental model or doesn't support interval types
+	}
+
+	depIntervalType := d.getDependencyIntervalType(depVertex)
+	if depIntervalType == "" {
+		return nil // Scheduled dependency or validation will be caught by config validation
+	}
+
+	if modelIntervalType != depIntervalType {
+		return fmt.Errorf("%w: %s (interval_type=%s) cannot depend on %s (interval_type=%s)",
+			ErrIncompatibleIntervalType,
+			model.GetID(),
+			modelIntervalType,
+			depID,
+			depIntervalType,
+		)
+	}
+
+	return nil
+}
+
+// getModelIntervalType extracts interval type from a transformation model
+func (d *DependencyGraph) getModelIntervalType(model Transformation) string {
+	handler := model.GetHandler()
+	if handler == nil || !handler.ShouldTrackPosition() {
+		return "" // Not an incremental transformation
+	}
+
+	type intervalTypeProvider interface{ GetIntervalType() string }
+	if provider, ok := handler.(intervalTypeProvider); ok {
+		return provider.GetIntervalType()
+	}
+
+	return ""
+}
+
+// getDependencyIntervalType extracts interval type from a dependency vertex
+func (d *DependencyGraph) getDependencyIntervalType(depVertex any) string {
+	node, ok := depVertex.(Node)
+	if !ok {
+		return ""
+	}
+
+	switch node.NodeType {
+	case NodeTypeExternal:
+		return d.getExternalIntervalType(node.Model)
+	case NodeTypeTransformation:
+		return d.getTransformationIntervalType(node.Model)
+	}
+
+	return ""
+}
+
+// getExternalIntervalType extracts interval type from an external model
+func (d *DependencyGraph) getExternalIntervalType(model any) string {
+	ext, ok := model.(External)
+	if !ok {
+		return ""
+	}
+
+	type intervalTypeProvider interface{ GetIntervalType() string }
+	if provider, ok := ext.(intervalTypeProvider); ok {
+		return provider.GetIntervalType()
+	}
+
+	return ""
+}
+
+// getTransformationIntervalType extracts interval type from a transformation model
+func (d *DependencyGraph) getTransformationIntervalType(model any) string {
+	trans, ok := model.(Transformation)
+	if !ok {
+		return ""
+	}
+
+	handler := trans.GetHandler()
+	if handler == nil || !handler.ShouldTrackPosition() {
+		return "" // Scheduled transformation - no interval type restrictions
+	}
+
+	type intervalTypeProvider interface{ GetIntervalType() string }
+	if provider, ok := handler.(intervalTypeProvider); ok {
+		return provider.GetIntervalType()
+	}
+
+	return ""
 }
 
 // GetNode retrieves a node from the dependency graph by model ID

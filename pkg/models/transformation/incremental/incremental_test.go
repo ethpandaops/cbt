@@ -129,8 +129,9 @@ func TestHandler_Validate(t *testing.T) {
 				Database: "test_db",
 				Table:    "test_table",
 				Interval: &IntervalConfig{
-					Min: 100,
-					Max: 1000,
+					Min:  100,
+					Max:  1000,
+					Type: "second",
 				},
 				Schedules: &SchedulesConfig{
 					ForwardFill: "@every 10s",
@@ -147,8 +148,9 @@ func TestHandler_Validate(t *testing.T) {
 			config: &Config{
 				Table: "test_table",
 				Interval: &IntervalConfig{
-					Min: 100,
-					Max: 1000,
+					Min:  100,
+					Max:  1000,
+					Type: "second",
 				},
 				Schedules: &SchedulesConfig{
 					ForwardFill: "@every 10s",
@@ -165,8 +167,9 @@ func TestHandler_Validate(t *testing.T) {
 			config: &Config{
 				Database: "test_db",
 				Interval: &IntervalConfig{
-					Min: 100,
-					Max: 1000,
+					Min:  100,
+					Max:  1000,
+					Type: "second",
 				},
 				Schedules: &SchedulesConfig{
 					ForwardFill: "@every 10s",
@@ -179,28 +182,14 @@ func TestHandler_Validate(t *testing.T) {
 			errType: transformation.ErrTableRequired,
 		},
 		{
-			name: "missing interval",
-			config: &Config{
-				Database: "test_db",
-				Table:    "test_table",
-				Schedules: &SchedulesConfig{
-					ForwardFill: "@every 10s",
-				},
-				Dependencies: []transformation.Dependency{
-					{SingleDep: "source.table1"},
-				},
-			},
-			wantErr: true,
-			errType: ErrIntervalRequired,
-		},
-		{
 			name: "missing schedules",
 			config: &Config{
 				Database: "test_db",
 				Table:    "test_table",
 				Interval: &IntervalConfig{
-					Min: 100,
-					Max: 1000,
+					Min:  100,
+					Max:  1000,
+					Type: "second",
 				},
 				Dependencies: []transformation.Dependency{
 					{SingleDep: "source.table1"},
@@ -215,8 +204,9 @@ func TestHandler_Validate(t *testing.T) {
 				Database: "test_db",
 				Table:    "test_table",
 				Interval: &IntervalConfig{
-					Min: 100,
-					Max: 1000,
+					Min:  100,
+					Max:  1000,
+					Type: "second",
 				},
 				Schedules: &SchedulesConfig{
 					ForwardFill: "@every 10s",

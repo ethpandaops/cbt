@@ -78,3 +78,11 @@ func (c *SQL) GetValue() string {
 func (c *SQL) SetDefaultDatabase(defaultDB string) {
 	c.SetDefaults(defaultDB)
 }
+
+// GetIntervalType returns the interval type for this external model
+func (c *SQL) GetIntervalType() string {
+	if c.Interval != nil {
+		return c.Interval.Type
+	}
+	return ""
+}

@@ -14,18 +14,26 @@ import (
 
 // Mock handler for testing
 type mockHandler struct {
-	dependencies []string
+	dependencies     []string
+	intervalType     string
+	shouldTrackPos   bool
 }
 
 func (h *mockHandler) GetFlattenedDependencies() []string {
 	return h.dependencies
 }
 
+func (h *mockHandler) GetIntervalType() string {
+	return h.intervalType
+}
+
 // Implement the full Handler interface (these are no-op for tests)
 func (h *mockHandler) Type() transformation.Type { return "incremental" }
 func (h *mockHandler) Config() any               { return nil }
 func (h *mockHandler) Validate() error           { return nil }
-func (h *mockHandler) ShouldTrackPosition() bool { return true }
+func (h *mockHandler) ShouldTrackPosition() bool {
+	return h.shouldTrackPos
+}
 func (h *mockHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
 	return nil
 }
@@ -53,9 +61,10 @@ func (m *mockTransformation) SetDefaultDatabase(defaultDB string) { m.config.Set
 
 // Mock external for testing
 type mockExternal struct {
-	id     string
-	config external.Config
-	typ    string
+	id           string
+	config       external.Config
+	typ          string
+	intervalType string
 }
 
 func (m *mockExternal) GetID() string                       { return m.id }
@@ -66,6 +75,7 @@ func (m *mockExternal) GetSQL() string                      { return "" }
 func (m *mockExternal) GetValue() string                    { return "" }
 func (m *mockExternal) GetEnvironmentVariables() []string   { return []string{} }
 func (m *mockExternal) SetDefaultDatabase(defaultDB string) { m.config.SetDefaults(defaultDB) }
+func (m *mockExternal) GetIntervalType() string             { return m.intervalType }
 
 // Test NewDependencyGraph
 func TestNewDependencyGraph(t *testing.T) {
@@ -90,12 +100,12 @@ func TestBuildGraph(t *testing.T) {
 				&mockTransformation{
 					id:      "db.trans1",
 					config:  transformation.Config{Database: "db", Table: "trans1"},
-					handler: &mockHandler{dependencies: []string{}},
+					handler: &mockHandler{dependencies: []string{}, shouldTrackPos: true},
 				},
 				&mockTransformation{
 					id:      "db.trans2",
 					config:  transformation.Config{Database: "db", Table: "trans2"},
-					handler: &mockHandler{dependencies: []string{"db.trans1"}},
+					handler: &mockHandler{dependencies: []string{"db.trans1"}, shouldTrackPos: true},
 				},
 			},
 			externals: []External{
@@ -110,12 +120,12 @@ func TestBuildGraph(t *testing.T) {
 				&mockTransformation{
 					id:      "db.trans1",
 					config:  transformation.Config{Database: "db", Table: "trans1"},
-					handler: &mockHandler{dependencies: []string{"db.trans2"}},
+					handler: &mockHandler{dependencies: []string{"db.trans2"}, shouldTrackPos: true},
 				},
 				&mockTransformation{
 					id:      "db.trans2",
 					config:  transformation.Config{Database: "db", Table: "trans2"},
-					handler: &mockHandler{dependencies: []string{"db.trans1"}},
+					handler: &mockHandler{dependencies: []string{"db.trans1"}, shouldTrackPos: true},
 				},
 			},
 			externals: []External{},
@@ -311,17 +321,17 @@ func TestGetDependenciesAndDependents(t *testing.T) {
 	trans1 := &mockTransformation{
 		id:      "db.trans1",
 		config:  transformation.Config{Database: "db", Table: "trans1"},
-		handler: &mockHandler{dependencies: []string{}},
+		handler: &mockHandler{dependencies: []string{}, shouldTrackPos: true},
 	}
 	trans2 := &mockTransformation{
 		id:      "db.trans2",
 		config:  transformation.Config{Database: "db", Table: "trans2"},
-		handler: &mockHandler{dependencies: []string{"db.trans1"}},
+		handler: &mockHandler{dependencies: []string{"db.trans1"}, shouldTrackPos: true},
 	}
 	trans3 := &mockTransformation{
 		id:      "db.trans3",
 		config:  transformation.Config{Database: "db", Table: "trans3"},
-		handler: &mockHandler{dependencies: []string{"db.trans1", "db.trans2"}},
+		handler: &mockHandler{dependencies: []string{"db.trans1", "db.trans2"}, shouldTrackPos: true},
 	}
 
 	err := dg.BuildGraph([]Transformation{trans1, trans2, trans3}, []External{})
@@ -367,22 +377,22 @@ func TestGetAllDependenciesAndDependents(t *testing.T) {
 	trans1 := &mockTransformation{
 		id:      "db.trans1",
 		config:  transformation.Config{Database: "db", Table: "trans1"},
-		handler: &mockHandler{dependencies: []string{}},
+		handler: &mockHandler{dependencies: []string{}, shouldTrackPos: true},
 	}
 	trans2 := &mockTransformation{
 		id:      "db.trans2",
 		config:  transformation.Config{Database: "db", Table: "trans2"},
-		handler: &mockHandler{dependencies: []string{"db.trans1"}},
+		handler: &mockHandler{dependencies: []string{"db.trans1"}, shouldTrackPos: true},
 	}
 	trans3 := &mockTransformation{
 		id:      "db.trans3",
 		config:  transformation.Config{Database: "db", Table: "trans3"},
-		handler: &mockHandler{dependencies: []string{"db.trans1"}},
+		handler: &mockHandler{dependencies: []string{"db.trans1"}, shouldTrackPos: true},
 	}
 	trans4 := &mockTransformation{
 		id:      "db.trans4",
 		config:  transformation.Config{Database: "db", Table: "trans4"},
-		handler: &mockHandler{dependencies: []string{"db.trans2", "db.trans3"}},
+		handler: &mockHandler{dependencies: []string{"db.trans2", "db.trans3"}, shouldTrackPos: true},
 	}
 
 	err := dg.BuildGraph([]Transformation{trans1, trans2, trans3, trans4}, []External{})
@@ -411,12 +421,12 @@ func TestGetTransformationNodes(t *testing.T) {
 	trans1 := &mockTransformation{
 		id:      "db.trans1",
 		config:  transformation.Config{Database: "db", Table: "trans1"},
-		handler: &mockHandler{dependencies: []string{}},
+		handler: &mockHandler{dependencies: []string{}, shouldTrackPos: true},
 	}
 	trans2 := &mockTransformation{
 		id:      "db.trans2",
 		config:  transformation.Config{Database: "db", Table: "trans2"},
-		handler: &mockHandler{dependencies: []string{"db.trans1"}},
+		handler: &mockHandler{dependencies: []string{"db.trans1"}, shouldTrackPos: true},
 	}
 	ext := &mockExternal{id: "ext1", typ: external.ExternalTypeSQL}
 
@@ -440,22 +450,22 @@ func TestIsPathBetween(t *testing.T) {
 	trans1 := &mockTransformation{
 		id:      "db.trans1",
 		config:  transformation.Config{Database: "db", Table: "trans1"},
-		handler: &mockHandler{dependencies: []string{}},
+		handler: &mockHandler{dependencies: []string{}, shouldTrackPos: true},
 	}
 	trans2 := &mockTransformation{
 		id:      "db.trans2",
 		config:  transformation.Config{Database: "db", Table: "trans2"},
-		handler: &mockHandler{dependencies: []string{"db.trans1"}},
+		handler: &mockHandler{dependencies: []string{"db.trans1"}, shouldTrackPos: true},
 	}
 	trans3 := &mockTransformation{
 		id:      "db.trans3",
 		config:  transformation.Config{Database: "db", Table: "trans3"},
-		handler: &mockHandler{dependencies: []string{"db.trans2"}},
+		handler: &mockHandler{dependencies: []string{"db.trans2"}, shouldTrackPos: true},
 	}
 	trans4 := &mockTransformation{
 		id:      "db.trans4",
 		config:  transformation.Config{Database: "db", Table: "trans4"},
-		handler: &mockHandler{dependencies: []string{}},
+		handler: &mockHandler{dependencies: []string{}, shouldTrackPos: true},
 	}
 
 	err := dg.BuildGraph([]Transformation{trans1, trans2, trans3, trans4}, []External{})
@@ -514,12 +524,12 @@ func TestConcurrentAccess(t *testing.T) {
 	trans1 := &mockTransformation{
 		id:      "db.trans1",
 		config:  transformation.Config{Database: "db", Table: "trans1"},
-		handler: &mockHandler{dependencies: []string{}},
+		handler: &mockHandler{dependencies: []string{}, shouldTrackPos: true},
 	}
 	trans2 := &mockTransformation{
 		id:      "db.trans2",
 		config:  transformation.Config{Database: "db", Table: "trans2"},
-		handler: &mockHandler{dependencies: []string{"db.trans1"}},
+		handler: &mockHandler{dependencies: []string{"db.trans1"}, shouldTrackPos: true},
 	}
 
 	err := dg.BuildGraph([]Transformation{trans1, trans2}, []External{})
@@ -556,7 +566,7 @@ func BenchmarkBuildGraph(b *testing.B) {
 		transformations[i] = &mockTransformation{
 			id:      fmt.Sprintf("db.trans%d", i),
 			config:  transformation.Config{Database: "db", Table: fmt.Sprintf("trans%d", i)},
-			handler: &mockHandler{dependencies: deps},
+			handler: &mockHandler{dependencies: deps, shouldTrackPos: true},
 		}
 	}
 
@@ -580,7 +590,7 @@ func BenchmarkGetAllDependencies(b *testing.B) {
 		transformations[i] = &mockTransformation{
 			id:      fmt.Sprintf("db.trans%d", i),
 			config:  transformation.Config{Database: "db", Table: fmt.Sprintf("trans%d", i)},
-			handler: &mockHandler{dependencies: deps},
+			handler: &mockHandler{dependencies: deps, shouldTrackPos: true},
 		}
 	}
 
@@ -590,5 +600,295 @@ func BenchmarkGetAllDependencies(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = dg.GetAllDependencies(lastID)
+	}
+}
+
+// Test Interval Type Validation
+func TestIntervalTypeValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		setup       func() ([]Transformation, []External)
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "incremental_same_interval_type_allowed",
+			setup: func() ([]Transformation, []External) {
+				ext := &mockExternal{
+					id:           "db.ext1",
+					typ:          external.ExternalTypeSQL,
+					intervalType: "slot",
+				}
+				trans := &mockTransformation{
+					id:     "db.trans1",
+					config: transformation.Config{Database: "db", Table: "trans1"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.ext1"},
+						intervalType:   "slot",
+						shouldTrackPos: true,
+					},
+				}
+				return []Transformation{trans}, []External{ext}
+			},
+			expectError: false,
+		},
+		{
+			name: "incremental_different_interval_type_blocked",
+			setup: func() ([]Transformation, []External) {
+				ext := &mockExternal{
+					id:           "db.ext1",
+					typ:          external.ExternalTypeSQL,
+					intervalType: "slot",
+				}
+				trans := &mockTransformation{
+					id:     "db.trans1",
+					config: transformation.Config{Database: "db", Table: "trans1"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.ext1"},
+						intervalType:   "epoch",
+						shouldTrackPos: true,
+					},
+				}
+				return []Transformation{trans}, []External{ext}
+			},
+			expectError: true,
+			errorMsg:    "interval_type",
+		},
+		{
+			name: "scheduled_depends_on_any_interval_type_allowed",
+			setup: func() ([]Transformation, []External) {
+				ext1 := &mockExternal{
+					id:           "db.ext1",
+					typ:          external.ExternalTypeSQL,
+					intervalType: "slot",
+				}
+				ext2 := &mockExternal{
+					id:           "db.ext2",
+					typ:          external.ExternalTypeSQL,
+					intervalType: "epoch",
+				}
+				trans := &mockTransformation{
+					id:     "db.trans_scheduled",
+					config: transformation.Config{Database: "db", Table: "trans_scheduled"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.ext1", "db.ext2"},
+						intervalType:   "",
+						shouldTrackPos: false, // Scheduled transformation
+					},
+				}
+				return []Transformation{trans}, []External{ext1, ext2}
+			},
+			expectError: false,
+		},
+		{
+			name: "incremental_depends_on_scheduled_allowed",
+			setup: func() ([]Transformation, []External) {
+				transScheduled := &mockTransformation{
+					id:     "db.trans_scheduled",
+					config: transformation.Config{Database: "db", Table: "trans_scheduled"},
+					handler: &mockHandler{
+						dependencies:   []string{},
+						shouldTrackPos: false, // Scheduled
+					},
+				}
+				transIncremental := &mockTransformation{
+					id:     "db.trans_incremental",
+					config: transformation.Config{Database: "db", Table: "trans_incremental"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.trans_scheduled"},
+						intervalType:   "slot",
+						shouldTrackPos: true, // Incremental
+					},
+				}
+				return []Transformation{transScheduled, transIncremental}, []External{}
+			},
+			expectError: false,
+		},
+		{
+			name: "external_to_incremental_same_type_allowed",
+			setup: func() ([]Transformation, []External) {
+				ext := &mockExternal{
+					id:           "db.ext1",
+					typ:          external.ExternalTypeSQL,
+					intervalType: "block",
+				}
+				trans := &mockTransformation{
+					id:     "db.trans1",
+					config: transformation.Config{Database: "db", Table: "trans1"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.ext1"},
+						intervalType:   "block",
+						shouldTrackPos: true,
+					},
+				}
+				return []Transformation{trans}, []External{ext}
+			},
+			expectError: false,
+		},
+		{
+			name: "external_to_incremental_different_type_blocked",
+			setup: func() ([]Transformation, []External) {
+				ext := &mockExternal{
+					id:           "db.ext1",
+					typ:          external.ExternalTypeSQL,
+					intervalType: "block",
+				}
+				trans := &mockTransformation{
+					id:     "db.trans1",
+					config: transformation.Config{Database: "db", Table: "trans1"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.ext1"},
+						intervalType:   "slot",
+						shouldTrackPos: true,
+					},
+				}
+				return []Transformation{trans}, []External{ext}
+			},
+			expectError: true,
+			errorMsg:    "interval_type",
+		},
+		{
+			name: "incremental_chain_same_type_allowed",
+			setup: func() ([]Transformation, []External) {
+				ext := &mockExternal{
+					id:           "db.ext1",
+					typ:          external.ExternalTypeSQL,
+					intervalType: "epoch",
+				}
+				trans1 := &mockTransformation{
+					id:     "db.trans1",
+					config: transformation.Config{Database: "db", Table: "trans1"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.ext1"},
+						intervalType:   "epoch",
+						shouldTrackPos: true,
+					},
+				}
+				trans2 := &mockTransformation{
+					id:     "db.trans2",
+					config: transformation.Config{Database: "db", Table: "trans2"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.trans1"},
+						intervalType:   "epoch",
+						shouldTrackPos: true,
+					},
+				}
+				return []Transformation{trans1, trans2}, []External{ext}
+			},
+			expectError: false,
+		},
+		{
+			name: "incremental_chain_different_type_blocked",
+			setup: func() ([]Transformation, []External) {
+				ext := &mockExternal{
+					id:           "db.ext1",
+					typ:          external.ExternalTypeSQL,
+					intervalType: "epoch",
+				}
+				trans1 := &mockTransformation{
+					id:     "db.trans1",
+					config: transformation.Config{Database: "db", Table: "trans1"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.ext1"},
+						intervalType:   "epoch",
+						shouldTrackPos: true,
+					},
+				}
+				trans2 := &mockTransformation{
+					id:     "db.trans2",
+					config: transformation.Config{Database: "db", Table: "trans2"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.trans1"},
+						intervalType:   "slot", // Different!
+						shouldTrackPos: true,
+					},
+				}
+				return []Transformation{trans1, trans2}, []External{ext}
+			},
+			expectError: true,
+			errorMsg:    "interval_type",
+		},
+		{
+			name: "multiple_dependencies_same_type_allowed",
+			setup: func() ([]Transformation, []External) {
+				ext1 := &mockExternal{
+					id:           "db.ext1",
+					typ:          external.ExternalTypeSQL,
+					intervalType: "second",
+				}
+				ext2 := &mockExternal{
+					id:           "db.ext2",
+					typ:          external.ExternalTypeSQL,
+					intervalType: "second",
+				}
+				trans := &mockTransformation{
+					id:     "db.trans1",
+					config: transformation.Config{Database: "db", Table: "trans1"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.ext1", "db.ext2"},
+						intervalType:   "second",
+						shouldTrackPos: true,
+					},
+				}
+				return []Transformation{trans}, []External{ext1, ext2}
+			},
+			expectError: false,
+		},
+		{
+			name: "scheduled_between_incrementals_allowed",
+			setup: func() ([]Transformation, []External) {
+				ext := &mockExternal{
+					id:           "db.ext1",
+					typ:          external.ExternalTypeSQL,
+					intervalType: "slot",
+				}
+				trans1 := &mockTransformation{
+					id:     "db.trans1",
+					config: transformation.Config{Database: "db", Table: "trans1"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.ext1"},
+						intervalType:   "slot",
+						shouldTrackPos: true,
+					},
+				}
+				transScheduled := &mockTransformation{
+					id:     "db.trans_scheduled",
+					config: transformation.Config{Database: "db", Table: "trans_scheduled"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.trans1"},
+						shouldTrackPos: false, // Scheduled - no interval type
+					},
+				}
+				trans2 := &mockTransformation{
+					id:     "db.trans2",
+					config: transformation.Config{Database: "db", Table: "trans2"},
+					handler: &mockHandler{
+						dependencies:   []string{"db.trans_scheduled"},
+						intervalType:   "epoch", // Different type, but depends on scheduled
+						shouldTrackPos: true,
+					},
+				}
+				return []Transformation{trans1, transScheduled, trans2}, []External{ext}
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dg := NewDependencyGraph()
+			transformations, externals := tt.setup()
+
+			err := dg.BuildGraph(transformations, externals)
+
+			if tt.expectError {
+				require.Error(t, err)
+				if tt.errorMsg != "" {
+					assert.Contains(t, err.Error(), tt.errorMsg)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
 	}
 }

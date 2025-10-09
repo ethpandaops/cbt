@@ -5,6 +5,7 @@ table: block_never_loads
 interval:
   max: 3600
   min: 300
+  type: slot
 schedules:
   forwardfill: "@every 9999h"
   backfill: "@every 9999h"
