@@ -8,6 +8,8 @@ import (
 )
 
 var (
+	// ErrIntervalRequired is returned when interval configuration is missing
+	ErrIntervalRequired = errors.New("interval configuration is required")
 	// ErrDatabaseRequired is returned when database is not specified
 	ErrDatabaseRequired = errors.New("database is required")
 	// ErrTableRequired is returned when table is not specified
@@ -20,6 +22,8 @@ var (
 	ErrInvalidFullInterval = errors.New("full_scan_interval must be positive")
 	// ErrInvalidIntervalOrder is returned when incremental interval is not less than full interval
 	ErrInvalidIntervalOrder = errors.New("incremental_scan_interval must be less than full_scan_interval")
+	// ErrIntervalTypeRequired is returned when interval.type is not specified
+	ErrIntervalTypeRequired = errors.New("interval.type is required")
 )
 
 // CacheConfig defines caching configuration for external models
@@ -28,12 +32,18 @@ type CacheConfig struct {
 	FullScanInterval        time.Duration `yaml:"full_scan_interval"`
 }
 
+// IntervalConfig defines interval configuration for external models
+type IntervalConfig struct {
+	Type string `yaml:"type" json:"type"` // Required: examples: "second", "slot", "epoch", "block"
+}
+
 // Config defines configuration for external models
 type Config struct {
-	Database string       `yaml:"database"` // Optional, can fall back to default
-	Table    string       `yaml:"table" validate:"required"`
-	Cache    *CacheConfig `yaml:"cache"`
-	Lag      uint64       `yaml:"lag"`
+	Database string          `yaml:"database"` // Optional, can fall back to default
+	Table    string          `yaml:"table" validate:"required"`
+	Cache    *CacheConfig    `yaml:"cache"`
+	Lag      uint64          `yaml:"lag"`
+	Interval *IntervalConfig `yaml:"interval" json:"interval"`
 }
 
 // Validate checks if the external configuration is valid
@@ -44,6 +54,14 @@ func (c *Config) Validate() error {
 
 	if c.Table == "" {
 		return ErrTableRequired
+	}
+
+	if c.Interval == nil {
+		return ErrIntervalRequired
+	}
+
+	if err := c.Interval.Validate(); err != nil {
+		return fmt.Errorf("interval validation failed: %w", err)
 	}
 
 	if c.Cache == nil {
@@ -61,6 +79,15 @@ func (c *Config) Validate() error {
 
 	if c.Cache.IncrementalScanInterval >= c.Cache.FullScanInterval {
 		return ErrInvalidIntervalOrder
+	}
+
+	return nil
+}
+
+// Validate checks if the interval configuration is valid
+func (c IntervalConfig) Validate() error {
+	if c.Type == "" {
+		return ErrIntervalTypeRequired
 	}
 
 	return nil

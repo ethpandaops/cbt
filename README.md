@@ -323,6 +323,8 @@ Models support Go template syntax with the following variables:
 ---
 database: ethereum  # Optional: Falls back to models.external.defaultDatabase if not specified
 table: beacon_blocks
+interval:
+  type: slot
 cache:  # Optional (strongly recommended): configure bounds caching to reduce queries to source data
   incremental_scan_interval: 10s  # How often to check for new data outside known bounds
   full_scan_interval: 5m          # How often to do a full table scan to verify bounds
@@ -372,6 +374,7 @@ table: hourly_aggregation
 interval:
   max: 3600                # Maximum interval size (required)
   min: 0                   # Minimum interval size (0 = allow partial)
+  type: timestamp          # Type of interval (required)
 schedules:                 # At least one schedule required
   forwardfill: "@every 5m"
   backfill: "@every 1h"
@@ -499,6 +502,7 @@ limits:               # Optional: position boundaries for processing
   min: 1704067200    # Minimum position to process
   max: 0             # Maximum position to process (0 = no limit)
 interval:
+  type: block        # Type of interval (required)
   max: 3600          # Maximum interval size for processing
   min: 0             # Minimum interval size (0 = allow any partial size)
                      # min < max enables partial interval processing

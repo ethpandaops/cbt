@@ -5,6 +5,7 @@ table: entity_changes
 interval:
   max: 120  # 2 minute intervals
   min: 0    # Allow any size partial intervals
+  type: slot
 schedules:
   forwardfill: "@every 1m"
   backfill: "@every 5m"

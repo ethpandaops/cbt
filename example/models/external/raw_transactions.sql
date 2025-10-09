@@ -1,6 +1,8 @@
 ---
 # External model for raw transaction data
 table: raw_transactions
+interval:
+  type: block
 cache:
   incremental_scan_interval: 1m
   full_scan_interval: 1h

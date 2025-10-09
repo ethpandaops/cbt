@@ -5,6 +5,7 @@ table: five_minute_report
 interval:
   max: 300  # 5 minutes
   min: 120  # Allow partial intervals down to 2 minutes
+  type: slot
 schedules:
   forwardfill: "@every 5s"
   backfill: "@every 5m"

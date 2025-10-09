@@ -20,6 +20,8 @@ type Handler struct {
 func NewHandler(data []byte, adminTable transformation.AdminTable) (*Handler, error) {
 	var config Config
 
+	fmt.Println("data", string(data))
+
 	// Use strict unmarshaling to detect invalid fields
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
@@ -133,6 +135,14 @@ func (h *Handler) GetMinInterval() uint64 {
 		return h.config.Interval.Min
 	}
 	return 0
+}
+
+// GetIntervalType returns the interval type for this incremental transformation
+func (h *Handler) GetIntervalType() string {
+	if h.config.Interval != nil {
+		return h.config.Interval.Type
+	}
+	return ""
 }
 
 // GetDependencies returns the dependencies (after placeholder substitution)

@@ -152,6 +152,8 @@ func TestServiceDependencyPlaceholders(t *testing.T) {
 	// Create external models that will be referenced
 	externalContent1 := `---
 table: beacon_blocks
+interval:
+  type: second
 cache:
   incremental_scan_interval: 1m
   full_scan_interval: 1h
@@ -161,6 +163,8 @@ SELECT * FROM test`
 	externalContent2 := `---
 database: custom_db
 table: custom_table
+interval:
+  type: second
 cache:
   incremental_scan_interval: 1m
   full_scan_interval: 1h
@@ -179,6 +183,7 @@ table: test_transform
 interval:
   max: 100
   min: 10
+  type: second
 schedules:
   forwardfill: "0 * * * *"
 dependencies:
@@ -196,6 +201,7 @@ table: other_transform
 interval:
   max: 100
   min: 10
+  type: second
 schedules:
   forwardfill: "0 * * * *"
 dependencies:
@@ -281,6 +287,8 @@ func TestServiceValidatesDatabase(t *testing.T) {
 	externalContent := `---
 database: dep_db
 table: dep_table
+interval:
+  type: second
 cache:
   incremental_scan_interval: 1m
   full_scan_interval: 1h
@@ -297,6 +305,7 @@ table: test_table
 interval:
   max: 100
   min: 10
+  type: second
 schedules:
   forwardfill: "0 * * * *"
 dependencies:

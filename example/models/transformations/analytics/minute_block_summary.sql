@@ -5,6 +5,7 @@ table: minute_block_summary
 interval:
   max: 60   # 1 minute
   min: 30   # Allow partial intervals down to 30 seconds
+  type: slot
 schedules:
   forwardfill: "@every 5s"
   backfill: "@every 10s"
