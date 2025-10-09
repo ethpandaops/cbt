@@ -308,64 +308,88 @@ func populateScheduledFields(model *generated.TransformationModel, node models.T
 
 func populateIncrementalFields(model *generated.TransformationModel, node models.Transformation) {
 	handler := node.GetHandler()
-	if incrementalHandler, ok := handler.(interface {
+	incrementalHandler, ok := handler.(interface {
 		GetInterval() (minInterval, maxInterval uint64)
 		GetSchedules() (forwardfill, backfill string)
 		GetTags() []string
 		GetFlattenedDependencies() []string
-	}); ok {
-		// Interval
-		minInterval, maxInterval := incrementalHandler.GetInterval()
+	})
+	if !ok {
+		return
+	}
 
-		// Get interval type if available
-		var intervalType *string
-		if intervalProvider, ok := handler.(interface{ GetIntervalType() string }); ok {
-			if it := intervalProvider.GetIntervalType(); it != "" {
-				intervalType = &it
-			}
-		}
+	populateInterval(model, incrementalHandler, handler)
+	populateSchedules(model, incrementalHandler)
+	populateLimits(model, handler)
+	populateTags(model, incrementalHandler)
+}
 
-		model.Interval = &struct {
-			Max  *int    `json:"max,omitempty"`
-			Min  *int    `json:"min,omitempty"`
-			Type *string `json:"type,omitempty"`
-		}{
-			Min:  intPtr(int(minInterval)), // nolint:gosec
-			Max:  intPtr(int(maxInterval)), // nolint:gosec
-			Type: intervalType,
-		}
+func populateInterval(model *generated.TransformationModel, incrementalHandler interface {
+	GetInterval() (minInterval, maxInterval uint64)
+}, handler interface{}) {
+	minInterval, maxInterval := incrementalHandler.GetInterval()
 
-		// Schedules
-		forwardfill, backfill := incrementalHandler.GetSchedules()
-		if forwardfill != "" || backfill != "" {
-			model.Schedules = &struct {
-				Backfill    *string `json:"backfill,omitempty"`
-				Forwardfill *string `json:"forwardfill,omitempty"`
-			}{
-				Forwardfill: stringPtr(forwardfill),
-				Backfill:    stringPtr(backfill),
-			}
+	var intervalType *string
+	if intervalProvider, ok := handler.(interface{ GetIntervalType() string }); ok {
+		if it := intervalProvider.GetIntervalType(); it != "" {
+			intervalType = &it
 		}
+	}
 
-		// Limits
-		if limitsProvider, ok := handler.(interface{ GetLimits() *struct{ Min, Max uint64 } }); ok {
-			limits := limitsProvider.GetLimits()
-			if limits != nil && (limits.Min > 0 || limits.Max > 0) {
-				model.Limits = &struct {
-					Max *int `json:"max,omitempty"`
-					Min *int `json:"min,omitempty"`
-				}{
-					Min: intPtr(int(limits.Min)), // nolint:gosec
-					Max: intPtr(int(limits.Max)), // nolint:gosec
-				}
-			}
-		}
+	model.Interval = &struct {
+		Max  *int    `json:"max,omitempty"`
+		Min  *int    `json:"min,omitempty"`
+		Type *string `json:"type,omitempty"`
+	}{
+		Min:  intPtr(int(minInterval)), // nolint:gosec
+		Max:  intPtr(int(maxInterval)), // nolint:gosec
+		Type: intervalType,
+	}
+}
 
-		// Tags
-		tags := incrementalHandler.GetTags()
-		if len(tags) > 0 {
-			model.Tags = &tags
-		}
+func populateSchedules(model *generated.TransformationModel, incrementalHandler interface {
+	GetSchedules() (forwardfill, backfill string)
+}) {
+	forwardfill, backfill := incrementalHandler.GetSchedules()
+	if forwardfill == "" && backfill == "" {
+		return
+	}
+
+	model.Schedules = &struct {
+		Backfill    *string `json:"backfill,omitempty"`
+		Forwardfill *string `json:"forwardfill,omitempty"`
+	}{
+		Forwardfill: stringPtr(forwardfill),
+		Backfill:    stringPtr(backfill),
+	}
+}
+
+func populateLimits(model *generated.TransformationModel, handler interface{}) {
+	limitsProvider, ok := handler.(interface{ GetLimits() *struct{ Min, Max uint64 } })
+	if !ok {
+		return
+	}
+
+	limits := limitsProvider.GetLimits()
+	if limits == nil || (limits.Min == 0 && limits.Max == 0) {
+		return
+	}
+
+	model.Limits = &struct {
+		Max *int `json:"max,omitempty"`
+		Min *int `json:"min,omitempty"`
+	}{
+		Min: intPtr(int(limits.Min)), // nolint:gosec
+		Max: intPtr(int(limits.Max)), // nolint:gosec
+	}
+}
+
+func populateTags(model *generated.TransformationModel, incrementalHandler interface {
+	GetTags() []string
+}) {
+	tags := incrementalHandler.GetTags()
+	if len(tags) > 0 {
+		model.Tags = &tags
 	}
 }
 
