@@ -4,6 +4,7 @@ table: transactions_normalized
 interval:
   max: 3600
   min: 0
+  type: block
 schedules:
   forwardfill: "@every 5m"
   backfill: "@every 5m"

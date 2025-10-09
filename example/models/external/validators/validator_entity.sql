@@ -2,6 +2,8 @@
 # database is set in the config models.external.defaultDatabase
 # database: ethereum
 table: validator_entity
+interval:
+  type: slot
 cache:
   incremental_scan_interval: 10s
   full_scan_interval: 1h

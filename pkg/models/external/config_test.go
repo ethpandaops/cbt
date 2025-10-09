@@ -18,6 +18,9 @@ func TestConfigSetDefaults(t *testing.T) {
 			name: "apply default when database is empty",
 			config: &Config{
 				Table: "test_table",
+				Interval: &IntervalConfig{
+					Type: "second",
+				},
 				Cache: &CacheConfig{
 					IncrementalScanInterval: time.Minute,
 					FullScanInterval:        time.Hour,
@@ -31,6 +34,9 @@ func TestConfigSetDefaults(t *testing.T) {
 			config: &Config{
 				Database: "existing_db",
 				Table:    "test_table",
+				Interval: &IntervalConfig{
+					Type: "second",
+				},
 				Cache: &CacheConfig{
 					IncrementalScanInterval: time.Minute,
 					FullScanInterval:        time.Hour,
@@ -43,6 +49,9 @@ func TestConfigSetDefaults(t *testing.T) {
 			name: "no change when default is empty",
 			config: &Config{
 				Table: "test_table",
+				Interval: &IntervalConfig{
+					Type: "second",
+				},
 				Cache: &CacheConfig{
 					IncrementalScanInterval: time.Minute,
 					FullScanInterval:        time.Hour,
@@ -73,6 +82,9 @@ func TestConfigValidate(t *testing.T) {
 			config: &Config{
 				Database: "test_db",
 				Table:    "test_table",
+				Interval: &IntervalConfig{
+					Type: "second",
+				},
 				Cache: &CacheConfig{
 					IncrementalScanInterval: time.Minute,
 					FullScanInterval:        time.Hour,
@@ -84,6 +96,9 @@ func TestConfigValidate(t *testing.T) {
 			name: "invalid config without database",
 			config: &Config{
 				Table: "test_table",
+				Interval: &IntervalConfig{
+					Type: "second",
+				},
 				Cache: &CacheConfig{
 					IncrementalScanInterval: time.Minute,
 					FullScanInterval:        time.Hour,
@@ -96,6 +111,9 @@ func TestConfigValidate(t *testing.T) {
 			name: "invalid config without table",
 			config: &Config{
 				Database: "test_db",
+				Interval: &IntervalConfig{
+					Type: "second",
+				},
 				Cache: &CacheConfig{
 					IncrementalScanInterval: time.Minute,
 					FullScanInterval:        time.Hour,

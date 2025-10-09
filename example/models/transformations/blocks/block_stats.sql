@@ -9,6 +9,7 @@ limits:
 interval:
   max: 3600
   min: 0     # Allow any size partial intervals
+  type: slot
 schedules:
   forwardfill: "@every 5m"
   backfill: "@every 5m"

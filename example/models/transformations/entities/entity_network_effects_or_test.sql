@@ -6,6 +6,7 @@ table: entity_network_effects_or_test
 interval:
   max: 300
   min: 0  # Allow any size partial intervals
+  type: slot
 schedules:
   forwardfill: "@every 30s"
   backfill: "@every 30s"

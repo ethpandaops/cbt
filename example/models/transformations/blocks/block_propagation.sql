@@ -6,6 +6,7 @@ table: block_propagation
 interval:
   max: 60
   min: 0  # Allow any size partial intervals
+  type: slot
 schedules:
   forwardfill: "@every 10s"
   backfill: "@every 10s"

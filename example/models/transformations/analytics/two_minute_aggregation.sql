@@ -5,6 +5,7 @@ table: two_minute_aggregation
 interval:
   max: 120  # 2 minutes
   min: 60   # Allow partial intervals down to 1 minute
+  type: slot
 schedules:
   forwardfill: "@every 5s"
   backfill: "@every 1m"
