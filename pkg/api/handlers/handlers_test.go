@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/api/generated"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/external"
@@ -134,6 +136,77 @@ func (m *mockModelsService) GetTransformationEnvironmentVariables(_ models.Trans
 	return nil, nil
 }
 
+// mockAdminService implements admin.Service for testing
+type mockAdminService struct{}
+
+func (m *mockAdminService) GetLastProcessedEndPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetLastProcessedPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetFirstPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) RecordCompletion(_ context.Context, _ string, _, _ uint64) error {
+	return nil
+}
+
+func (m *mockAdminService) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64) (bool, error) {
+	return false, nil
+}
+
+func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
+	return []admin.ProcessedRange{}, nil
+}
+
+func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetExternalBounds(_ context.Context, _ string) (*admin.BoundsCache, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
+	return nil
+}
+
+func (m *mockAdminService) GetIncrementalAdminDatabase() string {
+	return "admin"
+}
+
+func (m *mockAdminService) GetIncrementalAdminTable() string {
+	return "cbt_incremental"
+}
+
+func (m *mockAdminService) GetScheduledAdminDatabase() string {
+	return "admin"
+}
+
+func (m *mockAdminService) GetScheduledAdminTable() string {
+	return "cbt_scheduled"
+}
+
 // mockTransformation implements models.Transformation for testing
 type mockTransformation struct {
 	id       string
@@ -224,11 +297,13 @@ func TestNewServer(t *testing.T) {
 	mockService := &mockModelsService{
 		dag: &mockDAGReader{},
 	}
+	mockAdmin := &mockAdminService{}
 
-	server := NewServer(mockService, log)
+	server := NewServer(mockService, mockAdmin, log)
 
 	assert.NotNil(t, server)
 	assert.NotNil(t, server.modelsService)
+	assert.NotNil(t, server.adminService)
 	assert.NotNil(t, server.log)
 
 	// Verify interface compliance

@@ -202,6 +202,197 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  # ============================================
+  # EXTERNAL MODEL BOUNDS
+  # ============================================
+  /models/external/bounds:
+    get:
+      summary: List external model bounds
+      operationId: listExternalBounds
+      tags:
+        - External Models
+      description: Returns min/max positions from Redis cache for all external models
+      responses:
+        '200':
+          description: List of external model bounds
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bounds, total]
+                properties:
+                  bounds:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExternalBounds'
+                  total:
+                    type: integer
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /models/external/{id}/bounds:
+    get:
+      summary: Get external model bounds by ID
+      operationId: getExternalBounds
+      tags:
+        - External Models
+      description: Returns min/max positions and scan metadata from Redis cache
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Fully qualified model ID (database.table)
+          schema:
+            type: string
+          example: ethereum.beacon_blocks
+      responses:
+        '200':
+          description: External model bounds details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalBounds'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================
+  # TRANSFORMATION COVERAGE
+  # ============================================
+  /models/transformations/coverage:
+    get:
+      summary: List transformation coverage
+      operationId: listTransformationCoverage
+      tags:
+        - Transformations
+      description: Returns processed ranges from admin_incremental table for all incremental transformations
+      parameters:
+        - name: database
+          in: query
+          description: Filter by database name
+          schema:
+            type: string
+          example: analytics
+      responses:
+        '200':
+          description: List of transformation coverage
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [coverage, total]
+                properties:
+                  coverage:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CoverageSummary'
+                  total:
+                    type: integer
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /models/transformations/{id}/coverage:
+    get:
+      summary: Get transformation coverage by ID
+      operationId: getTransformationCoverage
+      tags:
+        - Transformations
+      description: Returns all processed ranges from admin_incremental table
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Fully qualified model ID (database.table)
+          schema:
+            type: string
+          example: analytics.daily_users
+      responses:
+        '200':
+          description: Transformation coverage details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoverageDetail'
+        '400':
+          description: Model is not incremental type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================
+  # SCHEDULED RUNS
+  # ============================================
+  /models/transformations/runs:
+    get:
+      summary: List scheduled transformation runs
+      operationId: listScheduledRuns
+      tags:
+        - Transformations
+      description: Returns last run timestamps from admin_scheduled table for all scheduled transformations
+      parameters:
+        - name: database
+          in: query
+          description: Filter by database name
+          schema:
+            type: string
+          example: analytics
+      responses:
+        '200':
+          description: List of scheduled transformation runs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runs, total]
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ScheduledRun'
+                  total:
+                    type: integer
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /models/transformations/{id}/runs:
+    get:
+      summary: Get scheduled transformation run by ID
+      operationId: getScheduledRun
+      tags:
+        - Transformations
+      description: Returns last run timestamp from admin_scheduled table
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Fully qualified model ID (database.table)
+          schema:
+            type: string
+          example: analytics.daily_report
+      responses:
+        '200':
+          description: Scheduled transformation run details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduledRun'
+        '400':
+          description: Model is not scheduled type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
 components:
   schemas:
     # ============================================
@@ -469,6 +660,109 @@ components:
                 max:
                   type: integer
                   description: Maximum position limit
+
+    # ============================================
+    # BOUNDS, COVERAGE & RUNS SCHEMAS
+    # ============================================
+
+    # External model bounds from Redis cache
+    ExternalBounds:
+      type: object
+      required: [id, min, max]
+      properties:
+        id:
+          type: string
+          description: Fully qualified model ID (database.table)
+          example: ethereum.beacon_blocks
+        min:
+          type: integer
+          description: Minimum position in external source
+          example: 0
+        max:
+          type: integer
+          description: Maximum position in external source
+          example: 10445672
+        previous_min:
+          type: integer
+          description: Previous minimum position (for tracking changes)
+          example: 0
+        previous_max:
+          type: integer
+          description: Previous maximum position (for tracking changes)
+          example: 10445662
+        last_incremental_scan:
+          type: string
+          format: date-time
+          description: Timestamp of last incremental scan
+        last_full_scan:
+          type: string
+          format: date-time
+          description: Timestamp of last full scan
+        initial_scan_complete:
+          type: boolean
+          description: Whether initial scan is complete
+        initial_scan_started:
+          type: string
+          format: date-time
+          description: Timestamp when initial scan started
+
+    # Position range from admin table
+    Range:
+      type: object
+      required: [position, interval]
+      properties:
+        position:
+          type: integer
+          description: Starting position of processed range
+          example: 0
+        interval:
+          type: integer
+          description: Size of processed range
+          example: 10
+
+    # Transformation coverage summary (for list endpoint)
+    CoverageSummary:
+      type: object
+      required: [id, ranges]
+      properties:
+        id:
+          type: string
+          description: Fully qualified model ID (database.table)
+          example: analytics.daily_users
+        ranges:
+          type: array
+          items:
+            $ref: '#/components/schemas/Range'
+          description: Processed ranges from admin_incremental table
+
+    # Transformation coverage detail (for detail endpoint)
+    CoverageDetail:
+      type: object
+      required: [id, ranges]
+      properties:
+        id:
+          type: string
+          description: Fully qualified model ID (database.table)
+          example: analytics.daily_users
+        ranges:
+          type: array
+          items:
+            $ref: '#/components/schemas/Range'
+          description: All processed ranges from admin_incremental table
+
+    # Scheduled transformation run info
+    ScheduledRun:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          description: Fully qualified model ID (database.table)
+          example: analytics.daily_report
+        last_run:
+          type: string
+          format: date-time
+          description: Timestamp of last execution
 
     # ============================================
     # ERROR SCHEMAS

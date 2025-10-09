@@ -67,3 +67,8 @@ func (c *Config) GetID() string {
 func (c *Config) IsScheduledType() bool {
 	return c.Type == TypeScheduled
 }
+
+// IsIncrementalType returns true if this is an incremental transformation
+func (c *Config) IsIncrementalType() bool {
+	return c.Type == TypeIncremental
+}

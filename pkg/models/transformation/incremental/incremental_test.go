@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -563,4 +564,8 @@ func (m *mockAdminService) RecordCompletion(ctx context.Context, modelID string,
 		return m.recordCompletionFunc(ctx, modelID, position, interval)
 	}
 	return nil
+}
+
+func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
+	return []admin.ProcessedRange{}, nil
 }

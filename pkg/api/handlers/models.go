@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/api/generated"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/gofiber/fiber/v3"
@@ -356,4 +357,229 @@ func stringPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// ListExternalBounds handles GET /api/v1/models/external/bounds
+func (s *Server) ListExternalBounds(c fiber.Ctx) error {
+	dag := s.modelsService.GetDAG()
+	bounds := make([]generated.ExternalBounds, 0)
+
+	for _, node := range dag.GetExternalNodes() {
+		external, ok := node.Model.(models.External)
+		if !ok {
+			continue
+		}
+
+		modelID := external.GetID()
+
+		// Get bounds from Redis cache via admin service
+		boundsCache, err := s.adminService.GetExternalBounds(c.Context(), modelID)
+		if err != nil {
+			s.log.WithError(err).WithField("model_id", modelID).Debug("No bounds cache found")
+			continue
+		}
+		if boundsCache == nil {
+			s.log.WithField("model_id", modelID).Debug("Bounds cache is nil")
+			continue
+		}
+
+		bounds = append(bounds, mapBoundsCacheToAPI(modelID, boundsCache))
+	}
+
+	return c.JSON(map[string]interface{}{
+		"bounds": bounds,
+		"total":  len(bounds),
+	})
+}
+
+// GetExternalBounds handles GET /api/v1/models/external/{id}/bounds
+func (s *Server) GetExternalBounds(c fiber.Ctx, id string) error {
+	boundsCache, err := s.adminService.GetExternalBounds(c.Context(), id)
+	if err != nil {
+		return err
+	}
+	if boundsCache == nil {
+		return ErrModelNotFound
+	}
+
+	return c.JSON(mapBoundsCacheToAPI(id, boundsCache))
+}
+
+// mapBoundsCacheToAPI converts BoundsCache to API schema
+func mapBoundsCacheToAPI(id string, cache *admin.BoundsCache) generated.ExternalBounds {
+	bounds := generated.ExternalBounds{
+		Id:  id,
+		Min: int(cache.Min), // nolint:gosec
+		Max: int(cache.Max), // nolint:gosec
+	}
+
+	if cache.PreviousMin != 0 {
+		prevMin := int(cache.PreviousMin) // nolint:gosec
+		bounds.PreviousMin = &prevMin
+	}
+	if cache.PreviousMax != 0 {
+		prevMax := int(cache.PreviousMax) // nolint:gosec
+		bounds.PreviousMax = &prevMax
+	}
+	if !cache.LastIncrementalScan.IsZero() {
+		bounds.LastIncrementalScan = &cache.LastIncrementalScan
+	}
+	if !cache.LastFullScan.IsZero() {
+		bounds.LastFullScan = &cache.LastFullScan
+	}
+	// Always set InitialScanComplete since it's a bool
+	bounds.InitialScanComplete = &cache.InitialScanComplete
+	if cache.InitialScanStarted != nil {
+		bounds.InitialScanStarted = cache.InitialScanStarted
+	}
+
+	return bounds
+}
+
+// ListTransformationCoverage handles GET /api/v1/models/transformations/coverage
+func (s *Server) ListTransformationCoverage(c fiber.Ctx, params generated.ListTransformationCoverageParams) error {
+	dag := s.modelsService.GetDAG()
+	coverage := make([]generated.CoverageSummary, 0)
+
+	for _, node := range dag.GetTransformationNodes() {
+		cfg := node.GetConfig()
+		if !cfg.IsIncrementalType() {
+			continue // Skip scheduled transformations
+		}
+
+		// Filter by database if provided
+		if params.Database != nil && cfg.Database != *params.Database {
+			continue
+		}
+
+		modelID := cfg.GetID()
+
+		// Get all processed ranges from admin service
+		ranges, err := s.adminService.GetProcessedRanges(c.Context(), modelID)
+		if err != nil {
+			s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get processed ranges")
+			continue
+		}
+
+		coverage = append(coverage, generated.CoverageSummary{
+			Id:     modelID,
+			Ranges: mapRangesToAPI(ranges),
+		})
+	}
+
+	return c.JSON(map[string]interface{}{
+		"coverage": coverage,
+		"total":    len(coverage),
+	})
+}
+
+// GetTransformationCoverage handles GET /api/v1/models/transformations/{id}/coverage
+func (s *Server) GetTransformationCoverage(c fiber.Ctx, id string) error {
+	// Verify it's an incremental transformation
+	dag := s.modelsService.GetDAG()
+	node, err := dag.GetTransformationNode(id)
+	if err != nil {
+		return ErrModelNotFound
+	}
+
+	cfg := node.GetConfig()
+	if !cfg.IsIncrementalType() {
+		return fiber.NewError(fiber.StatusBadRequest, "model is not incremental type")
+	}
+
+	// Get all processed ranges from admin service
+	ranges, err := s.adminService.GetProcessedRanges(c.Context(), id)
+	if err != nil {
+		return err
+	}
+
+	detail := generated.CoverageDetail{
+		Id:     id,
+		Ranges: mapRangesToAPI(ranges),
+	}
+
+	return c.JSON(detail)
+}
+
+// mapRangesToAPI converts admin.ProcessedRange to API schema
+func mapRangesToAPI(ranges []admin.ProcessedRange) []generated.Range {
+	apiRanges := make([]generated.Range, len(ranges))
+	for i, r := range ranges {
+		apiRanges[i] = generated.Range{
+			Position: int(r.Position), // nolint:gosec
+			Interval: int(r.Interval), // nolint:gosec
+		}
+	}
+	return apiRanges
+}
+
+// ListScheduledRuns handles GET /api/v1/models/transformations/runs
+func (s *Server) ListScheduledRuns(c fiber.Ctx, params generated.ListScheduledRunsParams) error {
+	dag := s.modelsService.GetDAG()
+	runs := make([]generated.ScheduledRun, 0)
+
+	for _, node := range dag.GetTransformationNodes() {
+		cfg := node.GetConfig()
+		if !cfg.IsScheduledType() {
+			continue // Skip incremental transformations
+		}
+
+		// Filter by database if provided
+		if params.Database != nil && cfg.Database != *params.Database {
+			continue
+		}
+
+		modelID := cfg.GetID()
+
+		// Get last run timestamp from admin service
+		lastRun, err := s.adminService.GetLastScheduledExecution(c.Context(), modelID)
+		if err != nil {
+			s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get last run")
+			continue
+		}
+
+		run := generated.ScheduledRun{
+			Id: modelID,
+		}
+		if lastRun != nil {
+			run.LastRun = lastRun
+		}
+
+		runs = append(runs, run)
+	}
+
+	return c.JSON(map[string]interface{}{
+		"runs":  runs,
+		"total": len(runs),
+	})
+}
+
+// GetScheduledRun handles GET /api/v1/models/transformations/{id}/runs
+func (s *Server) GetScheduledRun(c fiber.Ctx, id string) error {
+	// Verify it's a scheduled transformation
+	dag := s.modelsService.GetDAG()
+	node, err := dag.GetTransformationNode(id)
+	if err != nil {
+		return ErrModelNotFound
+	}
+
+	cfg := node.GetConfig()
+	if !cfg.IsScheduledType() {
+		return fiber.NewError(fiber.StatusBadRequest, "model is not scheduled type")
+	}
+
+	// Get last run timestamp from admin service
+	lastRun, err := s.adminService.GetLastScheduledExecution(c.Context(), id)
+	if err != nil {
+		return err
+	}
+
+	run := generated.ScheduledRun{
+		Id: id,
+	}
+	if lastRun != nil {
+		run.LastRun = lastRun
+	}
+
+	return c.JSON(run)
 }

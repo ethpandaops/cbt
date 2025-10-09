@@ -658,6 +658,10 @@ func (m *mockAdminService) GetScheduledAdminTable() string {
 	return "cbt_scheduled"
 }
 
+func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
+	return []admin.ProcessedRange{}, nil
+}
+
 var _ admin.Service = (*mockAdminService)(nil)
 
 type mockTransformation struct {

@@ -309,6 +309,10 @@ func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string
 	return nil, nil
 }
 
+func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
+	return []admin.ProcessedRange{}, nil
+}
+
 var _ admin.Service = (*mockAdminService)(nil)
 
 type mockModelsService struct {

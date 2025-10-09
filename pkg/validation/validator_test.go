@@ -652,6 +652,10 @@ func (m *mockAdmin) GetLastScheduledExecution(_ context.Context, _ string) (*tim
 	return nil, nil
 }
 
+func (m *mockAdmin) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
+	return []admin.ProcessedRange{}, nil
+}
+
 // mockLimitsConfig is a test implementation of limits
 type mockLimitsConfig struct {
 	Min uint64

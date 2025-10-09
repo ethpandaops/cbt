@@ -92,7 +92,7 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 		return nil, fmt.Errorf("failed to create worker service: %w", err)
 	}
 
-	apiService := api.NewService(&cfg.API, modelsService, log)
+	apiService := api.NewService(&cfg.API, modelsService, adminManager, log)
 
 	frontendService := frontend.NewService(&cfg.Frontend, log)
 

@@ -84,6 +84,24 @@ const (
 	Success ListTransformationsParamsStatus = "success"
 )
 
+// CoverageDetail defines model for CoverageDetail.
+type CoverageDetail struct {
+	// Id Fully qualified model ID (database.table)
+	Id string `json:"id"`
+
+	// Ranges All processed ranges from admin_incremental table
+	Ranges []Range `json:"ranges"`
+}
+
+// CoverageSummary defines model for CoverageSummary.
+type CoverageSummary struct {
+	// Id Fully qualified model ID (database.table)
+	Id string `json:"id"`
+
+	// Ranges Processed ranges from admin_incremental table
+	Ranges []Range `json:"ranges"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	// Code HTTP status code
@@ -91,6 +109,36 @@ type Error struct {
 
 	// Error Human-readable error message
 	Error string `json:"error"`
+}
+
+// ExternalBounds defines model for ExternalBounds.
+type ExternalBounds struct {
+	// Id Fully qualified model ID (database.table)
+	Id string `json:"id"`
+
+	// InitialScanComplete Whether initial scan is complete
+	InitialScanComplete *bool `json:"initial_scan_complete,omitempty"`
+
+	// InitialScanStarted Timestamp when initial scan started
+	InitialScanStarted *time.Time `json:"initial_scan_started,omitempty"`
+
+	// LastFullScan Timestamp of last full scan
+	LastFullScan *time.Time `json:"last_full_scan,omitempty"`
+
+	// LastIncrementalScan Timestamp of last incremental scan
+	LastIncrementalScan *time.Time `json:"last_incremental_scan,omitempty"`
+
+	// Max Maximum position in external source
+	Max int `json:"max"`
+
+	// Min Minimum position in external source
+	Min int `json:"min"`
+
+	// PreviousMax Previous maximum position (for tracking changes)
+	PreviousMax *int `json:"previous_max,omitempty"`
+
+	// PreviousMin Previous minimum position (for tracking changes)
+	PreviousMin *int `json:"previous_min,omitempty"`
 }
 
 // ExternalModel defines model for ExternalModel.
@@ -142,6 +190,24 @@ type ModelSummary struct {
 
 // ModelSummaryType Model type
 type ModelSummaryType string
+
+// Range defines model for Range.
+type Range struct {
+	// Interval Size of processed range
+	Interval int `json:"interval"`
+
+	// Position Starting position of processed range
+	Position int `json:"position"`
+}
+
+// ScheduledRun defines model for ScheduledRun.
+type ScheduledRun struct {
+	// Id Fully qualified model ID (database.table)
+	Id string `json:"id"`
+
+	// LastRun Timestamp of last execution
+	LastRun *time.Time `json:"last_run,omitempty"`
+}
 
 // TransformationModel defines model for TransformationModel.
 type TransformationModel struct {
@@ -304,6 +370,18 @@ type ListTransformationsParamsType string
 // ListTransformationsParamsStatus defines parameters for ListTransformations.
 type ListTransformationsParamsStatus string
 
+// ListTransformationCoverageParams defines parameters for ListTransformationCoverage.
+type ListTransformationCoverageParams struct {
+	// Database Filter by database name
+	Database *string `form:"database,omitempty" json:"database,omitempty"`
+}
+
+// ListScheduledRunsParams defines parameters for ListScheduledRuns.
+type ListScheduledRunsParams struct {
+	// Database Filter by database name
+	Database *string `form:"database,omitempty" json:"database,omitempty"`
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// List all models (lightweight)
@@ -312,15 +390,33 @@ type ServerInterface interface {
 	// List external models
 	// (GET /models/external)
 	ListExternalModels(c fiber.Ctx, params ListExternalModelsParams) error
+	// List external model bounds
+	// (GET /models/external/bounds)
+	ListExternalBounds(c fiber.Ctx) error
 	// Get external model by ID
 	// (GET /models/external/{id})
 	GetExternalModel(c fiber.Ctx, id string) error
+	// Get external model bounds by ID
+	// (GET /models/external/{id}/bounds)
+	GetExternalBounds(c fiber.Ctx, id string) error
 	// List transformation models
 	// (GET /models/transformations)
 	ListTransformations(c fiber.Ctx, params ListTransformationsParams) error
+	// List transformation coverage
+	// (GET /models/transformations/coverage)
+	ListTransformationCoverage(c fiber.Ctx, params ListTransformationCoverageParams) error
+	// List scheduled transformation runs
+	// (GET /models/transformations/runs)
+	ListScheduledRuns(c fiber.Ctx, params ListScheduledRunsParams) error
 	// Get transformation model by ID
 	// (GET /models/transformations/{id})
 	GetTransformation(c fiber.Ctx, id string) error
+	// Get transformation coverage by ID
+	// (GET /models/transformations/{id}/coverage)
+	GetTransformationCoverage(c fiber.Ctx, id string) error
+	// Get scheduled transformation run by ID
+	// (GET /models/transformations/{id}/runs)
+	GetScheduledRun(c fiber.Ctx, id string) error
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -392,6 +488,12 @@ func (siw *ServerInterfaceWrapper) ListExternalModels(c fiber.Ctx) error {
 	return siw.Handler.ListExternalModels(c, params)
 }
 
+// ListExternalBounds operation middleware
+func (siw *ServerInterfaceWrapper) ListExternalBounds(c fiber.Ctx) error {
+
+	return siw.Handler.ListExternalBounds(c)
+}
+
 // GetExternalModel operation middleware
 func (siw *ServerInterfaceWrapper) GetExternalModel(c fiber.Ctx) error {
 
@@ -406,6 +508,22 @@ func (siw *ServerInterfaceWrapper) GetExternalModel(c fiber.Ctx) error {
 	}
 
 	return siw.Handler.GetExternalModel(c, id)
+}
+
+// GetExternalBounds operation middleware
+func (siw *ServerInterfaceWrapper) GetExternalBounds(c fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Params("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter id: %w", err).Error())
+	}
+
+	return siw.Handler.GetExternalBounds(c, id)
 }
 
 // ListTransformations operation middleware
@@ -446,6 +564,54 @@ func (siw *ServerInterfaceWrapper) ListTransformations(c fiber.Ctx) error {
 	return siw.Handler.ListTransformations(c, params)
 }
 
+// ListTransformationCoverage operation middleware
+func (siw *ServerInterfaceWrapper) ListTransformationCoverage(c fiber.Ctx) error {
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTransformationCoverageParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "database" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "database", query, &params.Database)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter database: %w", err).Error())
+	}
+
+	return siw.Handler.ListTransformationCoverage(c, params)
+}
+
+// ListScheduledRuns operation middleware
+func (siw *ServerInterfaceWrapper) ListScheduledRuns(c fiber.Ctx) error {
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListScheduledRunsParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "database" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "database", query, &params.Database)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter database: %w", err).Error())
+	}
+
+	return siw.Handler.ListScheduledRuns(c, params)
+}
+
 // GetTransformation operation middleware
 func (siw *ServerInterfaceWrapper) GetTransformation(c fiber.Ctx) error {
 
@@ -460,6 +626,38 @@ func (siw *ServerInterfaceWrapper) GetTransformation(c fiber.Ctx) error {
 	}
 
 	return siw.Handler.GetTransformation(c, id)
+}
+
+// GetTransformationCoverage operation middleware
+func (siw *ServerInterfaceWrapper) GetTransformationCoverage(c fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Params("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter id: %w", err).Error())
+	}
+
+	return siw.Handler.GetTransformationCoverage(c, id)
+}
+
+// GetScheduledRun operation middleware
+func (siw *ServerInterfaceWrapper) GetScheduledRun(c fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Params("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter id: %w", err).Error())
+	}
+
+	return siw.Handler.GetScheduledRun(c, id)
 }
 
 // FiberServerOptions provides options for the Fiber server.
@@ -487,52 +685,75 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 
 	router.Get(options.BaseURL+"/models/external", wrapper.ListExternalModels)
 
+	router.Get(options.BaseURL+"/models/external/bounds", wrapper.ListExternalBounds)
+
 	router.Get(options.BaseURL+"/models/external/:id", wrapper.GetExternalModel)
+
+	router.Get(options.BaseURL+"/models/external/:id/bounds", wrapper.GetExternalBounds)
 
 	router.Get(options.BaseURL+"/models/transformations", wrapper.ListTransformations)
 
+	router.Get(options.BaseURL+"/models/transformations/coverage", wrapper.ListTransformationCoverage)
+
+	router.Get(options.BaseURL+"/models/transformations/runs", wrapper.ListScheduledRuns)
+
 	router.Get(options.BaseURL+"/models/transformations/:id", wrapper.GetTransformation)
+
+	router.Get(options.BaseURL+"/models/transformations/:id/coverage", wrapper.GetTransformationCoverage)
+
+	router.Get(options.BaseURL+"/models/transformations/:id/runs", wrapper.GetScheduledRun)
 
 }
 
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
