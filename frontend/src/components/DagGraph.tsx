@@ -1,4 +1,4 @@
-import { type JSX, useCallback, useMemo, useEffect } from 'react';
+import { type JSX, useCallback, useMemo, useEffect, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -10,7 +10,10 @@ import {
   type Node,
   type Edge,
   getIncomers,
+  useReactFlow,
 } from '@xyflow/react';
+import { useNavigate } from '@tanstack/react-router';
+import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import dagre from '@dagrejs/dagre';
 import { ExternalNode, TransformationNode, ScheduledNode } from './DagNode';
 import '@xyflow/react/dist/style.css';
@@ -21,10 +24,21 @@ const dagNodeTypes = {
   scheduled: ScheduledNode,
 };
 
+import type {
+  ExternalModel,
+  TransformationModel,
+  ExternalBounds,
+  CoverageSummary,
+  IntervalTypeTransformation,
+} from '@api/types.gen';
+
 export interface DagData {
-  externalModels: Array<{ id: string }>;
-  incrementalModels: Array<{ id: string; depends_on?: string[] }>;
-  scheduledModels: Array<{ id: string; depends_on?: string[] }>;
+  externalModels: Array<ExternalModel>;
+  incrementalModels: Array<TransformationModel>;
+  scheduledModels: Array<TransformationModel>;
+  bounds?: Array<ExternalBounds>;
+  coverage?: Array<CoverageSummary>;
+  intervalTypes?: Record<string, Array<IntervalTypeTransformation>>;
 }
 
 export interface DagGraphProps {
@@ -32,19 +46,37 @@ export interface DagGraphProps {
   className?: string;
 }
 
-export function DagGraph({ data, className = '' }: DagGraphProps): JSX.Element {
+function DagGraphInner({ data, className = '' }: DagGraphProps): JSX.Element {
+  const navigate = useNavigate();
+  const { fitView } = useReactFlow();
+  const [layoutDirection, setLayoutDirection] = useState<'TB' | 'LR' | 'RL'>('TB');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+
   // Build nodes and edges from the data with Dagre auto-layout
   const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
     const nodes: Node[] = [];
     const edges: Edge[] = [];
 
+    // Create lookup maps for bounds and coverage
+    const boundsMap = new Map(data.bounds?.map(b => [b.id, b]) || []);
+    const coverageMap = new Map(data.coverage?.map(c => [c.id, c]) || []);
+
     // Create nodes first (without positions)
     data.externalModels.forEach(model => {
+      const modelBounds = boundsMap.get(model.id);
+      const intervalType = model.interval?.type;
+      const transformation = intervalType && data.intervalTypes?.[intervalType]?.[0];
+
       nodes.push({
         id: model.id,
         type: 'external',
         position: { x: 0, y: 0 }, // Will be set by Dagre
-        data: { label: model.id },
+        data: {
+          label: model.id,
+          model: modelBounds ? { ...model, bounds: modelBounds } : model,
+          transformation,
+        },
       });
     });
 
@@ -53,16 +85,24 @@ export function DagGraph({ data, className = '' }: DagGraphProps): JSX.Element {
         id: model.id,
         type: 'scheduled',
         position: { x: 0, y: 0 }, // Will be set by Dagre
-        data: { label: model.id },
+        data: { label: model.id, model },
       });
     });
 
     data.incrementalModels.forEach(model => {
+      const modelCoverage = coverageMap.get(model.id);
+      const intervalType = model.interval?.type;
+      const transformation = intervalType && data.intervalTypes?.[intervalType]?.[0];
+
       nodes.push({
         id: model.id,
         type: 'transformation',
         position: { x: 0, y: 0 }, // Will be set by Dagre
-        data: { label: model.id },
+        data: {
+          label: model.id,
+          model: modelCoverage ? { ...model, coverage: modelCoverage.ranges } : model,
+          transformation,
+        },
       });
     });
 
@@ -92,7 +132,7 @@ export function DagGraph({ data, className = '' }: DagGraphProps): JSX.Element {
 
     // Configure the graph layout
     dagreGraph.setGraph({
-      rankdir: 'TB', // Top to bottom
+      rankdir: layoutDirection,
       align: 'UL', // Align nodes to upper left
       nodesep: 150, // Horizontal spacing between nodes
       ranksep: 180, // Vertical spacing between ranks
@@ -126,10 +166,59 @@ export function DagGraph({ data, className = '' }: DagGraphProps): JSX.Element {
     });
 
     return { nodes, edges };
-  }, [data]);
+  }, [data, layoutDirection]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  // Apply search dimming effect to nodes when search is active and not hovering
+  useEffect(() => {
+    if (searchQuery && !hoveredNode) {
+      const lowerQuery = searchQuery.toLowerCase();
+      const matchingIds = new Set(nodes.filter(n => n.id.toLowerCase().includes(lowerQuery)).map(n => n.id));
+
+      setNodes(nds =>
+        nds.map(n => ({
+          ...n,
+          data: {
+            ...n.data,
+            isHighlighted: false,
+            isDimmed: !matchingIds.has(n.id),
+          },
+        }))
+      );
+    } else if (!searchQuery && !hoveredNode) {
+      // Clear all states when search is cleared and nothing is hovered
+      setNodes(nds =>
+        nds.map(n => ({
+          ...n,
+          data: {
+            ...n.data,
+            isHighlighted: false,
+            isDimmed: false,
+          },
+        }))
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, hoveredNode, setNodes]);
+
+  // Calculate filtered count for stats
+  const filteredNodes = useMemo(() => {
+    if (!searchQuery) return nodes;
+    const lowerQuery = searchQuery.toLowerCase();
+    return nodes.filter(node => node.id.toLowerCase().includes(lowerQuery));
+  }, [nodes, searchQuery]);
+
+  // Calculate stats
+  const stats = useMemo(() => {
+    const total = nodes.length;
+    const visible = filteredNodes.length;
+    const external = nodes.filter(n => n.type === 'external').length;
+    const scheduled = nodes.filter(n => n.type === 'scheduled').length;
+    const incremental = nodes.filter(n => n.type === 'transformation').length;
+    return { total, visible, external, scheduled, incremental };
+  }, [nodes, filteredNodes]);
 
   // Update nodes and edges when data loads
   useEffect(() => {
@@ -143,6 +232,15 @@ export function DagGraph({ data, className = '' }: DagGraphProps): JSX.Element {
       setEdges(initialEdges);
     }
   }, [initialEdges, setEdges]);
+
+  // Fit view when layout direction changes
+  useEffect(() => {
+    // Add small delay to let layout calculate
+    const timer = setTimeout(() => {
+      fitView({ duration: 400, padding: 0.1 });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [layoutDirection, fitView]);
 
   // Get all ancestor nodes (nodes that this node depends on)
   const getAncestors = useCallback(
@@ -164,7 +262,7 @@ export function DagGraph({ data, className = '' }: DagGraphProps): JSX.Element {
     [nodes, edges]
   );
 
-  // Update node highlighting based on hover
+  // Update node highlighting based on hover (works with search)
   const onNodeMouseEnter = useCallback(
     (_event: React.MouseEvent, node: Node) => {
       const ancestors = getAncestors(node.id);
@@ -180,60 +278,164 @@ export function DagGraph({ data, className = '' }: DagGraphProps): JSX.Element {
           },
         }))
       );
+
+      setHoveredNode(node.id);
     },
     [getAncestors, setNodes]
   );
 
   const onNodeMouseLeave = useCallback(() => {
-    setNodes(nds =>
-      nds.map(n => ({
-        ...n,
-        data: {
-          ...n.data,
-          isHighlighted: false,
-          isDimmed: false,
-        },
-      }))
-    );
-  }, [setNodes]);
+    // Restore search state if searching, otherwise clear all
+    if (searchQuery) {
+      const lowerQuery = searchQuery.toLowerCase();
+      const matchingIds = new Set(nodes.filter(n => n.id.toLowerCase().includes(lowerQuery)).map(n => n.id));
 
-  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
-    console.log('Clicked node:', node);
-  }, []);
+      setNodes(nds =>
+        nds.map(n => ({
+          ...n,
+          data: {
+            ...n.data,
+            isHighlighted: false,
+            isDimmed: !matchingIds.has(n.id),
+          },
+        }))
+      );
+    } else {
+      setNodes(nds =>
+        nds.map(n => ({
+          ...n,
+          data: {
+            ...n.data,
+            isHighlighted: false,
+            isDimmed: false,
+          },
+        }))
+      );
+    }
+    setHoveredNode(null);
+  }, [setNodes, searchQuery, nodes]);
+
+  const onNodeClick = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      void navigate({ to: '/model/$id', params: { id: encodeURIComponent(node.id) } });
+    },
+    [navigate]
+  );
 
   return (
-    <div
-      className={`h-[500px] overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-900/40 shadow-xl ring-1 ring-slate-700/50 backdrop-blur-sm sm:h-[600px] lg:h-[700px] ${className}`}
-    >
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeClick={onNodeClick}
-        onNodeMouseEnter={onNodeMouseEnter}
-        onNodeMouseLeave={onNodeMouseLeave}
-        nodeTypes={dagNodeTypes}
-        colorMode="dark"
-        fitView
-        minZoom={0.1}
-        maxZoom={2}
-        defaultEdgeOptions={{
-          type: 'smoothstep',
-          animated: true,
-        }}
-        className="bg-slate-950"
-      >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-        <Controls />
-        <MiniMap
-          nodeColor={node => {
-            if (node.type === 'external') return '#10b981';
-            if (node.type === 'scheduled') return '#10b981';
-            return '#6366f1';
+    <div className={`flex flex-col gap-4 ${className}`}>
+      {/* Search and Controls */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {/* Search Bar */}
+        <div className="relative flex-1 max-w-md">
+          <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search models..."
+            className="w-full rounded-lg border border-slate-700/50 bg-slate-800/60 py-2.5 pl-10 pr-10 text-sm text-slate-200 placeholder-slate-400 transition-all focus:border-indigo-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-200"
+            >
+              <XMarkIcon className="size-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Stats Badge */}
+        <div className="flex items-center gap-2 rounded-lg bg-slate-800/60 px-3 py-2 text-xs font-medium text-slate-300 backdrop-blur-sm">
+          <span>{searchQuery ? `${stats.visible} of ${stats.total}` : `${stats.total}`} models</span>
+          <span className="text-slate-500">·</span>
+          <span className="text-green-400">{stats.external} ext</span>
+          <span className="text-slate-500">·</span>
+          <span className="text-emerald-400">{stats.scheduled} sched</span>
+          <span className="text-slate-500">·</span>
+          <span className="text-indigo-400">{stats.incremental} incr</span>
+        </div>
+      </div>
+
+      {/* Layout Direction Toggle */}
+      <div className="flex items-center gap-2 rounded-lg bg-slate-800/40 p-1 backdrop-blur-sm w-fit">
+        <button
+          onClick={() => setLayoutDirection('TB')}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+            layoutDirection === 'TB'
+              ? 'bg-indigo-500/20 text-indigo-300 shadow-sm'
+              : 'text-slate-400 hover:bg-slate-700/60 hover:text-slate-300'
+          }`}
+        >
+          <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+          </svg>
+          Top → Bottom
+        </button>
+        <button
+          onClick={() => setLayoutDirection('LR')}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+            layoutDirection === 'LR'
+              ? 'bg-indigo-500/20 text-indigo-300 shadow-sm'
+              : 'text-slate-400 hover:bg-slate-700/60 hover:text-slate-300'
+          }`}
+        >
+          <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+          </svg>
+          Left → Right
+        </button>
+        <button
+          onClick={() => setLayoutDirection('RL')}
+          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+            layoutDirection === 'RL'
+              ? 'bg-indigo-500/20 text-indigo-300 shadow-sm'
+              : 'text-slate-400 hover:bg-slate-700/60 hover:text-slate-300'
+          }`}
+        >
+          <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+          Right → Left
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-900/40 shadow-xl ring-1 ring-slate-700/50 backdrop-blur-sm">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeClick={onNodeClick}
+          onNodeMouseEnter={onNodeMouseEnter}
+          onNodeMouseLeave={onNodeMouseLeave}
+          nodeTypes={dagNodeTypes}
+          colorMode="dark"
+          fitView
+          minZoom={0.1}
+          maxZoom={2}
+          defaultEdgeOptions={{
+            type: 'smoothstep',
+            animated: true,
           }}
-        />
-      </ReactFlow>
+          className="bg-slate-950"
+        >
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+          <Controls />
+          <MiniMap
+            nodeColor={node => {
+              if (node.type === 'external') return '#10b981'; // green-500
+              if (node.type === 'scheduled') return '#10b981'; // emerald-500
+              return '#6366f1'; // indigo-500
+            }}
+          />
+        </ReactFlow>
+      </div>
     </div>
   );
+}
+
+export function DagGraph(props: DagGraphProps): JSX.Element {
+  return <DagGraphInner {...props} />;
 }

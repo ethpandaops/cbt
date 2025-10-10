@@ -5,6 +5,9 @@ import {
   listAllModelsOptions,
   listTransformationsOptions,
   listExternalModelsOptions,
+  listExternalBoundsOptions,
+  listTransformationCoverageOptions,
+  getIntervalTypesOptions,
 } from '@api/@tanstack/react-query.gen';
 import { ArrowPathIcon, XCircleIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
 import { ReactFlowProvider } from '@xyflow/react';
@@ -15,6 +18,9 @@ function DagComponent(): JSX.Element {
   const allModels = useQuery(listAllModelsOptions());
   const transformations = useQuery(listTransformationsOptions());
   const externalModels = useQuery(listExternalModelsOptions());
+  const bounds = useQuery(listExternalBoundsOptions());
+  const coverage = useQuery(listTransformationCoverageOptions());
+  const intervalTypes = useQuery(getIntervalTypesOptions());
 
   // Transform API data into DagData format
   const dagData: DagData | null = useMemo(() => {
@@ -26,8 +32,11 @@ function DagComponent(): JSX.Element {
       externalModels: externalModels.data.models,
       incrementalModels: transformations.data.models.filter(m => m.type === 'incremental'),
       scheduledModels: transformations.data.models.filter(m => m.type === 'scheduled'),
+      bounds: bounds.data?.bounds,
+      coverage: coverage.data?.coverage,
+      intervalTypes: intervalTypes.data?.interval_types,
     };
-  }, [allModels.data, transformations.data, externalModels.data]);
+  }, [allModels.data, transformations.data, externalModels.data, bounds.data, coverage.data, intervalTypes.data]);
 
   if (allModels.isLoading || transformations.isLoading || externalModels.isLoading) {
     return (

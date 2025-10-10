@@ -49,23 +49,7 @@ const preview: Preview = {
     },
     options: {
       storySort: {
-        order: [
-          'Components',
-          [
-            'BackToDashboardButton',
-            'ModelHeader',
-            'ModelInfoCard',
-            'ScheduledModelCard',
-            'CoverageBar',
-            'ModelCoverageRow',
-            'ZoomControls',
-            'DagNode',
-            'DagGraph',
-            'DependencyRow',
-            'ModelSearchCombobox',
-          ],
-          '*',
-        ],
+        method: 'alphabetical',
       },
     },
   },

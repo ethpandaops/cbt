@@ -197,7 +197,7 @@ export const WithTransformation: Story = {
     height: 24,
     transformation: {
       name: 'Date',
-      expression: '(x * 12) + 1606824000',
+      expression: '(value * 12) + 1606824000',
       format: 'date',
     },
   },

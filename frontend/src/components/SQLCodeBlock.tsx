@@ -1,5 +1,5 @@
 import { type JSX, useState } from 'react';
-import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { DocumentDuplicateIcon, CheckIcon } from '@heroicons/react/24/outline';
@@ -19,23 +19,6 @@ export function SQLCodeBlock({ sql, title = 'SQL Query' }: SQLCodeBlockProps): J
     await navigator.clipboard.writeText(sql);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  // Custom dark theme matching your design
-  const customStyle = {
-    ...vscDarkPlus,
-    'code[class*="language-"]': {
-      ...vscDarkPlus['code[class*="language-"]'],
-      background: 'transparent',
-      fontSize: '0.875rem',
-      lineHeight: '1.5',
-    },
-    'pre[class*="language-"]': {
-      ...vscDarkPlus['pre[class*="language-"]'],
-      background: 'transparent',
-      margin: 0,
-      padding: 0,
-    },
   };
 
   return (
@@ -63,11 +46,13 @@ export function SQLCodeBlock({ sql, title = 'SQL Query' }: SQLCodeBlockProps): J
       <div className="max-h-96 overflow-auto p-4">
         <SyntaxHighlighter
           language="sql"
-          style={customStyle}
+          style={vscDarkPlus}
           customStyle={{
             background: 'transparent',
             padding: 0,
             margin: 0,
+            fontSize: '0.875rem',
+            lineHeight: '1.5',
           }}
           wrapLongLines
         >

@@ -138,6 +138,15 @@ export function ModelDetailView({
     { label: 'Content Type', value: transformation?.content_type, variant: 'highlight', highlightColor: 'indigo' },
   ];
 
+  // Add interval type if available - use transformation name if available, otherwise fall back to interval.type
+  if (transformation?.interval?.type) {
+    const transformationName = currentTransformation?.name;
+    infoFields.push({
+      label: 'Interval Type',
+      value: transformationName || transformation.interval.type,
+    });
+  }
+
   if (transformation?.description) {
     infoFields.push({ label: 'Description', value: transformation.description });
   }

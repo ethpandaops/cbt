@@ -75,7 +75,7 @@ export const WithTransformation: Story = {
     zoomEnd: 1000,
     transformation: {
       name: 'Slot Number',
-      expression: 'x',
+      expression: 'value',
     },
   },
 };

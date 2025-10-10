@@ -101,7 +101,10 @@ function ModelDetailComponent(): JSX.Element {
     }
 
     if (extModel?.interval?.type) {
-      fields.push({ label: 'Interval Type', value: extModel.interval.type });
+      // Use transformation name if available, otherwise fall back to interval.type
+      const intervalType = extModel.interval.type;
+      const transformation = intervalTypes.data?.interval_types?.[intervalType]?.[0];
+      fields.push({ label: 'Interval Type', value: transformation?.name || intervalType });
     }
 
     if (bounds) {

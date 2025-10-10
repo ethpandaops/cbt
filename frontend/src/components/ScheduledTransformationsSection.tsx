@@ -28,7 +28,9 @@ export function ScheduledTransformationsSection(): JSX.Element {
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {scheduledTransformations.data?.models.map(model => {
         const modelRun = runs.data?.runs.find(r => r.id === model.id);
-        return <ScheduledModelCard key={model.id} id={model.id} lastRun={modelRun?.last_run} />;
+        return (
+          <ScheduledModelCard key={model.id} id={model.id} lastRun={modelRun?.last_run} schedule={model.schedule} />
+        );
       })}
     </div>
   );

@@ -50,7 +50,7 @@ export const WithTransformation: Story = {
     zoomEnd: 10480000,
     transformation: {
       name: 'Date',
-      expression: '(x * 12) + 1606824000',
+      expression: '(value * 12) + 1606824000',
       format: 'date',
     },
     onZoomChange: (start, end) => console.log('Zoom changed:', start, end),
