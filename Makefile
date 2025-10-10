@@ -1,6 +1,4 @@
-.PHONY: all generate-api generate-frontend-types build-frontend
-
-all: generate-api generate-frontend-types build-frontend
+.PHONY: generate-api generate-frontend-types build-frontend
 
 generate-api:
 	@oapi-codegen -generate fiber,types,spec -package generated -o pkg/api/generated/server.gen.go api/openapi.yaml
