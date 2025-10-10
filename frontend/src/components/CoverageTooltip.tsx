@@ -110,7 +110,7 @@ export function CoverageTooltip({
         tooltips.push({
           modelId,
           content: coverageContent,
-          rowTop: barTop + window.scrollY,
+          rowTop: barTop,
           barHeight: coverageBarRect?.height || 24,
           positionX: mouseX,
           isMissing: false,
@@ -148,7 +148,7 @@ export function CoverageTooltip({
         tooltips.push({
           modelId,
           content: missingContent,
-          rowTop: barTop + window.scrollY,
+          rowTop: barTop,
           barHeight: coverageBarRect?.height || 24,
           positionX: mouseX,
           isMissing: true,
@@ -211,7 +211,7 @@ export function CoverageTooltip({
             ref={el => {
               if (el) tooltipRefs.current.set(tooltip.modelId, el);
             }}
-            className={`absolute whitespace-nowrap rounded px-2 py-1 text-xs text-white opacity-100 shadow-lg ring-1 ${
+            className={`fixed whitespace-nowrap rounded px-2 py-1 text-xs text-white opacity-100 shadow-lg ring-1 ${
               tooltip.isMissing ? 'bg-red-900/90 ring-red-500/30' : 'bg-gray-900 ring-white/10'
             }`}
             style={{
