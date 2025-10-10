@@ -33,14 +33,14 @@ export function ModelHeader({ modelId, modelType }: ModelHeaderProps): JSX.Eleme
   const config = typeConfig[modelType];
 
   return (
-    <div className="mb-6 flex items-baseline gap-4">
+    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:gap-4">
       <h1
-        className={`bg-gradient-to-r ${config.gradient} bg-clip-text text-4xl font-black tracking-tight text-transparent`}
+        className={`bg-linear-to-r ${config.gradient} bg-clip-text text-2xl font-black tracking-tight text-transparent sm:text-3xl lg:text-4xl`}
       >
         {modelId}
       </h1>
       <span
-        className={`rounded-full ${config.badgeBg} px-3 py-1 text-xs font-bold ${config.badgeText} ring-1 ${config.badgeRing}`}
+        className={`w-fit rounded-full ${config.badgeBg} px-3 py-1 text-xs font-bold ${config.badgeText} ring-1 ${config.badgeRing}`}
       >
         {config.label}
       </span>

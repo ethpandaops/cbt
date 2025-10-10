@@ -204,7 +204,7 @@ export function DagGraph({ data, className = '', showLinks = true }: DagGraphPro
 
   return (
     <div
-      className={`overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-900/40 shadow-xl ring-1 ring-slate-700/50 backdrop-blur-sm ${className}`}
+      className={`h-[500px] overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-900/40 shadow-xl ring-1 ring-slate-700/50 backdrop-blur-sm sm:h-[600px] lg:h-[700px] ${className}`}
     >
       <ReactFlow
         nodes={nodes}

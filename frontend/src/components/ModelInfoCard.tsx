@@ -20,7 +20,7 @@ export function ModelInfoCard({
   borderColor = 'border-indigo-500/30',
   columns = 2,
 }: ModelInfoCardProps): JSX.Element {
-  const gridCols = columns === 4 ? 'grid-cols-2 lg:grid-cols-4' : 'grid-cols-2';
+  const gridCols = columns === 4 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2';
 
   const getFieldClassName = (field: InfoField): string => {
     if (field.variant === 'highlight') {
@@ -66,10 +66,10 @@ export function ModelInfoCard({
 
   return (
     <div
-      className={`rounded-2xl border ${borderColor} bg-slate-800/80 p-6 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm`}
+      className={`rounded-2xl border ${borderColor} bg-slate-800/80 p-4 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm sm:p-6`}
     >
-      <h2 className="mb-4 text-lg font-bold text-slate-100">{title}</h2>
-      <dl className={`grid ${gridCols} gap-x-6 gap-y-4 text-sm`}>
+      <h2 className="mb-3 text-base font-bold text-slate-100 sm:mb-4 sm:text-lg">{title}</h2>
+      <dl className={`grid ${gridCols} gap-x-4 gap-y-3 text-sm sm:gap-x-6 sm:gap-y-4`}>
         {fields.map((field, index) => (
           <div key={index} className={getFieldClassName(field)}>
             <dt className={getLabelClassName(field)}>{field.label}</dt>

@@ -30,20 +30,20 @@ export function ZoomControls({
   const isResetDisabled = zoomStart === globalMin && zoomEnd === globalMax;
 
   return (
-    <div className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-4">
-      <div className="mb-2 flex items-center justify-between">
+    <div className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-3 sm:p-4">
+      <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-xs font-semibold text-slate-400">
           {transformationName || transformation?.name || 'Zoom Range'}
         </span>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {showResetButton && onResetZoom && (
             <button
               onClick={onResetZoom}
               disabled={isResetDisabled}
-              className="group/btn rounded-lg bg-slate-700 px-3 py-1.5 text-slate-300 shadow-sm ring-1 ring-slate-600/50 transition-all hover:bg-indigo-500/20 hover:text-indigo-300 hover:ring-indigo-500/50 disabled:cursor-not-allowed disabled:opacity-40"
+              className="group/btn rounded-lg bg-slate-700 px-2.5 py-1.5 text-slate-300 shadow-sm ring-1 ring-slate-600/50 transition-all hover:bg-indigo-500/20 hover:text-indigo-300 hover:ring-indigo-500/50 disabled:cursor-not-allowed disabled:opacity-40 sm:px-3"
               title="Reset Zoom"
             >
-              <ArrowsPointingOutIcon className="size-4 transition-transform group-hover/btn:scale-110" />
+              <ArrowsPointingOutIcon className="size-3.5 transition-transform group-hover/btn:scale-110 sm:size-4" />
             </button>
           )}
           <span className="font-mono text-xs text-slate-500">

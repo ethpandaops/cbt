@@ -198,18 +198,18 @@ export function IncrementalModelsSection({
         return (
           <div
             key={intervalType}
-            className="group relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-6 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm transition-all duration-300 hover:shadow-lg hover:ring-indigo-500/50"
+            className="group relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-4 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm transition-all duration-300 hover:shadow-lg hover:ring-indigo-500/50 sm:p-6"
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-transparent to-purple-500/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+            <div className="absolute inset-0 bg-linear-to-br from-indigo-500/10 via-transparent to-purple-500/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
             <div className="relative">
-              <div className="mb-6 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <h3 className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-xl font-black tracking-tight text-transparent">
+              <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <h3 className="bg-linear-to-r from-indigo-400 to-purple-400 bg-clip-text text-lg font-black tracking-tight text-transparent sm:text-xl">
                     {intervalType}
                   </h3>
                   {/* Transformation selector buttons - only show if there are 2+ transformations */}
                   {transformations.length > 1 && (
-                    <div className="flex gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
+                    <div className="flex flex-wrap gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
                       {transformations.map((transformation, index) => (
                         <button
                           key={index}
@@ -219,7 +219,7 @@ export function IncrementalModelsSection({
                               [intervalType]: index,
                             }))
                           }
-                          className={`rounded-md px-3 py-1 text-xs font-semibold transition-all ${
+                          className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-all sm:px-3 ${
                             selectedTransformationIndex === index
                               ? 'bg-indigo-500 text-white shadow-sm'
                               : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
@@ -232,7 +232,7 @@ export function IncrementalModelsSection({
                     </div>
                   )}
                 </div>
-                <div className="rounded-lg bg-slate-900/60 px-4 py-2 font-mono text-xs font-semibold text-slate-300 ring-1 ring-slate-700/50">
+                <div className="w-fit rounded-lg bg-slate-900/60 px-3 py-1.5 font-mono text-xs font-semibold text-slate-300 ring-1 ring-slate-700/50 sm:px-4 sm:py-2">
                   {currentTransformation
                     ? `${formatValue(transformValue(zoomStart, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(zoomEnd, currentTransformation), currentTransformation.format)}`
                     : `${zoomStart.toLocaleString()} - ${zoomEnd.toLocaleString()}`}

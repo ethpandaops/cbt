@@ -1,6 +1,7 @@
 import { type JSX } from 'react';
-import { createRootRoute, Outlet, Link } from '@tanstack/react-router';
+import { createRootRoute, Outlet, Link, useRouterState, useNavigate } from '@tanstack/react-router';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { Tab, TabGroup, TabList } from '@headlessui/react';
 import {
   listAllModelsOptions,
   listExternalModelsOptions,
@@ -67,6 +68,21 @@ function BackgroundPoller(): null {
 }
 
 function RootComponent(): JSX.Element {
+  const navigate = useNavigate();
+  const routerState = useRouterState();
+  const currentPath = routerState.location.pathname;
+
+  // Determine selected tab index based on current route
+  const selectedIndex = currentPath === '/dag' ? 1 : 0;
+
+  const handleTabChange = (index: number): void => {
+    if (index === 0) {
+      void navigate({ to: '/' });
+    } else if (index === 1) {
+      void navigate({ to: '/dag' });
+    }
+  };
+
   return (
     <QueryClientProvider client={queryClient}>
       <BackgroundPoller />
@@ -80,41 +96,39 @@ function RootComponent(): JSX.Element {
 
         <header className="relative border-b border-slate-700/50 bg-slate-900/60 shadow-xl backdrop-blur-xl">
           <div className="mx-auto max-w-screen-2xl px-4 py-6 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-indigo-500/30 to-purple-500/30 blur-lg" />
+            <div className="flex items-center gap-6">
+              <div className="relative group">
+                <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-indigo-500/40 via-purple-500/40 to-pink-500/40 blur-xl transition-all duration-300 group-hover:blur-2xl group-hover:from-indigo-500/50 group-hover:via-purple-500/50 group-hover:to-pink-500/50" />
+                <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 blur-md" />
                 <img
                   src={Logo}
-                  className="relative size-14 rounded-xl object-contain p-2 ring-1 ring-slate-700/50 backdrop-blur-sm"
+                  className="relative size-14 rounded-2xl object-contain backdrop-blur-sm transition-all duration-300 group-hover:scale-105 md:size-20"
                   alt="Logo"
                 />
               </div>
               <div className="flex flex-1 items-center justify-between">
                 <div>
                   <Link to="/" className="group inline-flex items-baseline gap-3 transition-all">
-                    <h1 className="bg-gradient-to-r from-indigo-400 via-purple-400 to-indigo-400 bg-clip-text text-3xl font-black tracking-tight text-transparent transition-all group-hover:from-indigo-300 group-hover:via-purple-300 group-hover:to-indigo-300">
-                      CBT Dashboard
+                    <h1 className="bg-gradient-to-r from-orange-400 via-amber-400 to-orange-400 bg-clip-text text-3xl font-black tracking-tight text-transparent transition-all group-hover:from-orange-300 group-hover:via-amber-300 group-hover:to-orange-300">
+                      <span className="md:hidden">CBT</span>
+                      <span className="hidden md:inline">CBT Dashboard</span>
                     </h1>
                   </Link>
-                  <p className="mt-1.5 text-sm font-medium text-slate-400">
+                  <p className="mt-1.5 hidden text-sm font-medium text-slate-400 md:block">
                     ClickHouse Build Tool · Real-time Model Coverage Analytics
                   </p>
                 </div>
-                <nav className="flex items-center gap-4">
-                  <Link
-                    to="/"
-                    className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-300 transition-all hover:bg-slate-800/60 hover:text-indigo-400 [&.active]:bg-indigo-500/20 [&.active]:text-indigo-300"
-                    activeProps={{ className: 'active' }}
-                  >
-                    Dashboard
-                  </Link>
-                  <Link
-                    to="/dag"
-                    className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-300 transition-all hover:bg-slate-800/60 hover:text-indigo-400 [&.active]:bg-indigo-500/20 [&.active]:text-indigo-300"
-                    activeProps={{ className: 'active' }}
-                  >
-                    DAG View
-                  </Link>
+                <nav>
+                  <TabGroup selectedIndex={selectedIndex} onChange={handleTabChange}>
+                    <TabList className="flex items-center gap-1 rounded-lg bg-slate-800/40 p-1">
+                      <Tab className="rounded-md px-4 py-2 text-sm font-semibold text-slate-300 transition-all hover:bg-slate-700/60 hover:text-indigo-400 data-[selected]:bg-indigo-500/20 data-[selected]:text-indigo-300 data-[selected]:shadow-sm focus:outline-none">
+                        Dashboard
+                      </Tab>
+                      <Tab className="rounded-md px-4 py-2 text-sm font-semibold text-slate-300 transition-all hover:bg-slate-700/60 hover:text-indigo-400 data-[selected]:bg-indigo-500/20 data-[selected]:text-indigo-300 data-[selected]:shadow-sm focus:outline-none">
+                        DAG View
+                      </Tab>
+                    </TabList>
+                  </TabGroup>
                 </nav>
               </div>
             </div>

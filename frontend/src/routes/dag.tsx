@@ -52,32 +52,32 @@ function DagComponent(): JSX.Element {
   }
 
   return (
-    <div className="fixed inset-0 top-[120px] flex flex-col px-6 pb-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-baseline gap-4">
-          <h1 className="bg-gradient-to-r from-indigo-400 via-purple-400 to-indigo-400 bg-clip-text text-4xl font-black tracking-tight text-transparent">
+    <div className="fixed inset-0 top-[130px] flex flex-col px-4 pb-4 md:top-[150px] sm:px-6 sm:pb-6">
+      <div className="mb-4 flex flex-col gap-4 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-baseline sm:gap-4">
+          <h1 className="bg-linear-to-r from-indigo-400 via-purple-400 to-indigo-400 bg-clip-text text-2xl font-black tracking-tight text-transparent sm:text-3xl lg:text-4xl">
             Dependency DAG
           </h1>
-          <div className="flex items-center gap-3 text-xs">
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-sm bg-green-500" />
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="size-2.5 rounded-sm bg-green-500 sm:size-3" />
               <span className="font-medium text-slate-400">External</span>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-sm bg-emerald-500" />
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="size-2.5 rounded-sm bg-emerald-500 sm:size-3" />
               <span className="font-medium text-slate-400">Scheduled</span>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-sm bg-indigo-500" />
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="size-2.5 rounded-sm bg-indigo-500 sm:size-3" />
               <span className="font-medium text-slate-400">Incremental</span>
             </div>
           </div>
         </div>
         <Link
           to="/"
-          className="group inline-flex items-center gap-2 rounded-lg bg-slate-800/60 px-4 py-2 text-sm font-medium text-slate-300 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm transition-all hover:bg-slate-800/80 hover:text-indigo-400 hover:shadow-md hover:ring-indigo-500/50"
+          className="group inline-flex w-fit items-center gap-1.5 rounded-lg bg-slate-800/60 px-3 py-1.5 text-xs font-medium text-slate-300 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm transition-all hover:bg-slate-800/80 hover:text-indigo-400 hover:shadow-md hover:ring-indigo-500/50 sm:gap-2 sm:px-4 sm:py-2 sm:text-sm"
         >
-          <ArrowLeftIcon className="size-4 transition-transform group-hover:-translate-x-0.5" />
+          <ArrowLeftIcon className="size-3.5 transition-transform group-hover:-translate-x-0.5 sm:size-4" />
           Back to Dashboard
         </Link>
       </div>

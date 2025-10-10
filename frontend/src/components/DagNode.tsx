@@ -51,17 +51,17 @@ function DagNodeContent({ isHighlighted, isDimmed, label, type }: DagNodeBasePro
   const colorClass = `text-${config.color}-300`;
   const bgClass = `bg-${config.color}-500`;
 
-  const className = `block rounded-lg border-2 p-4 shadow-lg ring-1 backdrop-blur-sm transition-all hover:scale-105 hover:shadow-xl ${
+  const className = `block rounded-lg border-2 p-3 shadow-lg ring-1 backdrop-blur-sm transition-all hover:scale-105 hover:shadow-xl sm:p-4 ${
     isHighlighted ? config.highlightedClasses : isDimmed ? config.dimmedClasses : config.defaultClasses
   }`;
 
   return (
     <div className={className}>
-      <div className="flex items-center gap-2">
-        <div className={`h-2 w-2 rounded-full ${bgClass}`} />
+      <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className={`size-1.5 rounded-full sm:size-2 ${bgClass}`} />
         <div className={`font-mono text-xs font-bold ${colorClass}`}>{config.badge}</div>
       </div>
-      <div className="mt-2 font-mono text-sm font-semibold text-slate-100" title={label}>
+      <div className="mt-1.5 font-mono text-xs font-semibold text-slate-100 sm:mt-2 sm:text-sm" title={label}>
         {label}
       </div>
     </div>

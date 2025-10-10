@@ -84,7 +84,7 @@ export function ModelCoverageRow({
 
   return (
     <div
-      className={`group/row flex items-center gap-3 rounded-lg p-2 transition-all ${
+      className={`group/row flex flex-col gap-2 rounded-lg p-2 transition-all sm:flex-row sm:items-center sm:gap-3 ${
         isHighlighted
           ? 'bg-indigo-500/20 ring-2 ring-indigo-500/50'
           : isDimmed
@@ -94,7 +94,7 @@ export function ModelCoverageRow({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <div className={`flex ${nameWidth} shrink-0 items-center gap-2`}>
+      <div className={`flex shrink-0 items-center gap-2 ${nameWidth}`}>
         {showLink ? (
           <Link
             to="/model/$id"

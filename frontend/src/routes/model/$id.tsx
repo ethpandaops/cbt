@@ -117,8 +117,8 @@ function ModelDetailComponent(): JSX.Element {
 
     return (
       <div>
-        <BackToDashboardButton />
         <ModelHeader modelId={decodedId} modelType="external" />
+        <BackToDashboardButton />
         <ModelInfoCard title="Model Information" fields={fields} borderColor="border-green-500/30" />
       </div>
     );
@@ -164,8 +164,8 @@ function ModelDetailComponent(): JSX.Element {
 
     return (
       <div>
-        <BackToDashboardButton />
         <ModelHeader modelId={decodedId} modelType="scheduled" />
+        <BackToDashboardButton />
         <ModelInfoCard title="Transformation Details" fields={fields} borderColor="border-emerald-500/30" />
       </div>
     );
@@ -240,24 +240,24 @@ function ModelDetailComponent(): JSX.Element {
 
   return (
     <div>
-      <BackToDashboardButton />
       <ModelHeader modelId={decodedId} modelType="incremental" />
+      <BackToDashboardButton />
       <div className="mb-6">
         <ModelInfoCard title="Model Information" fields={infoFields} borderColor="border-indigo-500/30" columns={4} />
       </div>
 
-      <div className="rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-6 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm">
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h2 className="text-lg font-bold text-slate-100">Coverage Analysis</h2>
+      <div className="rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-4 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm sm:p-6">
+        <div className="mb-4 flex flex-col gap-4 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+            <h2 className="text-base font-bold text-slate-100 sm:text-lg">Coverage Analysis</h2>
             {/* Transformation selector buttons - only show if there are 2+ transformations */}
             {transformations.length > 1 && (
-              <div className="flex gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
+              <div className="flex flex-wrap gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
                 {transformations.map((transformation, index) => (
                   <button
                     key={index}
                     onClick={() => setSelectedTransformationIndex(index)}
-                    className={`rounded-md px-3 py-1 text-xs font-semibold transition-all ${
+                    className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-all sm:px-3 ${
                       selectedTransformationIndex === index
                         ? 'bg-indigo-500 text-white shadow-sm'
                         : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
@@ -270,17 +270,17 @@ function ModelDetailComponent(): JSX.Element {
               </div>
             )}
           </div>
-          <div className="flex items-center gap-4 text-xs">
-            <div className="flex items-center gap-2">
-              <div className="size-3 rounded-sm bg-indigo-500" />
+          <div className="flex flex-wrap items-center gap-3 text-xs sm:gap-4">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="size-2.5 rounded-sm bg-indigo-500 sm:size-3" />
               <span className="font-medium text-slate-400">This Model</span>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="size-3 rounded-sm bg-indigo-400" />
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="size-2.5 rounded-sm bg-indigo-400 sm:size-3" />
               <span className="font-medium text-slate-400">Dependencies (Transform)</span>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="size-3 rounded-sm bg-green-500" />
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="size-2.5 rounded-sm bg-green-500 sm:size-3" />
               <span className="font-medium text-slate-400">Dependencies (External)</span>
             </div>
           </div>
@@ -288,9 +288,9 @@ function ModelDetailComponent(): JSX.Element {
 
         {/* Main model coverage */}
         <div className="mb-6">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="font-mono text-sm font-bold text-slate-200">{decodedId}</span>
-            <span className="rounded-lg bg-slate-900/60 px-3 py-1 font-mono text-xs font-semibold text-slate-300">
+          <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <span className="truncate font-mono text-xs font-bold text-slate-200 sm:text-sm">{decodedId}</span>
+            <span className="w-fit rounded-lg bg-slate-900/60 px-2.5 py-1 font-mono text-xs font-semibold text-slate-300 sm:px-3">
               {currentTransformation
                 ? `${formatValue(transformValue(currentZoom.start, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(currentZoom.end, currentTransformation), currentTransformation.format)}`
                 : `${currentZoom.start.toLocaleString()} - ${currentZoom.end.toLocaleString()}`}
