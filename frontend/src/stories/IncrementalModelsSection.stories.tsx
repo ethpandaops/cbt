@@ -2,6 +2,13 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { fn } from 'storybook/test';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { IncrementalModelsSection } from '@/components/IncrementalModelsSection';
+import {
+  listTransformationsQueryKey,
+  listTransformationCoverageQueryKey,
+  listExternalModelsQueryKey,
+  listExternalBoundsQueryKey,
+  getIntervalTypesQueryKey,
+} from '@api/@tanstack/react-query.gen';
 import type {
   ListTransformationsResponse,
   ListTransformationCoverageResponse,
@@ -47,27 +54,29 @@ const meta = {
 
       const mockData = storyParams.mockData || {};
 
-      // Pre-populate the QueryClient cache
+      // Pre-populate the QueryClient cache using the actual query key generators
       if (mockData.transformations) {
-        queryClient.setQueryData(['/api/v1/transformations'], mockData.transformations);
+        queryClient.setQueryData(listTransformationsQueryKey(), mockData.transformations);
       }
       if (mockData.coverage) {
-        queryClient.setQueryData(['/api/v1/transformation-coverage'], mockData.coverage);
+        queryClient.setQueryData(listTransformationCoverageQueryKey(), mockData.coverage);
       }
       if (mockData.externalModels) {
-        queryClient.setQueryData(['/api/v1/external-models'], mockData.externalModels);
+        queryClient.setQueryData(listExternalModelsQueryKey(), mockData.externalModels);
       }
       if (mockData.bounds) {
-        queryClient.setQueryData(['/api/v1/external-bounds'], mockData.bounds);
+        queryClient.setQueryData(listExternalBoundsQueryKey(), mockData.bounds);
       }
       if (mockData.intervalTypes) {
-        queryClient.setQueryData(['/api/v1/interval-types'], mockData.intervalTypes);
+        queryClient.setQueryData(getIntervalTypesQueryKey(), mockData.intervalTypes);
       }
+
+      const storyArgs = context.args as React.ComponentProps<typeof IncrementalModelsSection>;
 
       return (
         <QueryClientProvider client={queryClient}>
           <div className="bg-slate-950 p-8">
-            <Story />
+            <IncrementalModelsSection {...storyArgs} />
           </div>
         </QueryClientProvider>
       );
