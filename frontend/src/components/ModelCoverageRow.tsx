@@ -133,7 +133,6 @@ export function ModelCoverageRow({
           zoomEnd={zoomEnd}
           type={isScheduled ? 'scheduled' : model.type}
           transformation={transformation}
-          tooltipId="chunk-tooltip"
         />
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { type JSX, useState } from 'react';
 import type { IncrementalModelItem, ZoomRange } from '@/types';
 import type { IntervalTypeTransformation } from '@api/types.gen';
+import { Tab, TabGroup, TabList } from '@headlessui/react';
 import { ModelCoverageRow } from './ModelCoverageRow';
 import { ZoomControls } from './ZoomControls';
 
@@ -50,24 +51,21 @@ export function IntervalTypeSection({
             <h3 className="bg-linear-to-r from-indigo-400 to-purple-400 bg-clip-text text-lg font-black tracking-tight text-transparent sm:text-xl">
               {intervalType}
             </h3>
-            {/* Transformation selector buttons - only show if there are 2+ transformations */}
+            {/* Transformation selector tabs - only show if there are 2+ transformations */}
             {transformations.length > 1 && (
-              <div className="flex flex-wrap gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
-                {transformations.map((transformation, index) => (
-                  <button
-                    key={index}
-                    onClick={() => setSelectedTransformationIndex(index)}
-                    className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-all sm:px-3 ${
-                      selectedTransformationIndex === index
-                        ? 'bg-indigo-500 text-white shadow-sm'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    }`}
-                    title={transformation.expression || 'No transformation'}
-                  >
-                    {transformation.name}
-                  </button>
-                ))}
-              </div>
+              <TabGroup selectedIndex={selectedTransformationIndex} onChange={setSelectedTransformationIndex}>
+                <TabList className="flex flex-wrap gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
+                  {transformations.map((transformation, index) => (
+                    <Tab
+                      key={index}
+                      className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-400 transition-all hover:bg-slate-800 hover:text-slate-200 data-[selected]:bg-indigo-500 data-[selected]:text-white data-[selected]:shadow-sm focus:outline-none sm:px-3"
+                      title={transformation.expression || 'No transformation'}
+                    >
+                      {transformation.name}
+                    </Tab>
+                  ))}
+                </TabList>
+              </TabGroup>
             )}
           </div>
           <div className="w-fit rounded-lg bg-slate-900/60 px-3 py-1.5 font-mono text-xs font-semibold text-slate-300 ring-1 ring-slate-700/50 sm:px-4 sm:py-2">

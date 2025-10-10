@@ -56,5 +56,17 @@ export default tseslint.config(
       },
     },
   },
-  storybook.configs['flat/recommended']
+  storybook.configs['flat/recommended'],
+  {
+    files: ['**/.storybook/**/*.{js,ts}'],
+    rules: {
+      'storybook/no-uninstalled-addons': [
+        'error',
+        {
+          packageJsonLocation: './package.json',
+          ignore: ['storybook/viewport'],
+        },
+      ],
+    },
+  }
 );

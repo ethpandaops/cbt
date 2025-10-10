@@ -278,11 +278,7 @@ export function IncrementalModelsSection({
           </div>
         );
       })}
-      <Tooltip
-        id="chunk-tooltip"
-        className="!bg-gray-900 !text-white !text-xs !px-2 !py-1 !rounded !opacity-100"
-        place="top"
-      />
+      <Tooltip id="coverage-tooltip" className="!bg-gray-900 !text-white !text-xs !px-2 !py-1 !rounded !opacity-100" />
     </div>
   );
 }

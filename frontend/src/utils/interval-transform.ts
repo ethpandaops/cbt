@@ -67,15 +67,32 @@ export function formatValue(value: number, format?: string): string {
     case 'datetime': {
       // Assume value is a Unix timestamp in milliseconds
       const date = new Date(value);
-      return date.toLocaleString();
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      });
     }
     case 'date': {
       const date = new Date(value);
-      return date.toLocaleDateString();
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
     }
     case 'time': {
       const date = new Date(value);
-      return date.toLocaleTimeString();
+      return date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      });
     }
     case 'duration': {
       // Format as human-readable duration

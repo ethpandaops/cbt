@@ -11,7 +11,6 @@ export interface DependencyRowProps {
   zoomStart: number;
   zoomEnd: number;
   transformation?: IntervalTypeTransformation;
-  tooltipId?: string;
   showLink?: boolean;
 }
 
@@ -23,7 +22,6 @@ export function DependencyRow({
   zoomStart,
   zoomEnd,
   transformation,
-  tooltipId,
   showLink = true,
 }: DependencyRowProps): JSX.Element {
   const badgeConfig = {
@@ -67,7 +65,6 @@ export function DependencyRow({
         type={type}
         height={48}
         transformation={transformation}
-        tooltipId={tooltipId}
       />
     </div>
   );

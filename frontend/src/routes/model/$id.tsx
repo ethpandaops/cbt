@@ -13,6 +13,7 @@ import {
 } from '@api/@tanstack/react-query.gen';
 import type { IntervalTypeTransformation } from '@api/types.gen';
 import { ArrowPathIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { Tab, TabGroup, TabList } from '@headlessui/react';
 import { BackToDashboardButton } from '@/components/BackToDashboardButton';
 import { ModelHeader } from '@/components/ModelHeader';
 import { ModelInfoCard, type InfoField } from '@/components/ModelInfoCard';
@@ -250,24 +251,21 @@ function ModelDetailComponent(): JSX.Element {
         <div className="mb-4 flex flex-col gap-4 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
             <h2 className="text-base font-bold text-slate-100 sm:text-lg">Coverage Analysis</h2>
-            {/* Transformation selector buttons - only show if there are 2+ transformations */}
+            {/* Transformation selector tabs - only show if there are 2+ transformations */}
             {transformations.length > 1 && (
-              <div className="flex flex-wrap gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
-                {transformations.map((transformation, index) => (
-                  <button
-                    key={index}
-                    onClick={() => setSelectedTransformationIndex(index)}
-                    className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-all sm:px-3 ${
-                      selectedTransformationIndex === index
-                        ? 'bg-indigo-500 text-white shadow-sm'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    }`}
-                    title={transformation.expression || 'No transformation'}
-                  >
-                    {transformation.name}
-                  </button>
-                ))}
-              </div>
+              <TabGroup selectedIndex={selectedTransformationIndex} onChange={setSelectedTransformationIndex}>
+                <TabList className="flex flex-wrap gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
+                  {transformations.map((transformation, index) => (
+                    <Tab
+                      key={index}
+                      className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-400 transition-all hover:bg-slate-800 hover:text-slate-200 data-[selected]:bg-indigo-500 data-[selected]:text-white data-[selected]:shadow-sm focus:outline-none sm:px-3"
+                      title={transformation.expression || 'No transformation'}
+                    >
+                      {transformation.name}
+                    </Tab>
+                  ))}
+                </TabList>
+              </TabGroup>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-3 text-xs sm:gap-4">
@@ -303,7 +301,6 @@ function ModelDetailComponent(): JSX.Element {
             type="transformation"
             height={96}
             transformation={currentTransformation}
-            tooltipId="coverage-tooltip"
           />
         </div>
 
@@ -333,7 +330,6 @@ function ModelDetailComponent(): JSX.Element {
                     zoomStart={currentZoom.start}
                     zoomEnd={currentZoom.end}
                     transformation={currentTransformation}
-                    tooltipId="coverage-tooltip"
                   />
                 );
               })}
