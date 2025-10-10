@@ -11,7 +11,7 @@ import {
   type Edge,
   getIncomers,
 } from '@xyflow/react';
-import dagre from 'dagre';
+import dagre from '@dagrejs/dagre';
 import { ExternalNode, TransformationNode, ScheduledNode } from './DagNode';
 import '@xyflow/react/dist/style.css';
 

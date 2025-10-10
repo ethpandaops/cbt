@@ -1,7 +1,11 @@
 import { type JSX, useState } from 'react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
+import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { DocumentDuplicateIcon, CheckIcon } from '@heroicons/react/24/outline';
+
+// Register only SQL language to reduce bundle size
+SyntaxHighlighter.registerLanguage('sql', sql);
 
 export interface SQLCodeBlockProps {
   sql: string;

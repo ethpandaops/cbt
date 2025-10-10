@@ -13,8 +13,9 @@ export default defineConfig({
       runtimeConfigPath: '../utils/api-config.ts',
     },
     {
-      metadata: true,
       name: 'zod',
+      compatibilityVersion: 'mini',
+      metadata: false,
     },
     '@tanstack/react-query',
     {
