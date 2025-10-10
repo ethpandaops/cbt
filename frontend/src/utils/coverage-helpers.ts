@@ -17,34 +17,6 @@ export function findCoverageAtPosition(ranges: Range[] | undefined, position: nu
 }
 
 /**
- * Calculate pixel position for a data position within zoom range
- */
-export function calculatePixelPosition(
-  dataPosition: number,
-  zoomStart: number,
-  zoomEnd: number,
-  containerWidth: number
-): number {
-  const range = zoomEnd - zoomStart || 1;
-  const percent = ((dataPosition - zoomStart) / range) * 100;
-  return (percent / 100) * containerWidth;
-}
-
-/**
- * Calculate data position from pixel position within zoom range
- */
-export function calculateDataPosition(
-  pixelX: number,
-  containerWidth: number,
-  zoomStart: number,
-  zoomEnd: number
-): number {
-  const percent = (pixelX / containerWidth) * 100;
-  const range = zoomEnd - zoomStart;
-  return zoomStart + (percent / 100) * range;
-}
-
-/**
  * Merge adjacent/overlapping ranges (same logic as CoverageBar)
  */
 export function mergeRanges(ranges: Range[]): Range[] {
