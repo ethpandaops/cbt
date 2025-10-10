@@ -1,3 +1,5 @@
+version: 2
+
 project_name: cbt
 
 before:
@@ -5,6 +7,7 @@ before:
     - go mod tidy
     - go generate ./...
     - make build-frontend
+
 builds:
   - env:
       - CGO_ENABLED=0
@@ -28,10 +31,13 @@ builds:
     ldflags:
       - -s -w -X github.com/ethpandaops/cbt/pkg/proto/cbt.Release={{.Tag}} -X github.com/ethpandaops/cbt/pkg/proto/cbt.GitCommit={{.ShortCommit}}
     mod_timestamp: "{{ .CommitTimestamp }}"
+
 checksum:
   name_template: 'checksums.txt'
+
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-next"
+
 changelog:
   sort: asc
   filters:
@@ -94,6 +100,7 @@ dockers:
       - "--label=org.opencontainers.image.title={{.ProjectName}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
+
 docker_manifests:
   ## Scratch
   - name_template: ethpandaops/{{ .ProjectName }}:{{ .Version }}
