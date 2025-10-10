@@ -7,94 +7,869 @@ servers:
   - url: http://localhost:8080/api/v1
 
 paths:
+  # ============================================
+  # CROSS-CUTTING (all models)
+  # ============================================
   /models:
     get:
-      summary: List all models
-      operationId: getModels
+      summary: List all models (lightweight)
+      operationId: listAllModels
+      tags:
+        - Models
+      description: |
+        Returns a lightweight list of all models across all types.
+        Use this for navigation, search, or building dependency graphs.
+        For full model details, use type-specific endpoints.
       parameters:
         - name: type
           in: query
+          description: Filter by model type
           schema:
             type: string
-            enum: [transformation, external]
+            enum: [external, transformation]
         - name: database
           in: query
+          description: Filter by database name
           schema:
             type: string
+          example: analytics
+        - name: search
+          in: query
+          description: Search by model ID or description (case-insensitive)
+          schema:
+            type: string
+          example: daily
       responses:
         '200':
-          description: List of models
+          description: List of all models (summary view)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ModelsResponse'
+                type: object
+                required: [models, total]
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModelSummary'
+                  total:
+                    type: integer
+              example:
+                models:
+                  - id: sources.events
+                    type: external
+                    database: sources
+                    table: events
+                    description: Raw event data from production
+                  - id: analytics.daily_users
+                    type: transformation
+                    database: analytics
+                    table: daily_users
+                    description: Daily active user counts
+                total: 2
+        '500':
+          $ref: '#/components/responses/InternalError'
 
-  /models/{model_id}:
+  # ============================================
+  # EXTERNAL MODELS
+  # ============================================
+  /models/external:
     get:
-      summary: Get model by ID
-      operationId: getModelByID
+      summary: List external models
+      operationId: listExternalModels
+      tags:
+        - External Models
       parameters:
-        - name: model_id
+        - name: database
+          in: query
+          description: Filter by database name
+          schema:
+            type: string
+          example: sources
+      responses:
+        '200':
+          description: List of external models
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [models, total]
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExternalModel'
+                  total:
+                    type: integer
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /models/external/{id}:
+    get:
+      summary: Get external model by ID
+      operationId: getExternalModel
+      tags:
+        - External Models
+      parameters:
+        - name: id
           in: path
           required: true
+          description: Fully qualified model ID (database.table)
           schema:
             type: string
-          example: "default.users"
+          example: sources.clickhouse_prod
       responses:
         '200':
-          description: Model details
+          description: External model details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ModelDetail'
+                $ref: '#/components/schemas/ExternalModel'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================
+  # TRANSFORMATION MODELS
+  # ============================================
+  /models/transformations:
+    get:
+      summary: List transformation models
+      operationId: listTransformations
+      tags:
+        - Transformations
+      parameters:
+        - name: database
+          in: query
+          description: Filter by database name
+          schema:
+            type: string
+          example: analytics
+        - name: type
+          in: query
+          description: Filter by transformation type
+          schema:
+            type: string
+            enum: [scheduled, incremental]
+        - name: status
+          in: query
+          description: Filter by last run status
+          schema:
+            type: string
+            enum: [success, failed, running, pending]
+      responses:
+        '200':
+          description: List of transformation models
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [models, total]
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TransformationModel'
+                  total:
+                    type: integer
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /models/transformations/{id}:
+    get:
+      summary: Get transformation model by ID
+      operationId: getTransformation
+      tags:
+        - Transformations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Fully qualified model ID (database.table)
+          schema:
+            type: string
+          example: analytics.daily_active_users
+      responses:
+        '200':
+          description: Transformation model details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransformationModel'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================
+  # EXTERNAL MODEL BOUNDS
+  # ============================================
+  /models/external/bounds:
+    get:
+      summary: List external model bounds
+      operationId: listExternalBounds
+      tags:
+        - External Models
+      description: Returns min/max positions from Redis cache for all external models
+      responses:
+        '200':
+          description: List of external model bounds
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bounds, total]
+                properties:
+                  bounds:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExternalBounds'
+                  total:
+                    type: integer
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /models/external/{id}/bounds:
+    get:
+      summary: Get external model bounds by ID
+      operationId: getExternalBounds
+      tags:
+        - External Models
+      description: Returns min/max positions and scan metadata from Redis cache
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Fully qualified model ID (database.table)
+          schema:
+            type: string
+          example: ethereum.beacon_blocks
+      responses:
+        '200':
+          description: External model bounds details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalBounds'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================
+  # TRANSFORMATION COVERAGE
+  # ============================================
+  /models/transformations/coverage:
+    get:
+      summary: List transformation coverage
+      operationId: listTransformationCoverage
+      tags:
+        - Transformations
+      description: Returns processed ranges from admin_incremental table for all incremental transformations
+      parameters:
+        - name: database
+          in: query
+          description: Filter by database name
+          schema:
+            type: string
+          example: analytics
+      responses:
+        '200':
+          description: List of transformation coverage
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [coverage, total]
+                properties:
+                  coverage:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CoverageSummary'
+                  total:
+                    type: integer
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /models/transformations/{id}/coverage:
+    get:
+      summary: Get transformation coverage by ID
+      operationId: getTransformationCoverage
+      tags:
+        - Transformations
+      description: Returns all processed ranges from admin_incremental table
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Fully qualified model ID (database.table)
+          schema:
+            type: string
+          example: analytics.daily_users
+      responses:
+        '200':
+          description: Transformation coverage details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoverageDetail'
+        '400':
+          description: Model is not incremental type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================
+  # INTERVAL TYPES
+  # ============================================
+  /interval/types:
+    get:
+      summary: Get interval type transformations
+      operationId: getIntervalTypes
+      tags:
+        - Interval Types
+      description: |
+        Returns the configured interval type transformations.
+        Each interval type defines how values can be represented and transformed.
+        For example, 'slot' might transform to 'timestamp' via CEL expression.
+      responses:
+        '200':
+          description: Interval type transformations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [interval_types]
+                properties:
+                  interval_types:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/IntervalTypeTransformation'
+              example:
+                interval_types:
+                  banana:
+                    - name: datetime
+                      format: datetime
+                  slot:
+                    - name: raw
+                    - name: timestamp
+                      format: datetime
+                    - name: epoch
+                      expression: "math.floor((value - 1606824023) / 12)"
+                    - name: epoch_as_date
+                      expression: "math.floor((value - 1606824023) / 12) * 1000"
+                      format: datetime
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================
+  # SCHEDULED RUNS
+  # ============================================
+  /models/transformations/runs:
+    get:
+      summary: List scheduled transformation runs
+      operationId: listScheduledRuns
+      tags:
+        - Transformations
+      description: Returns last run timestamps from admin_scheduled table for all scheduled transformations
+      parameters:
+        - name: database
+          in: query
+          description: Filter by database name
+          schema:
+            type: string
+          example: analytics
+      responses:
+        '200':
+          description: List of scheduled transformation runs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runs, total]
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ScheduledRun'
+                  total:
+                    type: integer
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /models/transformations/{id}/runs:
+    get:
+      summary: Get scheduled transformation run by ID
+      operationId: getScheduledRun
+      tags:
+        - Transformations
+      description: Returns last run timestamp from admin_scheduled table
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Fully qualified model ID (database.table)
+          schema:
+            type: string
+          example: analytics.daily_report
+      responses:
+        '200':
+          description: Scheduled transformation run details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduledRun'
+        '400':
+          description: Model is not scheduled type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
 
 components:
   schemas:
-    ModelsResponse:
+    # ============================================
+    # SHARED SCHEMAS
+    # ============================================
+    ModelSummary:
       type: object
-      required: [models, total]
-      properties:
-        models:
-          type: array
-          items:
-            $ref: '#/components/schemas/ModelDetail'
-        total:
-          type: integer
-
-    ModelDetail:
-      type: object
-      required: [id, type, database, table, config]
+      required: [id, type, database, table]
+      description: Lightweight model representation for listings
       properties:
         id:
           type: string
+          description: Fully qualified ID (database.table)
+          example: analytics.daily_users
         type:
           type: string
+          enum: [external, transformation]
+          description: Model type
         database:
           type: string
+          example: analytics
         table:
           type: string
-        config:
-          type: object
-          additionalProperties: true
-        dependencies:
-          type: array
-          items:
-            type: string
-        dependents:
-          type: array
-          items:
-            type: string
+          example: daily_users
+        description:
+          type: string
+          example: Daily active user counts
 
+    # ============================================
+    # EXTERNAL MODEL SCHEMAS
+    # ============================================
+    ExternalModel:
+      type: object
+      required: [id, database, table]
+      properties:
+        id:
+          type: string
+          description: Fully qualified ID (database.table)
+          example: ethereum.beacon_blocks
+        database:
+          type: string
+          example: ethereum
+        table:
+          type: string
+          example: beacon_blocks
+        description:
+          type: string
+          example: Beacon chain blocks from production cluster
+        interval:
+          type: object
+          description: Interval configuration for external source
+          properties:
+            type:
+              type: string
+              description: Type of interval (e.g., "second", "slot", "epoch", "block")
+              example: "slot"
+        cache:
+          type: object
+          description: Cache configuration for external source
+          properties:
+            incremental_scan_interval:
+              type: string
+              description: Interval for incremental cache updates
+              example: "10s"
+            full_scan_interval:
+              type: string
+              description: Interval for full cache refresh
+              example: "1h"
+        lag:
+          type: integer
+          description: Number of blocks/slots to lag behind head
+          example: 10
+        metadata:
+          type: object
+          readOnly: true
+          description: System-managed metadata
+          properties:
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            last_synced_at:
+              type: string
+              format: date-time
+            row_count:
+              type: integer
+              description: Approximate row count in destination table
+            size_bytes:
+              type: integer
+              description: Approximate table size in bytes
+
+    # ============================================
+    # TRANSFORMATION MODEL SCHEMAS
+    # ============================================
+
+    # Base schema with common fields
+    TransformationModelBase:
+      type: object
+      required: [id, database, table, type, content_type, content]
+      properties:
+        id:
+          type: string
+          description: Fully qualified ID (database.table)
+          example: analytics.daily_active_users
+        database:
+          type: string
+          example: analytics
+        table:
+          type: string
+          example: daily_active_users
+        description:
+          type: string
+          example: Daily aggregation of unique active users
+        type:
+          type: string
+          enum: [scheduled, incremental]
+          description: Transformation type (scheduled or incremental)
+        content_type:
+          type: string
+          enum: [sql, exec]
+          description: Execution method (SQL query or shell command)
+          example: sql
+        content:
+          type: string
+          description: SQL query or exec command defining the transformation
+          example: |
+            SELECT
+              toDate(event_time) AS date,
+              uniqExact(user_id) AS active_users
+            FROM sources.events
+            WHERE event_time >= {{ start_time }}
+              AND event_time < {{ end_time }}
+            GROUP BY date
+        tags:
+          type: array
+          items:
+            type: string
+          description: Tags for categorization
+          example: [analytics, daily]
+        depends_on:
+          type: array
+          items:
+            type: string
+          description: Upstream model dependencies
+          example: [ethereum.beacon_blocks, ethereum.validator_entity]
+        metadata:
+          type: object
+          readOnly: true
+          description: System-managed metadata
+          properties:
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            last_run_at:
+              type: string
+              format: date-time
+            last_run_status:
+              type: string
+              enum: [success, failed, running, pending]
+            row_count:
+              type: integer
+            size_bytes:
+              type: integer
+
+    # Scheduled transformation (extends base)
+    ScheduledTransformation:
+      allOf:
+        - $ref: '#/components/schemas/TransformationModelBase'
+        - type: object
+          required: [schedule]
+          properties:
+            type:
+              type: string
+              enum: [scheduled]
+            schedule:
+              type: string
+              description: Cron expression (REQUIRED for scheduled type)
+              example: "@every 5m"
+
+    # Incremental transformation (extends base)
+    IncrementalTransformation:
+      allOf:
+        - $ref: '#/components/schemas/TransformationModelBase'
+        - type: object
+          required: [interval]
+          properties:
+            type:
+              type: string
+              enum: [incremental]
+            interval:
+              type: object
+              required: [min, max, type]
+              description: Interval configuration (REQUIRED for incremental type)
+              properties:
+                min:
+                  type: integer
+                  description: Minimum interval size (0 = allow any partial size)
+                  example: 0
+                max:
+                  type: integer
+                  description: Maximum interval size for processing
+                  example: 60
+                type:
+                  type: string
+                  description: Type of interval (e.g., "second", "slot", "epoch", "block")
+                  example: "slot"
+            schedules:
+              type: object
+              description: Forwardfill and backfill schedules (for incremental type)
+              properties:
+                forwardfill:
+                  type: string
+                  description: Forward fill schedule
+                  example: "@every 10s"
+                backfill:
+                  type: string
+                  description: Backfill schedule
+                  example: "@every 10s"
+            limits:
+              type: object
+              description: Position limits for incremental processing
+              properties:
+                min:
+                  type: integer
+                  description: Minimum position limit
+                  example: 0
+                max:
+                  type: integer
+                  description: Maximum position limit
+                  example: 1000000
+
+    # Union type - handlers will return appropriate concrete type
+    # Contains all possible fields (base + type-specific)
+    TransformationModel:
+      allOf:
+        - $ref: '#/components/schemas/TransformationModelBase'
+        - type: object
+          properties:
+            # Scheduled-specific fields (optional)
+            schedule:
+              type: string
+              description: Cron expression (present when type=scheduled)
+              example: "@every 5m"
+            # Incremental-specific fields (optional)
+            interval:
+              type: object
+              description: Interval configuration (present when type=incremental)
+              properties:
+                min:
+                  type: integer
+                  description: Minimum interval size
+                max:
+                  type: integer
+                  description: Maximum interval size
+                type:
+                  type: string
+                  description: Type of interval (e.g., "second", "slot", "epoch", "block")
+            schedules:
+              type: object
+              description: Schedules (present when type=incremental)
+              properties:
+                forwardfill:
+                  type: string
+                  description: Forward fill schedule
+                backfill:
+                  type: string
+                  description: Backfill schedule
+            limits:
+              type: object
+              description: Limits (present when type=incremental)
+              properties:
+                min:
+                  type: integer
+                  description: Minimum position limit
+                max:
+                  type: integer
+                  description: Maximum position limit
+
+    # ============================================
+    # BOUNDS, COVERAGE & RUNS SCHEMAS
+    # ============================================
+
+    # External model bounds from Redis cache
+    ExternalBounds:
+      type: object
+      required: [id, min, max]
+      properties:
+        id:
+          type: string
+          description: Fully qualified model ID (database.table)
+          example: ethereum.beacon_blocks
+        min:
+          type: integer
+          description: Minimum position in external source
+          example: 0
+        max:
+          type: integer
+          description: Maximum position in external source
+          example: 10445672
+        previous_min:
+          type: integer
+          description: Previous minimum position (for tracking changes)
+          example: 0
+        previous_max:
+          type: integer
+          description: Previous maximum position (for tracking changes)
+          example: 10445662
+        last_incremental_scan:
+          type: string
+          format: date-time
+          description: Timestamp of last incremental scan
+        last_full_scan:
+          type: string
+          format: date-time
+          description: Timestamp of last full scan
+        initial_scan_complete:
+          type: boolean
+          description: Whether initial scan is complete
+        initial_scan_started:
+          type: string
+          format: date-time
+          description: Timestamp when initial scan started
+
+    # Position range from admin table
+    Range:
+      type: object
+      required: [position, interval]
+      properties:
+        position:
+          type: integer
+          description: Starting position of processed range
+          example: 0
+        interval:
+          type: integer
+          description: Size of processed range
+          example: 10
+
+    # Transformation coverage summary (for list endpoint)
+    CoverageSummary:
+      type: object
+      required: [id, ranges]
+      properties:
+        id:
+          type: string
+          description: Fully qualified model ID (database.table)
+          example: analytics.daily_users
+        ranges:
+          type: array
+          items:
+            $ref: '#/components/schemas/Range'
+          description: Processed ranges from admin_incremental table
+
+    # Transformation coverage detail (for detail endpoint)
+    CoverageDetail:
+      type: object
+      required: [id, ranges]
+      properties:
+        id:
+          type: string
+          description: Fully qualified model ID (database.table)
+          example: analytics.daily_users
+        ranges:
+          type: array
+          items:
+            $ref: '#/components/schemas/Range'
+          description: All processed ranges from admin_incremental table
+
+    # Scheduled transformation run info
+    ScheduledRun:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          description: Fully qualified model ID (database.table)
+          example: analytics.daily_report
+        last_run:
+          type: string
+          format: date-time
+          description: Timestamp of last execution
+
+    # ============================================
+    # INTERVAL TYPE SCHEMAS
+    # ============================================
+    IntervalTypeTransformation:
+      type: object
+      required: [name]
+      description: A single transformation step for an interval type
+      properties:
+        name:
+          type: string
+          description: Display name for this transformation
+          example: "epoch"
+        expression:
+          type: string
+          description: |
+            Optional CEL (Common Expression Language) expression to transform the value.
+            Uses 'value' as the input variable.
+            Supports math functions via math.* namespace (e.g., math.floor, math.ceil, math.round).
+            If omitted, value is passed through unchanged (identity transformation).
+          example: "math.floor((value - 1606824023) / 12)"
+        format:
+          type: string
+          enum: [datetime, date, time, duration, relative]
+          description: |
+            Optional display format hint for the frontend.
+            - datetime: Format as full date and time (e.g., "2024-01-15 14:30:00")
+            - date: Format as date only (e.g., "2024-01-15")
+            - time: Format as time only (e.g., "14:30:00")
+            - duration: Format as human-readable duration (e.g., "2h 30m")
+            - relative: Format as relative time (e.g., "2 hours ago")
+            If omitted, value is displayed as a raw number.
+          example: "datetime"
+
+    # ============================================
+    # ERROR SCHEMAS
+    # ============================================
     Error:
       type: object
       required: [error, code]
       properties:
         error:
           type: string
+          description: Human-readable error message
         code:
           type: integer
+          description: HTTP status code
 
   responses:
     NotFound:
@@ -103,9 +878,16 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          example:
+            error: "Model not found: analytics.nonexistent"
+            code: 404
+
     InternalError:
       description: Internal server error
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          example:
+            error: "Internal server error"
+            code: 500

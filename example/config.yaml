@@ -8,7 +8,7 @@ logging: debug
 metricsAddr: ":9090"
 
 # Health check server address
-healthCheckAddr: ":8080"
+healthCheckAddr: ":8083"
 
 # Optional pprof profiling
 # pprofAddr: ":6060"
@@ -17,6 +17,11 @@ healthCheckAddr: ":8080"
 api:
   enabled: true
   addr: ":8888"  # API listens on port 8888
+
+# Frontend service configuration
+frontend:
+  enabled: true
+  addr: ":8080"  # Frontend listens on port 8080
 
 # ClickHouse configuration (used by all components)
 clickhouse:
@@ -107,3 +112,12 @@ models:
 #       limits:
 #         min: 1000000  # Start from specific position
 #         max: 2000000  # End at specific position
+interval_types:
+  slot:
+  - name: Slot
+    expression: "math.floor((value - 1606824023) / 12)"
+  - name: Datetime
+    format: datetime
+    expression: "value * 1000"
+  block:
+  - name: Block number

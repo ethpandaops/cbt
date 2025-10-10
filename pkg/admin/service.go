@@ -35,6 +35,7 @@ type Service interface {
 
 	// Coverage and gap management
 	GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error)
+	GetProcessedRanges(ctx context.Context, modelID string) ([]ProcessedRange, error)
 	FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]GapInfo, error)
 
 	// Consolidation
@@ -55,6 +56,12 @@ type Service interface {
 type GapInfo struct {
 	StartPos uint64
 	EndPos   uint64
+}
+
+// ProcessedRange represents a processed range from the admin table
+type ProcessedRange struct {
+	Position uint64 `json:"position,string"`
+	Interval uint64 `json:"interval,string"`
 }
 
 // service manages the admin tracking table for completed transformations
@@ -430,6 +437,35 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 	return gaps, nil
 }
 
+// GetProcessedRanges returns all processed ranges for a model from the admin table
+// This returns the raw admin_incremental table data with no filtering or aggregation
+func (a *service) GetProcessedRanges(ctx context.Context, modelID string) ([]ProcessedRange, error) {
+	parts := strings.Split(modelID, ".")
+	if len(parts) != 2 {
+		return nil, ErrInvalidModelID
+	}
+
+	query := fmt.Sprintf(`
+		SELECT position, interval
+		FROM `+"`%s`.`%s`"+` FINAL
+		WHERE database = '%s' AND table = '%s'
+		ORDER BY position DESC
+	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
+
+	var ranges []ProcessedRange
+	err := a.client.QueryMany(ctx, query, &ranges)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query processed ranges: %w", err)
+	}
+
+	a.log.WithFields(logrus.Fields{
+		"model_id":    modelID,
+		"range_count": len(ranges),
+	}).Debug("Retrieved processed ranges from admin table")
+
+	return ranges, nil
+}
+
 // ConsolidateHistoricalData consolidates historical admin table rows for a model
 func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string) (int, error) {
 	parts := strings.Split(modelID, ".")
@@ -643,7 +679,7 @@ func (a *service) GetLastScheduledExecution(ctx context.Context, modelID string)
 	`, a.scheduledAdminDatabase, a.scheduledAdminTable, parts[0], parts[1])
 
 	var result struct {
-		LastExecution *time.Time `json:"last_execution"`
+		LastExecution *string `json:"last_execution"`
 	}
 
 	err := a.client.QueryOne(ctx, query, &result)
@@ -654,7 +690,21 @@ func (a *service) GetLastScheduledExecution(ctx context.Context, modelID string)
 		return nil, err
 	}
 
-	return result.LastExecution, nil
+	if result.LastExecution == nil || *result.LastExecution == "" {
+		return nil, nil
+	}
+
+	// Parse ClickHouse datetime format: "2006-01-02 15:04:05.000"
+	t, err := time.Parse("2006-01-02 15:04:05.999", *result.LastExecution)
+	if err != nil {
+		// Try without milliseconds
+		t, err = time.Parse("2006-01-02 15:04:05", *result.LastExecution)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse datetime: %w", err)
+		}
+	}
+
+	return &t, nil
 }
 
 // Ensure service implements the interface

@@ -652,6 +652,10 @@ func (m *mockAdmin) GetLastScheduledExecution(_ context.Context, _ string) (*tim
 	return nil, nil
 }
 
+func (m *mockAdmin) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
+	return []admin.ProcessedRange{}, nil
+}
+
 // mockLimitsConfig is a test implementation of limits
 type mockLimitsConfig struct {
 	Min uint64
@@ -664,6 +668,25 @@ type mockHandler struct {
 	dependencies   []string
 	orDependencies []transformation.Dependency
 	limits         *mockLimitsConfig
+}
+
+// Mock scheduled handler for tests - simulates scheduled transformations
+type mockScheduledHandler struct{}
+
+func (h *mockScheduledHandler) Type() transformation.Type { return "scheduled" }
+func (h *mockScheduledHandler) Config() any               { return nil }
+func (h *mockScheduledHandler) Validate() error           { return nil }
+
+// ShouldTrackPosition returns false for scheduled transformations
+func (h *mockScheduledHandler) ShouldTrackPosition() bool { return false }
+func (h *mockScheduledHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
+	return nil
+}
+func (h *mockScheduledHandler) GetAdminTable() transformation.AdminTable {
+	return transformation.AdminTable{}
+}
+func (h *mockScheduledHandler) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
+	return nil
 }
 
 func (h *mockHandler) GetMaxInterval() uint64 {
@@ -1296,6 +1319,49 @@ func TestGetValidRange(t *testing.T) {
 			expectedMin: 0,
 			expectedMax: 0,
 			wantErr:     true, // Should error due to uninitialized transformation in AND dependency
+		},
+		{
+			name:    "incremental with scheduled dependency - scheduled excluded from bounds",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"ext.raw_data", "reference.exchange_rates"}
+				// Create scheduled handler for exchange_rates
+				scheduledHandler := &mockScheduledHandler{}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{
+						NodeType: models.NodeTypeTransformation,
+						Model: &mockTransformation{
+							id:           "model.test",
+							interval:     3600,
+							dependencies: []string{"ext.raw_data", "reference.exchange_rates"},
+						},
+					},
+					"ext.raw_data": models.Node{
+						NodeType: models.NodeTypeExternal,
+						Model:    &mockExternal{id: "ext.raw_data"},
+					},
+					"reference.exchange_rates": models.Node{
+						NodeType: models.NodeTypeTransformation,
+						Model: &mockTransformation{
+							id:      "reference.exchange_rates",
+							handler: scheduledHandler,
+						},
+					},
+				}
+				// External has data from 1000 to 5000
+				admin.firstPositions = map[string]uint64{
+					"ext.raw_data": 1000,
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.raw_data": 5000,
+				}
+				// Scheduled transformation returns 0,0 (doesn't track positions)
+				admin.firstPositions["reference.exchange_rates"] = 0
+				admin.lastPositions["reference.exchange_rates"] = 0
+			},
+			expectedMin: 1000, // Should use external min only, scheduled excluded
+			expectedMax: 5000, // Should use external max only, scheduled excluded
+			wantErr:     false,
 		},
 	}
 

@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/api/generated"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/external"
@@ -134,6 +136,77 @@ func (m *mockModelsService) GetTransformationEnvironmentVariables(_ models.Trans
 	return nil, nil
 }
 
+// mockAdminService implements admin.Service for testing
+type mockAdminService struct{}
+
+func (m *mockAdminService) GetLastProcessedEndPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetLastProcessedPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetFirstPosition(_ context.Context, _ string) (uint64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) RecordCompletion(_ context.Context, _ string, _, _ uint64) error {
+	return nil
+}
+
+func (m *mockAdminService) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64) (bool, error) {
+	return false, nil
+}
+
+func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
+	return []admin.ProcessedRange{}, nil
+}
+
+func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetExternalBounds(_ context.Context, _ string) (*admin.BoundsCache, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
+	return nil
+}
+
+func (m *mockAdminService) GetIncrementalAdminDatabase() string {
+	return "admin"
+}
+
+func (m *mockAdminService) GetIncrementalAdminTable() string {
+	return "cbt_incremental"
+}
+
+func (m *mockAdminService) GetScheduledAdminDatabase() string {
+	return "admin"
+}
+
+func (m *mockAdminService) GetScheduledAdminTable() string {
+	return "cbt_scheduled"
+}
+
 // mockTransformation implements models.Transformation for testing
 type mockTransformation struct {
 	id       string
@@ -141,6 +214,7 @@ type mockTransformation struct {
 	table    string
 	typ      transformation.Type
 	env      map[string]string
+	query    string
 }
 
 func (m *mockTransformation) GetID() string {
@@ -165,7 +239,10 @@ func (m *mockTransformation) GetHandler() transformation.Handler {
 }
 
 func (m *mockTransformation) GetValue() string {
-	return ""
+	if m.query != "" {
+		return m.query
+	}
+	return "SELECT 1"
 }
 
 func (m *mockTransformation) SetDefaultDatabase(defaultDB string) {
@@ -220,18 +297,20 @@ func TestNewServer(t *testing.T) {
 	mockService := &mockModelsService{
 		dag: &mockDAGReader{},
 	}
+	mockAdmin := &mockAdminService{}
 
-	server := NewServer(mockService, log)
+	server := NewServer(mockService, mockAdmin, IntervalTypesConfig{}, log)
 
 	assert.NotNil(t, server)
 	assert.NotNil(t, server.modelsService)
+	assert.NotNil(t, server.adminService)
 	assert.NotNil(t, server.log)
 
 	// Verify interface compliance
 	var _ generated.ServerInterface = server
 }
 
-func TestBuildTransformationDetail(t *testing.T) {
+func TestBuildTransformationModel(t *testing.T) {
 	mockDAG := &mockDAGReader{
 		dependencies: map[string][]string{
 			"test.model": {"dep1.table"},
@@ -249,24 +328,20 @@ func TestBuildTransformationDetail(t *testing.T) {
 		env:      map[string]string{"KEY": "value"},
 	}
 
-	detail := buildTransformationDetail("test.model", mockTrans, mockDAG)
+	model := buildTransformationModel("test.model", mockTrans, mockDAG)
 
-	assert.Equal(t, "test.model", detail.Id)
-	assert.Equal(t, "transformation", detail.Type)
-	assert.Equal(t, "test", detail.Database)
-	assert.Equal(t, "model", detail.Table)
-	assert.NotNil(t, detail.Config)
-	assert.Equal(t, "incremental", detail.Config["type"])
-	assert.Equal(t, "test", detail.Config["database"])
-	assert.Equal(t, "model", detail.Config["table"])
-	assert.Equal(t, map[string]string{"KEY": "value"}, detail.Config["env"])
-	assert.NotNil(t, detail.Dependencies)
-	assert.Equal(t, []string{"dep1.table"}, *detail.Dependencies)
-	assert.NotNil(t, detail.Dependents)
-	assert.Equal(t, []string{"dependent1.table"}, *detail.Dependents)
+	assert.Equal(t, "test.model", model.Id)
+	assert.Equal(t, "test", model.Database)
+	assert.Equal(t, "model", model.Table)
+	assert.Equal(t, generated.TransformationModelTypeIncremental, model.Type)
+	assert.NotNil(t, model.DependsOn)
+	assert.Equal(t, []string{"dep1.table"}, *model.DependsOn)
+	// Content and other fields populated from handler
+	assert.NotEmpty(t, model.Content)
+	assert.Equal(t, generated.TransformationModelContentTypeSql, model.ContentType)
 }
 
-func TestBuildExternalDetail(t *testing.T) {
+func TestBuildExternalModel(t *testing.T) {
 	mockDAG := &mockDAGReader{
 		dependents: map[string][]string{
 			"external.table": {"dependent1.table"},
@@ -279,15 +354,12 @@ func TestBuildExternalDetail(t *testing.T) {
 		table:    "table",
 	}
 
-	detail := buildExternalDetail("external.table", mockExt, mockDAG)
+	model := buildExternalModel("external.table", mockExt, mockDAG)
 
-	assert.Equal(t, "external.table", detail.Id)
-	assert.Equal(t, "external", detail.Type)
-	assert.Equal(t, "external", detail.Database)
-	assert.Equal(t, "table", detail.Table)
-	assert.NotNil(t, detail.Config)
-	assert.Equal(t, "external", detail.Config["database"])
-	assert.Equal(t, "table", detail.Config["table"])
-	assert.NotNil(t, detail.Dependents)
-	assert.Equal(t, []string{"dependent1.table"}, *detail.Dependents)
+	assert.Equal(t, "external.table", model.Id)
+	assert.Equal(t, "external", model.Database)
+	assert.Equal(t, "table", model.Table)
+	// Cache and Lag are optional fields populated from domain model when available
+	assert.Nil(t, model.Cache)
+	assert.Nil(t, model.Lag)
 }

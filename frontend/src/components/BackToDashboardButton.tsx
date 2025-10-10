@@ -1,0 +1,15 @@
+import { type JSX } from 'react';
+import { Link } from '@tanstack/react-router';
+import { ArrowLeftIcon } from '@heroicons/react/24/outline';
+
+export function BackToDashboardButton(): JSX.Element {
+  return (
+    <Link
+      to="/"
+      className="group mb-4 inline-flex items-center gap-1.5 rounded-lg bg-slate-800/60 px-3 py-1.5 text-xs font-medium text-slate-300 shadow-xs ring-1 ring-slate-700/50 backdrop-blur-sm transition-all hover:bg-slate-800/80 hover:text-indigo-400 hover:shadow-sm hover:ring-indigo-500/50 sm:mb-6 sm:gap-2 sm:px-4 sm:py-2 sm:text-sm/5"
+    >
+      <ArrowLeftIcon className="size-3.5 transition-transform group-hover:-translate-x-0.5 sm:size-4" />
+      Back to Dashboard
+    </Link>
+  );
+}

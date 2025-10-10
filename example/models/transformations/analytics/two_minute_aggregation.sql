@@ -8,7 +8,7 @@ interval:
   type: slot
 schedules:
   forwardfill: "@every 5s"
-  backfill: "@every 1m"
+  backfill: "@every 5s"
 tags:
   - analytics
   - level2

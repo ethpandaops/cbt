@@ -1,4 +1,4 @@
-<img align="left" height="120px" src="logo.png">
+<img align="left" height="120px" src="frontend/public/logo.png">
   <h1> CBT - ClickHouse Build Tool </h1>
 </img>
 
@@ -51,7 +51,7 @@ logging: info
 metricsAddr: ":9090"
 
 # Health check server address (optional)
-healthCheckAddr: ":8080"
+healthCheckAddr: ":8081"
 
 # Pprof server address for profiling (optional)
 # Uncomment to enable profiling
@@ -133,6 +133,10 @@ worker:
 #     paths:
 #       - "models/transformations" # default
 #       - "/additional/transformation/models"
+#     # Optional: Global custom environment variables for all transformations
+#     env:
+#       API_KEY: "your_api_key_here"
+#       ENVIRONMENT: "production"
 #
 # # Model overrides for environment-specific adjustments (optional)
 # # Override transformation model configurations without modifying base definitions
@@ -147,6 +151,13 @@ worker:
 #         max: 7200  # Override interval
 #       schedules:
 #         backfill: ""  # Disable backfill (use empty string)
+
+# Frontend service configuration
+frontend:
+  # Enable or disable the frontend service
+  enabled: true
+  # Address to serve the frontend on
+  addr: ":8080"
 ```
 
 ## Models
@@ -679,8 +690,11 @@ docker exec cbt-clickhouse clickhouse-client -q "
   FROM admin.cbt
   GROUP BY database, table"
 
-# View task queue web UI
-open http://localhost:8080  # Asynqmon dashboard
+# Access the web UIs
+open http://localhost:8080  # CBT Frontend UI (replica 1)
+open http://localhost:8081  # CBT Frontend UI (replica 2)
+open http://localhost:8082  # Asynqmon task queue dashboard
+open http://localhost:8084  # Redis Commander
 
 # Query the API to list all models (replica 1 on port 8888, replica 2 on port 8889)
 curl http://localhost:8888/api/v1/models
@@ -1082,6 +1096,26 @@ This validation system ensures that:
 1. Processing can automatically resume when dependencies become available
 1. Data consistency is maintained even in distributed environments
 
+## Frontend UI
+
+CBT includes an optional web-based frontend for visualizing and managing your data transformations.
+
+### Configuration
+
+Enable the frontend in your `config.yaml`:
+
+```yaml
+frontend:
+  enabled: true
+  addr: ":8080"  # Listen address (default: :8080)
+```
+
+The frontend provides:
+- Real-time visualization of transformation pipelines
+- Model dependency graphs
+- Transformation status monitoring
+- Interactive exploration of your data models
+
 ## API Server
 
 CBT includes an optional REST API for querying model metadata and transformation state.
@@ -1093,7 +1127,7 @@ Enable the API server in your `config.yaml`:
 ```yaml
 api:
   enabled: true
-  addr: ":8080"  # Listen address (default: :8080)
+  addr: ":8888"  # Listen address (default: :8080)
 ```
 
 ### Endpoints

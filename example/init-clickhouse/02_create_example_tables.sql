@@ -275,3 +275,16 @@ CREATE TABLE IF NOT EXISTS analytics.transactions_normalized (
 ) ENGINE = MergeTree()
 ORDER BY (timestamp, transaction_id, _position)
 PARTITION BY toYYYYMM(timestamp);
+
+-- Transactions with rates (incremental depending on scheduled - example for cross-type dependencies)
+CREATE TABLE IF NOT EXISTS analytics.transactions_with_rates (
+    transaction_id String,
+    timestamp DateTime,
+    amount Decimal(18, 8),
+    currency String,
+    amount_usd Decimal(18, 8),
+    _position UInt64,
+    _interval UInt64
+) ENGINE = MergeTree()
+ORDER BY (timestamp, transaction_id, _position)
+PARTITION BY toYYYYMM(timestamp);

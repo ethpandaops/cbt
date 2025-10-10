@@ -1,8 +1,19 @@
+FROM node:22 AS frontend-builder
+WORKDIR /src
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN pnpm install --frozen-lockfile
+COPY frontend/ ./
+ARG VITE_API_URL=http://localhost:8888/api/v1
+ENV VITE_API_URL=${VITE_API_URL}
+RUN pnpm run build
+
 FROM golang:1.25 AS builder
 WORKDIR /src
 COPY go.sum go.mod ./
 RUN go mod download
 COPY . .
+COPY --from=frontend-builder /src/build ./frontend/build
 RUN go build -o /bin/app .
 
 FROM ubuntu:latest

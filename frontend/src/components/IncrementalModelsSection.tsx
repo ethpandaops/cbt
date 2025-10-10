@@ -1,0 +1,294 @@
+import { type JSX, useState, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import {
+  listTransformationsOptions,
+  listTransformationCoverageOptions,
+  listExternalModelsOptions,
+  listExternalBoundsOptions,
+  getIntervalTypesOptions,
+} from '@api/@tanstack/react-query.gen';
+import type { ZoomRanges, IncrementalModelItem } from '@/types';
+import type { IntervalTypeTransformation } from '@api/types.gen';
+import { Tooltip } from 'react-tooltip';
+import { ModelCoverageRow } from './ModelCoverageRow';
+import { ZoomControls } from './ZoomControls';
+import { CoverageTooltip } from './CoverageTooltip';
+import { LoadingState } from './shared/LoadingState';
+import { ErrorState } from './shared/ErrorState';
+import { TransformationSelector } from './shared/TransformationSelector';
+import { transformValue, formatValue } from '@/utils/interval-transform';
+
+interface IncrementalModelsSectionProps {
+  zoomRanges: ZoomRanges;
+  onZoomChange: (intervalType: string, start: number, end: number) => void;
+  onResetZoom: (intervalType: string) => void;
+}
+
+export function IncrementalModelsSection({
+  zoomRanges,
+  onZoomChange,
+  onResetZoom,
+}: IncrementalModelsSectionProps): JSX.Element {
+  const [hoveredModel, setHoveredModel] = useState<string | null>(null);
+  const [hoveredCoverage, setHoveredCoverage] = useState<{
+    modelId: string;
+    position: number;
+    mouseX: number;
+    intervalType: string;
+  } | null>(null);
+  // Track selected transformation index for each interval type
+  const [selectedTransformations, setSelectedTransformations] = useState<Record<string, number>>({});
+  const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Fetch all transformations (polling handled at root level) and filter client-side
+  const allTransformations = useQuery(listTransformationsOptions());
+  const incrementalTransformations = {
+    ...allTransformations,
+    data: allTransformations.data
+      ? { ...allTransformations.data, models: allTransformations.data.models.filter(m => m.type === 'incremental') }
+      : undefined,
+  };
+
+  const coverage = useQuery(listTransformationCoverageOptions());
+  const externalModels = useQuery(listExternalModelsOptions());
+  const bounds = useQuery(listExternalBoundsOptions());
+
+  // Fetch interval types (polling handled at root level)
+  const intervalTypes = useQuery(getIntervalTypesOptions());
+
+  const isLoading = allTransformations.isLoading || coverage.isLoading || externalModels.isLoading || bounds.isLoading;
+
+  const error = incrementalTransformations.error || coverage.error || externalModels.error || bounds.error;
+
+  if (isLoading) {
+    return <LoadingState />;
+  }
+
+  if (error) {
+    return <ErrorState message={error.message} variant="compact" />;
+  }
+
+  // Build dependency map for transformation models
+  const dependencyMap = new Map<string, string[]>();
+  incrementalTransformations.data?.models.forEach(model => {
+    if (model.depends_on) {
+      dependencyMap.set(model.id, model.depends_on);
+    }
+  });
+
+  // Get all dependencies (including transitive) for a model
+  const getAllDependencies = (modelId: string, visited = new Set<string>()): Set<string> => {
+    if (visited.has(modelId)) return new Set();
+    visited.add(modelId);
+
+    const deps = new Set<string>();
+    const directDeps = dependencyMap.get(modelId) || [];
+
+    directDeps.forEach(dep => {
+      deps.add(dep);
+      const transDeps = getAllDependencies(dep, visited);
+      transDeps.forEach(d => deps.add(d));
+    });
+
+    return deps;
+  };
+
+  // Determine which models should be highlighted
+  const highlightedModels = new Set<string>();
+  const activeModelId = hoveredCoverage?.modelId || hoveredModel;
+  if (activeModelId) {
+    highlightedModels.add(activeModelId);
+    const deps = getAllDependencies(activeModelId);
+    deps.forEach(dep => highlightedModels.add(dep));
+  }
+
+  // Combine transformations and external models with type info
+  const allModels: IncrementalModelItem[] = [];
+
+  incrementalTransformations.data?.models.forEach(model => {
+    const modelCoverage = coverage.data?.coverage.find(c => c.id === model.id);
+    allModels.push({
+      id: model.id,
+      type: 'transformation',
+      intervalType: model.interval?.type || 'unknown',
+      depends_on: model.depends_on,
+      data: {
+        coverage: modelCoverage?.ranges,
+      },
+    });
+  });
+
+  externalModels.data?.models.forEach(model => {
+    const modelBounds = bounds.data?.bounds.find(b => b.id === model.id);
+    allModels.push({
+      id: model.id,
+      type: 'external',
+      intervalType: model.interval?.type || 'unknown',
+      data: {
+        bounds: modelBounds ? { min: modelBounds.min, max: modelBounds.max } : undefined,
+      },
+    });
+  });
+
+  // Group by interval type
+  const grouped = new Map<string, IncrementalModelItem[]>();
+  allModels.forEach(model => {
+    if (!grouped.has(model.intervalType)) {
+      grouped.set(model.intervalType, []);
+    }
+    grouped.get(model.intervalType)!.push(model);
+  });
+
+  // Sort groups by size (largest first)
+  const sortedGroups = Array.from(grouped.entries()).sort((a, b) => b[1].length - a[1].length);
+
+  return (
+    <div className="space-y-6">
+      {sortedGroups.map(([intervalType, models]) => {
+        // Sort models by ID within each group
+        const sortedModels = [...models].sort((a, b) => a.id.localeCompare(b.id));
+
+        // Get available transformations for this interval type
+        const transformations = intervalTypes.data?.interval_types?.[intervalType] || [];
+        const selectedTransformationIndex = selectedTransformations[intervalType] ?? 0;
+        const currentTransformation: IntervalTypeTransformation | undefined =
+          transformations[selectedTransformationIndex];
+
+        // Calculate the min/max range for this interval type group
+        // globalMin/globalMax include both transformations and external models
+        // transformationMin is for transformations only, transformationMax includes both
+        let globalMin = Infinity;
+        let globalMax = -Infinity;
+        let transformationMin = Infinity;
+        let transformationMax = -Infinity;
+
+        sortedModels.forEach(model => {
+          if (model.data.coverage) {
+            // Transformation model
+            model.data.coverage.forEach(range => {
+              globalMin = Math.min(globalMin, range.position);
+              globalMax = Math.max(globalMax, range.position + range.interval);
+              transformationMin = Math.min(transformationMin, range.position);
+              transformationMax = Math.max(transformationMax, range.position + range.interval);
+            });
+          }
+          if (model.data.bounds) {
+            // External model - only affects globalMin/globalMax and transformationMax
+            globalMin = Math.min(globalMin, model.data.bounds.min);
+            globalMax = Math.max(globalMax, model.data.bounds.max);
+            transformationMax = Math.max(transformationMax, model.data.bounds.max);
+          }
+        });
+
+        // If no data, set reasonable defaults
+        if (globalMin === Infinity) globalMin = 0;
+        if (globalMax === -Infinity) globalMax = 100;
+        if (transformationMin === Infinity) transformationMin = globalMin;
+        if (transformationMax === -Infinity) transformationMax = globalMax;
+
+        // Get or initialize zoom state for this interval type
+        // Default zoom: min from transformations only, max from transformations + external
+        const currentZoom = zoomRanges[intervalType] || {
+          start: transformationMin,
+          end: transformationMax,
+        };
+        const zoomStart = currentZoom.start;
+        const zoomEnd = currentZoom.end;
+
+        return (
+          <div
+            key={intervalType}
+            ref={el => {
+              if (el) sectionRefs.current.set(intervalType, el);
+            }}
+            className="group relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-4 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm transition-all duration-300 hover:shadow-lg hover:ring-indigo-500/50 sm:p-6"
+          >
+            <div className="absolute inset-0 bg-linear-to-br from-indigo-500/10 via-transparent to-purple-500/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+            <div className="relative">
+              <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <h3 className="bg-linear-to-r from-indigo-400 to-purple-400 bg-clip-text text-lg font-black tracking-tight text-transparent sm:text-xl">
+                    {intervalType}
+                  </h3>
+                  <TransformationSelector
+                    transformations={transformations}
+                    selectedIndex={selectedTransformationIndex}
+                    onSelect={index =>
+                      setSelectedTransformations(prev => ({
+                        ...prev,
+                        [intervalType]: index,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="w-fit rounded-lg bg-slate-900/60 px-3 py-1.5 font-mono text-xs font-semibold text-slate-300 ring-1 ring-slate-700/50 sm:px-4 sm:py-2">
+                  {currentTransformation
+                    ? `${formatValue(transformValue(zoomStart, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(zoomEnd, currentTransformation), currentTransformation.format)}`
+                    : `${zoomStart.toLocaleString()} - ${zoomEnd.toLocaleString()}`}
+                </div>
+              </div>
+              <div className="space-y-2">
+                {sortedModels.map(model => {
+                  const isHighlighted = highlightedModels.has(model.id);
+                  const isDimmed = (hoveredModel !== null || hoveredCoverage !== null) && !isHighlighted;
+
+                  return (
+                    <ModelCoverageRow
+                      key={model.id}
+                      model={model}
+                      zoomStart={zoomStart}
+                      zoomEnd={zoomEnd}
+                      globalMin={globalMin}
+                      globalMax={globalMax}
+                      isHighlighted={isHighlighted}
+                      isDimmed={isDimmed}
+                      transformation={currentTransformation}
+                      onMouseEnter={() => setHoveredModel(model.id)}
+                      onMouseLeave={() => setHoveredModel(null)}
+                      onZoomChange={(start, end) => onZoomChange(intervalType, start, end)}
+                      onCoverageHover={(modelId, position, mouseX) =>
+                        setHoveredCoverage({ modelId, position, mouseX, intervalType })
+                      }
+                      onCoverageLeave={() => setHoveredCoverage(null)}
+                    />
+                  );
+                })}
+              </div>
+
+              {/* Zoom Controls */}
+              <div className="mt-6">
+                <ZoomControls
+                  globalMin={globalMin}
+                  globalMax={globalMax}
+                  zoomStart={zoomStart}
+                  zoomEnd={zoomEnd}
+                  transformation={currentTransformation}
+                  onZoomChange={(start, end) => onZoomChange(intervalType, start, end)}
+                  onResetZoom={() => onResetZoom(intervalType)}
+                />
+              </div>
+            </div>
+
+            {/* Coverage tooltip for this interval type */}
+            {hoveredCoverage && hoveredCoverage.intervalType === intervalType && (
+              <CoverageTooltip
+                hoveredPosition={hoveredCoverage.position}
+                mouseX={hoveredCoverage.mouseX}
+                hoveredModelId={hoveredCoverage.modelId}
+                allModels={sortedModels}
+                dependencyIds={getAllDependencies(hoveredCoverage.modelId)}
+                transformation={currentTransformation}
+                zoomStart={zoomStart}
+                zoomEnd={zoomEnd}
+                containerRef={{
+                  current: sectionRefs.current.get(intervalType) || null,
+                }}
+              />
+            )}
+          </div>
+        );
+      })}
+      <Tooltip id="coverage-tooltip" className="!bg-gray-900 !text-white !text-xs !px-2 !py-1 !rounded !opacity-100" />
+    </div>
+  );
+}

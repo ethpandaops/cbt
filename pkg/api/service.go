@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/api/generated"
 	"github.com/ethpandaops/cbt/pkg/api/handlers"
 	"github.com/ethpandaops/cbt/pkg/models"
@@ -21,14 +22,18 @@ type service struct {
 	app           *fiber.App
 	config        *Config
 	modelsService models.Service
+	adminService  admin.Service
+	intervalTypes handlers.IntervalTypesConfig
 	log           logrus.FieldLogger
 }
 
 // NewService creates a new API service
-func NewService(cfg *Config, modelsService models.Service, log logrus.FieldLogger) Service {
+func NewService(cfg *Config, modelsService models.Service, adminService admin.Service, intervalTypes handlers.IntervalTypesConfig, log logrus.FieldLogger) Service {
 	return &service{
 		config:        cfg,
 		modelsService: modelsService,
+		adminService:  adminService,
+		intervalTypes: intervalTypes,
 		log:           log.WithField("service", "api"),
 	}
 }
@@ -50,7 +55,7 @@ func (s *service) Start(_ context.Context) error {
 	setupMiddleware(s.app)
 
 	// Create API handler implementation
-	server := handlers.NewServer(s.modelsService, s.log)
+	server := handlers.NewServer(s.modelsService, s.adminService, s.intervalTypes, s.log)
 
 	// Create API v1 group
 	apiV1 := s.app.Group("/api/v1")

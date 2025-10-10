@@ -158,7 +158,7 @@ func (h *TaskHandler) setupTaskContext(payload TaskPayload) (*taskContextData, e
 	observability.RecordTaskStart(payload.GetModelID(), workerID)
 
 	// Get model configuration
-	trans, exists := h.transformations[payload.GetModelID()]
+	transformationModel, exists := h.transformations[payload.GetModelID()]
 	if !exists {
 		observability.RecordTaskComplete(payload.GetModelID(), workerID, "failed", time.Since(startTime).Seconds())
 		observability.RecordError("task-handler", "model_not_found")
@@ -180,7 +180,7 @@ func (h *TaskHandler) setupTaskContext(payload TaskPayload) (*taskContextData, e
 	}
 
 	return &taskContextData{
-		transformation: trans,
+		transformation: transformationModel,
 		position:       position,
 		interval:       interval,
 		executionTime:  executionTime,

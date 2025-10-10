@@ -231,3 +231,26 @@ func (h *Handler) GetLimits() *struct{ Min, Max uint64 } {
 		Max: h.config.Limits.Max,
 	}
 }
+
+// GetInterval returns the min and max interval sizes (API handler interface)
+func (h *Handler) GetInterval() (minInterval, maxInterval uint64) {
+	return h.GetMinInterval(), h.GetMaxInterval()
+}
+
+// GetSchedules returns the forwardfill and backfill schedules (API handler interface)
+func (h *Handler) GetSchedules() (forwardfill, backfill string) {
+	if h.config.Schedules == nil {
+		return "", ""
+	}
+	return h.config.Schedules.ForwardFill, h.config.Schedules.Backfill
+}
+
+// GetTags returns the tags for this transformation (API handler interface)
+func (h *Handler) GetTags() []string {
+	return h.config.Tags
+}
+
+// GetFlatDependencies returns dependencies as string slice (API handler interface)
+func (h *Handler) GetFlatDependencies() []string {
+	return h.GetFlattenedDependencies()
+}
