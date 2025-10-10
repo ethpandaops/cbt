@@ -6,10 +6,17 @@ import { ArrowPathIcon, XCircleIcon } from '@heroicons/react/24/outline';
 import { timeAgo } from '@/utils/time';
 
 export function ScheduledTransformationsSection(): JSX.Element {
-  const scheduledTransformations = useQuery(listTransformationsOptions({ query: { type: 'scheduled' } }));
+  // Fetch all transformations (polling handled at root level) and filter client-side
+  const allTransformations = useQuery(listTransformationsOptions());
+  const scheduledTransformations = {
+    ...allTransformations,
+    data: allTransformations.data
+      ? { ...allTransformations.data, models: allTransformations.data.models.filter(m => m.type === 'scheduled') }
+      : undefined,
+  };
   const runs = useQuery(listScheduledRunsOptions());
 
-  if (scheduledTransformations.isLoading || runs.isLoading) {
+  if (allTransformations.isLoading || runs.isLoading) {
     return (
       <div className="flex items-center gap-3 text-slate-400">
         <ArrowPathIcon className="h-5 w-5 animate-spin text-indigo-400" />

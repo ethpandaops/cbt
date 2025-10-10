@@ -346,6 +346,31 @@ export const zScheduledRun = z.object({
   ),
 });
 
+/**
+ * A single transformation step for an interval type
+ */
+export const zIntervalTypeTransformation = z
+  .object({
+    name: z.string().register(z.globalRegistry, {
+      description: 'Display name for this transformation',
+    }),
+    expression: z.optional(
+      z.string().register(z.globalRegistry, {
+        description:
+          "Optional CEL (Common Expression Language) expression to transform the value.\nUses 'value' as the input variable.\nSupports math functions via math.* namespace (e.g., math.floor, math.ceil, math.round).\nIf omitted, value is passed through unchanged (identity transformation).\n",
+      })
+    ),
+    format: z.optional(
+      z.enum(['datetime', 'date', 'time', 'duration', 'relative']).register(z.globalRegistry, {
+        description:
+          'Optional display format hint for the frontend.\n- datetime: Format as full date and time (e.g., "2024-01-15 14:30:00")\n- date: Format as date only (e.g., "2024-01-15")\n- time: Format as time only (e.g., "14:30:00")\n- duration: Format as human-readable duration (e.g., "2h 30m")\n- relative: Format as relative time (e.g., "2 hours ago")\nIf omitted, value is displayed as a raw number.\n',
+      })
+    ),
+  })
+  .register(z.globalRegistry, {
+    description: 'A single transformation step for an interval type',
+  });
+
 export const zError = z.object({
   error: z.string().register(z.globalRegistry, {
     description: 'Human-readable error message',
@@ -629,6 +654,23 @@ export const zGetTransformationCoverageData = z.object({
  * Transformation coverage details
  */
 export const zGetTransformationCoverageResponse = zCoverageDetail;
+
+export const zGetIntervalTypesData = z.object({
+  body: z.optional(z.never()),
+  path: z.optional(z.never()),
+  query: z.optional(z.never()),
+});
+
+/**
+ * Interval type transformations
+ */
+export const zGetIntervalTypesResponse = z
+  .object({
+    interval_types: z.record(z.string(), z.array(zIntervalTypeTransformation)),
+  })
+  .register(z.globalRegistry, {
+    description: 'Interval type transformations',
+  });
 
 export const zListScheduledRunsData = z.object({
   body: z.optional(z.never()),

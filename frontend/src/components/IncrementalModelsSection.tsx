@@ -6,11 +6,14 @@ import {
   listTransformationCoverageOptions,
   listExternalModelsOptions,
   listExternalBoundsOptions,
+  getIntervalTypesOptions,
 } from '@api/@tanstack/react-query.gen';
 import { ArrowPathIcon, XCircleIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline';
 import type { ZoomRanges, IncrementalModelItem } from '@/types';
+import type { IntervalTypeTransformation } from '@api/types.gen';
 import { RangeSlider } from './RangeSlider';
 import { Tooltip } from 'react-tooltip';
+import { transformValue, formatValue } from '@/utils/interval-transform';
 
 interface IncrementalModelsSectionProps {
   zoomRanges: ZoomRanges;
@@ -24,14 +27,26 @@ export function IncrementalModelsSection({
   onResetZoom,
 }: IncrementalModelsSectionProps): JSX.Element {
   const [hoveredModel, setHoveredModel] = useState<string | null>(null);
+  // Track selected transformation index for each interval type
+  const [selectedTransformations, setSelectedTransformations] = useState<Record<string, number>>({});
 
-  const incrementalTransformations = useQuery(listTransformationsOptions({ query: { type: 'incremental' } }));
+  // Fetch all transformations (polling handled at root level) and filter client-side
+  const allTransformations = useQuery(listTransformationsOptions());
+  const incrementalTransformations = {
+    ...allTransformations,
+    data: allTransformations.data
+      ? { ...allTransformations.data, models: allTransformations.data.models.filter(m => m.type === 'incremental') }
+      : undefined,
+  };
+
   const coverage = useQuery(listTransformationCoverageOptions());
   const externalModels = useQuery(listExternalModelsOptions());
   const bounds = useQuery(listExternalBoundsOptions());
 
-  const isLoading =
-    incrementalTransformations.isLoading || coverage.isLoading || externalModels.isLoading || bounds.isLoading;
+  // Fetch interval types (polling handled at root level)
+  const intervalTypes = useQuery(getIntervalTypesOptions());
+
+  const isLoading = allTransformations.isLoading || coverage.isLoading || externalModels.isLoading || bounds.isLoading;
 
   const error = incrementalTransformations.error || coverage.error || externalModels.error || bounds.error;
 
@@ -133,7 +148,15 @@ export function IncrementalModelsSection({
         // Sort models by ID within each group
         const sortedModels = [...models].sort((a, b) => a.id.localeCompare(b.id));
 
+        // Get available transformations for this interval type
+        const transformations = intervalTypes.data?.interval_types?.[intervalType] || [];
+        const selectedTransformationIndex = selectedTransformations[intervalType] ?? 0;
+        const currentTransformation: IntervalTypeTransformation | undefined =
+          transformations[selectedTransformationIndex];
+
         // Calculate the min/max range for this interval type group
+        // globalMin/globalMax include both transformations and external models
+        // transformationMin is for transformations only, transformationMax includes both
         let globalMin = Infinity;
         let globalMax = -Infinity;
         let transformationMin = Infinity;
@@ -141,6 +164,7 @@ export function IncrementalModelsSection({
 
         sortedModels.forEach(model => {
           if (model.data.coverage) {
+            // Transformation model
             model.data.coverage.forEach(range => {
               globalMin = Math.min(globalMin, range.position);
               globalMax = Math.max(globalMax, range.position + range.interval);
@@ -149,8 +173,10 @@ export function IncrementalModelsSection({
             });
           }
           if (model.data.bounds) {
+            // External model - only affects globalMin/globalMax and transformationMax
             globalMin = Math.min(globalMin, model.data.bounds.min);
             globalMax = Math.max(globalMax, model.data.bounds.max);
+            transformationMax = Math.max(transformationMax, model.data.bounds.max);
           }
         });
 
@@ -161,7 +187,7 @@ export function IncrementalModelsSection({
         if (transformationMax === -Infinity) transformationMax = globalMax;
 
         // Get or initialize zoom state for this interval type
-        // Default to transformation bounds, not global bounds
+        // Default zoom: min from transformations only, max from transformations + external
         const currentZoom = zoomRanges[intervalType] || {
           start: transformationMin,
           end: transformationMax,
@@ -179,22 +205,33 @@ export function IncrementalModelsSection({
             <div className="relative">
               <div className="mb-6 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-indigo-500/20 p-2 ring-1 ring-indigo-500/50">
-                    <svg className="size-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                      />
-                    </svg>
-                  </div>
                   <h3 className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-xl font-black tracking-tight text-transparent">
                     {intervalType}
                   </h3>
-                  <span className="rounded-full bg-indigo-500/20 px-2.5 py-0.5 text-xs font-bold text-indigo-300">
-                    {sortedModels.length} models
-                  </span>
+                  {/* Transformation selector buttons - only show if there are 2+ transformations */}
+                  {transformations.length > 1 && (
+                    <div className="flex gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
+                      {transformations.map((transformation, index) => (
+                        <button
+                          key={index}
+                          onClick={() =>
+                            setSelectedTransformations(prev => ({
+                              ...prev,
+                              [intervalType]: index,
+                            }))
+                          }
+                          className={`rounded-md px-3 py-1 text-xs font-semibold transition-all ${
+                            selectedTransformationIndex === index
+                              ? 'bg-indigo-500 text-white shadow-sm'
+                              : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                          }`}
+                          title={transformation.expression || 'No transformation'}
+                        >
+                          {transformation.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   <button
@@ -206,7 +243,9 @@ export function IncrementalModelsSection({
                     <ArrowsPointingOutIcon className="size-4 transition-transform group-hover/btn:scale-110" />
                   </button>
                   <div className="rounded-lg bg-slate-900/60 px-4 py-2 font-mono text-xs font-semibold text-slate-300 ring-1 ring-slate-700/50">
-                    {zoomStart.toLocaleString()} - {zoomEnd.toLocaleString()}
+                    {currentTransformation
+                      ? `${formatValue(transformValue(zoomStart, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(zoomEnd, currentTransformation), currentTransformation.format)}`
+                      : `${zoomStart.toLocaleString()} - ${zoomEnd.toLocaleString()}`}
                   </div>
                 </div>
               </div>
@@ -328,6 +367,9 @@ export function IncrementalModelsSection({
                                 const width = right - left;
                                 const chunkMin = rangeData.position;
                                 const chunkMax = rangeData.position + rangeData.interval;
+                                const tooltipContent = currentTransformation
+                                  ? `Min: ${formatValue(transformValue(chunkMin, currentTransformation), currentTransformation.format)}, Max: ${formatValue(transformValue(chunkMax, currentTransformation), currentTransformation.format)}`
+                                  : `Min: ${chunkMin.toLocaleString()}, Max: ${chunkMax.toLocaleString()}`;
                                 return (
                                   <div
                                     key={idx}
@@ -337,7 +379,7 @@ export function IncrementalModelsSection({
                                       width: `${width}%`,
                                     }}
                                     data-tooltip-id="chunk-tooltip"
-                                    data-tooltip-content={`Min: ${chunkMin.toLocaleString()}, Max: ${chunkMax.toLocaleString()}`}
+                                    data-tooltip-content={tooltipContent}
                                   />
                                 );
                               });
@@ -345,17 +387,23 @@ export function IncrementalModelsSection({
                           : // Render bounds as single continuous bar
                             model.data.bounds &&
                             model.data.bounds.max >= zoomStart &&
-                            model.data.bounds.min <= zoomEnd && (
-                              <div
-                                className="absolute h-full bg-green-600"
-                                style={{
-                                  left: `${Math.max(0, ((model.data.bounds.min - zoomStart) / range) * 100)}%`,
-                                  width: `${Math.min(100, ((Math.min(model.data.bounds.max, zoomEnd) - Math.max(model.data.bounds.min, zoomStart)) / range) * 100)}%`,
-                                }}
-                                data-tooltip-id="chunk-tooltip"
-                                data-tooltip-content={`Min: ${model.data.bounds.min.toLocaleString()}, Max: ${model.data.bounds.max.toLocaleString()}`}
-                              />
-                            )}
+                            model.data.bounds.min <= zoomEnd &&
+                            (() => {
+                              const boundsTooltip = currentTransformation
+                                ? `Min: ${formatValue(transformValue(model.data.bounds.min, currentTransformation), currentTransformation.format)}, Max: ${formatValue(transformValue(model.data.bounds.max, currentTransformation), currentTransformation.format)}`
+                                : `Min: ${model.data.bounds.min.toLocaleString()}, Max: ${model.data.bounds.max.toLocaleString()}`;
+                              return (
+                                <div
+                                  className="absolute h-full bg-green-600"
+                                  style={{
+                                    left: `${Math.max(0, ((model.data.bounds.min - zoomStart) / range) * 100)}%`,
+                                    width: `${Math.min(100, ((Math.min(model.data.bounds.max, zoomEnd) - Math.max(model.data.bounds.min, zoomStart)) / range) * 100)}%`,
+                                  }}
+                                  data-tooltip-id="chunk-tooltip"
+                                  data-tooltip-content={boundsTooltip}
+                                />
+                              );
+                            })()}
                       </div>
                     </div>
                   );
@@ -365,9 +413,13 @@ export function IncrementalModelsSection({
               {/* Range Slider */}
               <div className="mt-6 rounded-lg border border-slate-700/50 bg-slate-900/40 p-4">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-400">Zoom Range</span>
+                  <span className="text-xs font-semibold text-slate-400">
+                    {currentTransformation ? currentTransformation.name : 'Zoom Range'}
+                  </span>
                   <span className="font-mono text-xs text-slate-500">
-                    {globalMin.toLocaleString()} → {globalMax.toLocaleString()}
+                    {currentTransformation
+                      ? `${formatValue(transformValue(globalMin, currentTransformation), currentTransformation.format)} → ${formatValue(transformValue(globalMax, currentTransformation), currentTransformation.format)}`
+                      : `${globalMin.toLocaleString()} → ${globalMax.toLocaleString()}`}
                   </span>
                 </div>
                 <RangeSlider

@@ -129,7 +129,7 @@ const nodeTypes = {
 function DagComponent(): JSX.Element {
   // Fetch all model data
   const allModels = useQuery(listAllModelsOptions());
-  const transformations = useQuery(listTransformationsOptions({ query: {} }));
+  const transformations = useQuery(listTransformationsOptions());
   const externalModels = useQuery(listExternalModelsOptions());
 
   // Build nodes and edges from the data with Dagre auto-layout

@@ -106,3 +106,58 @@ frontend:
   enabled: true
   # Address to serve the frontend on
   addr: ":8080"
+
+# Interval type transformations (optional)
+# Define how interval types can be represented and transformed for display in the frontend
+# Each interval type (matching interval.type in models) can have multiple transformation steps
+#
+# interval_types:
+#   # The interval.type name from your models
+#   slot:
+#     # Raw value (no transformation, no formatting)
+#     - name: raw
+#
+#     # Display as formatted datetime
+#     - name: timestamp
+#       format: datetime
+#
+#     # Transform to epoch number
+#     - name: epoch
+#       expression: "math.floor((value - 1606824023) / 12)"
+#
+#     # Transform to epoch and format as datetime
+#     - name: epoch_as_date
+#       expression: "math.floor((value - 1606824023) / 12) * 1000"
+#       format: datetime
+#
+#   # Another interval type example
+#   epoch:
+#     - name: timestamp
+#       format: datetime
+#
+#     - name: slot
+#       expression: "value * 32 * 12"  # epoch -> slot conversion
+#
+#     - name: date_only
+#       format: date
+#
+# Configuration reference:
+#   - name: (required) Display name for this transformation
+#   - expression: (optional) CEL expression to transform the value
+#   - format: (optional) Display format hint: datetime, date, time, duration, relative
+#
+# CEL expression features:
+#   - Use 'value' as the input variable
+#   - Math functions: math.floor(), math.ceil(), math.round(), math.abs(), math.sqrt()
+#   - Min/max: math.least(), math.greatest()
+#   - Arithmetic: +, -, *, /, %
+#   - Comparisons: ==, !=, <, >, <=, >=
+#   - Conditionals: value > 1000 ? value * 1000 : value
+#   - Backend uses cel-go, frontend uses cel-js for safe execution
+#
+# Format types (optional, omit for raw number display):
+#   - datetime: Full date and time (e.g., "2024-01-15 14:30:00")
+#   - date: Date only (e.g., "2024-01-15")
+#   - time: Time only (e.g., "14:30:00")
+#   - duration: Human-readable duration (e.g., "2h 30m")
+#   - relative: Relative time (e.g., "2 hours ago")

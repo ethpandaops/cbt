@@ -6,6 +6,7 @@ import { client } from '../client.gen';
 import {
   getExternalBounds,
   getExternalModel,
+  getIntervalTypes,
   getScheduledRun,
   getTransformation,
   getTransformationCoverage,
@@ -20,6 +21,7 @@ import {
 import type {
   GetExternalBoundsData,
   GetExternalModelData,
+  GetIntervalTypesData,
   GetScheduledRunData,
   GetTransformationCoverageData,
   GetTransformationData,
@@ -263,6 +265,31 @@ export const getTransformationCoverageOptions = (options: Options<GetTransformat
       return data;
     },
     queryKey: getTransformationCoverageQueryKey(options),
+  });
+};
+
+export const getIntervalTypesQueryKey = (options?: Options<GetIntervalTypesData>) =>
+  createQueryKey('getIntervalTypes', options);
+
+/**
+ * Get interval type transformations
+ * Returns the configured interval type transformations.
+ * Each interval type defines how values can be represented and transformed.
+ * For example, 'slot' might transform to 'timestamp' via CEL expression.
+ *
+ */
+export const getIntervalTypesOptions = (options?: Options<GetIntervalTypesData>) => {
+  return queryOptions({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getIntervalTypes({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: getIntervalTypesQueryKey(options),
   });
 };
 

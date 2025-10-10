@@ -299,7 +299,7 @@ func TestNewServer(t *testing.T) {
 	}
 	mockAdmin := &mockAdminService{}
 
-	server := NewServer(mockService, mockAdmin, log)
+	server := NewServer(mockService, mockAdmin, IntervalTypesConfig{}, log)
 
 	assert.NotNil(t, server)
 	assert.NotNil(t, server.modelsService)

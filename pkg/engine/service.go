@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/api"
+	"github.com/ethpandaops/cbt/pkg/api/handlers"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/coordinator"
 	"github.com/ethpandaops/cbt/pkg/frontend"
@@ -92,7 +93,10 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 		return nil, fmt.Errorf("failed to create worker service: %w", err)
 	}
 
-	apiService := api.NewService(&cfg.API, modelsService, adminManager, log)
+	// Convert interval types config to API format
+	apiIntervalTypes := convertToAPIIntervalTypes(cfg.IntervalTypes)
+
+	apiService := api.NewService(&cfg.API, modelsService, adminManager, apiIntervalTypes, log)
 
 	frontendService := frontend.NewService(&cfg.Frontend, log)
 
@@ -273,4 +277,23 @@ func (a *Service) startPProf() {
 			a.log.WithError(err).Error("Pprof server failed")
 		}
 	}()
+}
+
+// convertToAPIIntervalTypes converts engine config interval types to API handlers format
+func convertToAPIIntervalTypes(engineConfig IntervalTypesConfig) handlers.IntervalTypesConfig {
+	result := make(handlers.IntervalTypesConfig, len(engineConfig))
+
+	for typeName, transformations := range engineConfig {
+		apiTransformations := make([]handlers.IntervalTypeTransformation, len(transformations))
+		for i, t := range transformations {
+			apiTransformations[i] = handlers.IntervalTypeTransformation{
+				Name:       t.Name,
+				Expression: t.Expression,
+				Format:     t.Format,
+			}
+		}
+		result[typeName] = apiTransformations
+	}
+
+	return result
 }

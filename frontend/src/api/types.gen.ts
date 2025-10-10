@@ -302,6 +302,35 @@ export type ScheduledRun = {
   last_run?: string;
 };
 
+/**
+ * A single transformation step for an interval type
+ */
+export type IntervalTypeTransformation = {
+  /**
+   * Display name for this transformation
+   */
+  name: string;
+  /**
+   * Optional CEL (Common Expression Language) expression to transform the value.
+   * Uses 'value' as the input variable.
+   * Supports math functions via math.* namespace (e.g., math.floor, math.ceil, math.round).
+   * If omitted, value is passed through unchanged (identity transformation).
+   *
+   */
+  expression?: string;
+  /**
+   * Optional display format hint for the frontend.
+   * - datetime: Format as full date and time (e.g., "2024-01-15 14:30:00")
+   * - date: Format as date only (e.g., "2024-01-15")
+   * - time: Format as time only (e.g., "14:30:00")
+   * - duration: Format as human-readable duration (e.g., "2h 30m")
+   * - relative: Format as relative time (e.g., "2 hours ago")
+   * If omitted, value is displayed as a raw number.
+   *
+   */
+  format?: 'datetime' | 'date' | 'time' | 'duration' | 'relative';
+};
+
 export type _Error = {
   /**
    * Human-readable error message
@@ -696,6 +725,35 @@ export type GetTransformationCoverageResponses = {
 
 export type GetTransformationCoverageResponse =
   GetTransformationCoverageResponses[keyof GetTransformationCoverageResponses];
+
+export type GetIntervalTypesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/interval/types';
+};
+
+export type GetIntervalTypesErrors = {
+  /**
+   * Internal server error
+   */
+  500: _Error;
+};
+
+export type GetIntervalTypesError = GetIntervalTypesErrors[keyof GetIntervalTypesErrors];
+
+export type GetIntervalTypesResponses = {
+  /**
+   * Interval type transformations
+   */
+  200: {
+    interval_types: {
+      [key: string]: Array<IntervalTypeTransformation>;
+    };
+  };
+};
+
+export type GetIntervalTypesResponse = GetIntervalTypesResponses[keyof GetIntervalTypesResponses];
 
 export type ListScheduledRunsData = {
   body?: never;

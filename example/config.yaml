@@ -112,3 +112,12 @@ models:
 #       limits:
 #         min: 1000000  # Start from specific position
 #         max: 2000000  # End at specific position
+interval_types:
+  slot:
+  - name: Slot
+    expression: "math.floor((value - 1606824023) / 12)"
+  - name: Datetime
+    format: datetime
+    expression: "value * 1000"
+  block:
+  - name: Block number

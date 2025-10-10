@@ -1,13 +1,75 @@
 import { type JSX } from 'react';
 import { createRootRoute, Outlet, Link } from '@tanstack/react-router';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+import {
+  listAllModelsOptions,
+  listExternalModelsOptions,
+  listTransformationsOptions,
+  listExternalBoundsOptions,
+  listTransformationCoverageOptions,
+  getIntervalTypesOptions,
+  listScheduledRunsOptions,
+} from '@api/@tanstack/react-query.gen';
 import Logo from '/logo.png';
 
 const queryClient = new QueryClient();
 
+// BackgroundPoller: Runs all critical queries with continuous 60s polling
+// This component is always mounted inside the QueryClientProvider
+function BackgroundPoller(): null {
+  // Root-level continuous polling (60s) for all critical dashboard endpoints
+  // These queries run in the background throughout the entire app lifecycle
+  // Child components automatically receive cached data via query key deduplication
+  useQuery({
+    ...listAllModelsOptions(),
+    refetchInterval: 60000,
+    staleTime: 55000,
+  });
+
+  useQuery({
+    ...listExternalModelsOptions(),
+    refetchInterval: 60000,
+    staleTime: 55000,
+  });
+
+  // Poll all transformations unfiltered (components filter client-side as needed)
+  useQuery({
+    ...listTransformationsOptions(),
+    refetchInterval: 60000,
+    staleTime: 55000,
+  });
+
+  useQuery({
+    ...listExternalBoundsOptions(),
+    refetchInterval: 60000,
+    staleTime: 55000,
+  });
+
+  useQuery({
+    ...listTransformationCoverageOptions(),
+    refetchInterval: 60000,
+    staleTime: 55000,
+  });
+
+  useQuery({
+    ...getIntervalTypesOptions(),
+    refetchInterval: 60000,
+    staleTime: 55000,
+  });
+
+  useQuery({
+    ...listScheduledRunsOptions(),
+    refetchInterval: 60000,
+    staleTime: 55000,
+  });
+
+  return null;
+}
+
 function RootComponent(): JSX.Element {
   return (
     <QueryClientProvider client={queryClient}>
+      <BackgroundPoller />
       <div className="relative min-h-dvh bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
         {/* Ambient background decoration */}
         <div className="pointer-events-none fixed inset-0 overflow-hidden">

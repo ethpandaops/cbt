@@ -26,6 +26,7 @@
     "@tanstack/router-plugin": "^1.132.51",
     "@types/dagre": "^0.7.53",
     "@xyflow/react": "^12.8.6",
+    "cel-js": "^0.8.2",
     "dagre": "^0.8.5",
     "react": "19.2.0",
     "react-dom": "19.2.0",

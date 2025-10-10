@@ -45,9 +45,9 @@ function ModelDetailComponent(): JSX.Element {
     enabled: model?.type === 'transformation',
   });
 
-  // Fetch all transformations for recursive dependency resolution
+  // Fetch all transformations for recursive dependency resolution (polling handled at root level)
   const allTransformations = useQuery({
-    ...listTransformationsOptions({ query: { type: 'incremental' } }),
+    ...listTransformationsOptions(),
     enabled: model?.type === 'transformation',
   });
 

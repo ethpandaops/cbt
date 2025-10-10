@@ -14,9 +14,9 @@ import (
 
 // Mock handler for testing
 type mockHandler struct {
-	dependencies     []string
-	intervalType     string
-	shouldTrackPos   bool
+	dependencies   []string
+	intervalType   string
+	shouldTrackPos bool
 }
 
 func (h *mockHandler) GetFlattenedDependencies() []string {

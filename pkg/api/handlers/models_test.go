@@ -169,7 +169,7 @@ func TestListAllModels(t *testing.T) {
 			mockDAG := tt.setupMocks()
 			mockService := &mockModelsService{dag: mockDAG}
 			mockAdmin := &mockAdminService{}
-			server := NewServer(mockService, mockAdmin, log)
+			server := NewServer(mockService, mockAdmin, IntervalTypesConfig{}, log)
 
 			app := fiber.New()
 			app.Get("/models", func(c fiber.Ctx) error {
@@ -271,7 +271,7 @@ func TestGetTransformation(t *testing.T) {
 			mockDAG := tt.setupMocks()
 			mockService := &mockModelsService{dag: mockDAG}
 			mockAdmin := &mockAdminService{}
-			server := NewServer(mockService, mockAdmin, log)
+			server := NewServer(mockService, mockAdmin, IntervalTypesConfig{}, log)
 
 			app := fiber.New(fiber.Config{
 				ErrorHandler: func(c fiber.Ctx, err error) error {
@@ -373,7 +373,7 @@ func TestGetExternalModel(t *testing.T) {
 			mockDAG := tt.setupMocks()
 			mockService := &mockModelsService{dag: mockDAG}
 			mockAdmin := &mockAdminService{}
-			server := NewServer(mockService, mockAdmin, log)
+			server := NewServer(mockService, mockAdmin, IntervalTypesConfig{}, log)
 
 			app := fiber.New(fiber.Config{
 				ErrorHandler: func(c fiber.Ctx, err error) error {

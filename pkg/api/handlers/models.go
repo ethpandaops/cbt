@@ -378,7 +378,9 @@ func populateSchedules(model *generated.TransformationModel, incrementalHandler 
 }
 
 func populateLimits(model *generated.TransformationModel, handler interface{}) {
-	limitsProvider, ok := handler.(interface{ GetLimits() *struct{ Min, Max uint64 } })
+	limitsProvider, ok := handler.(interface {
+		GetLimits() *struct{ Min, Max uint64 }
+	})
 	if !ok {
 		return
 	}

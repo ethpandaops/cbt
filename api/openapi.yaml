@@ -326,6 +326,51 @@ paths:
           $ref: '#/components/responses/InternalError'
 
   # ============================================
+  # INTERVAL TYPES
+  # ============================================
+  /interval/types:
+    get:
+      summary: Get interval type transformations
+      operationId: getIntervalTypes
+      tags:
+        - Interval Types
+      description: |
+        Returns the configured interval type transformations.
+        Each interval type defines how values can be represented and transformed.
+        For example, 'slot' might transform to 'timestamp' via CEL expression.
+      responses:
+        '200':
+          description: Interval type transformations
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [interval_types]
+                properties:
+                  interval_types:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/IntervalTypeTransformation'
+              example:
+                interval_types:
+                  banana:
+                    - name: datetime
+                      format: datetime
+                  slot:
+                    - name: raw
+                    - name: timestamp
+                      format: datetime
+                    - name: epoch
+                      expression: "math.floor((value - 1606824023) / 12)"
+                    - name: epoch_as_date
+                      expression: "math.floor((value - 1606824023) / 12) * 1000"
+                      format: datetime
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================
   # SCHEDULED RUNS
   # ============================================
   /models/transformations/runs:
@@ -778,6 +823,39 @@ components:
           type: string
           format: date-time
           description: Timestamp of last execution
+
+    # ============================================
+    # INTERVAL TYPE SCHEMAS
+    # ============================================
+    IntervalTypeTransformation:
+      type: object
+      required: [name]
+      description: A single transformation step for an interval type
+      properties:
+        name:
+          type: string
+          description: Display name for this transformation
+          example: "epoch"
+        expression:
+          type: string
+          description: |
+            Optional CEL (Common Expression Language) expression to transform the value.
+            Uses 'value' as the input variable.
+            Supports math functions via math.* namespace (e.g., math.floor, math.ceil, math.round).
+            If omitted, value is passed through unchanged (identity transformation).
+          example: "math.floor((value - 1606824023) / 12)"
+        format:
+          type: string
+          enum: [datetime, date, time, duration, relative]
+          description: |
+            Optional display format hint for the frontend.
+            - datetime: Format as full date and time (e.g., "2024-01-15 14:30:00")
+            - date: Format as date only (e.g., "2024-01-15")
+            - time: Format as time only (e.g., "14:30:00")
+            - duration: Format as human-readable duration (e.g., "2h 30m")
+            - relative: Format as relative time (e.g., "2 hours ago")
+            If omitted, value is displayed as a raw number.
+          example: "datetime"
 
     # ============================================
     # ERROR SCHEMAS

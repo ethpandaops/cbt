@@ -9,6 +9,9 @@ import type {
   GetExternalModelData,
   GetExternalModelErrors,
   GetExternalModelResponses,
+  GetIntervalTypesData,
+  GetIntervalTypesErrors,
+  GetIntervalTypesResponses,
   GetScheduledRunData,
   GetScheduledRunErrors,
   GetScheduledRunResponses,
@@ -42,6 +45,8 @@ import {
   zGetExternalBoundsResponse,
   zGetExternalModelData,
   zGetExternalModelResponse,
+  zGetIntervalTypesData,
+  zGetIntervalTypesResponse,
   zGetScheduledRunData,
   zGetScheduledRunResponse,
   zGetTransformationCoverageData,
@@ -253,6 +258,28 @@ export const getTransformationCoverage = <ThrowOnError extends boolean = false>(
       return await zGetTransformationCoverageResponse.parseAsync(data);
     },
     url: '/models/transformations/{id}/coverage',
+    ...options,
+  });
+};
+
+/**
+ * Get interval type transformations
+ * Returns the configured interval type transformations.
+ * Each interval type defines how values can be represented and transformed.
+ * For example, 'slot' might transform to 'timestamp' via CEL expression.
+ *
+ */
+export const getIntervalTypes = <ThrowOnError extends boolean = false>(
+  options?: Options<GetIntervalTypesData, ThrowOnError>
+) => {
+  return (options?.client ?? client).get<GetIntervalTypesResponses, GetIntervalTypesErrors, ThrowOnError>({
+    requestValidator: async data => {
+      return await zGetIntervalTypesData.parseAsync(data);
+    },
+    responseValidator: async data => {
+      return await zGetIntervalTypesResponse.parseAsync(data);
+    },
+    url: '/interval/types',
     ...options,
   });
 };
