@@ -1,5 +1,5 @@
 import { type JSX, useState } from 'react';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   listAllModelsOptions,
@@ -9,11 +9,19 @@ import {
   getTransformationOptions,
   listTransformationCoverageOptions,
   listTransformationsOptions,
+  getIntervalTypesOptions,
 } from '@api/@tanstack/react-query.gen';
-import { ArrowPathIcon, XCircleIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
-import { RangeSlider } from '@/components/RangeSlider';
+import type { IntervalTypeTransformation } from '@api/types.gen';
+import { ArrowPathIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { BackToDashboardButton } from '@/components/BackToDashboardButton';
+import { ModelHeader } from '@/components/ModelHeader';
+import { ModelInfoCard, type InfoField } from '@/components/ModelInfoCard';
+import { DependencyRow } from '@/components/DependencyRow';
+import { CoverageBar } from '@/components/CoverageBar';
+import { ZoomControls } from '@/components/ZoomControls';
 import { Tooltip } from 'react-tooltip';
 import { timeAgo } from '@/utils/time';
+import { transformValue, formatValue } from '@/utils/interval-transform';
 
 function ModelDetailComponent(): JSX.Element {
   const { id } = Route.useParams();
@@ -22,6 +30,12 @@ function ModelDetailComponent(): JSX.Element {
   // Load all models to determine type
   const allModels = useQuery(listAllModelsOptions());
   const model = allModels.data?.models.find(m => m.id === decodedId);
+
+  // Fetch interval types for transformation selector
+  const intervalTypes = useQuery(getIntervalTypesOptions());
+
+  // Track selected transformation index
+  const [selectedTransformationIndex, setSelectedTransformationIndex] = useState(0);
 
   // Conditional queries based on model type
   const externalModel = useQuery({
@@ -85,56 +99,27 @@ function ModelDetailComponent(): JSX.Element {
 
     const bounds = externalBounds.data;
 
+    const fields: InfoField[] = [
+      { label: 'Database', value: model.database },
+      { label: 'Table', value: model.table },
+    ];
+
+    if (externalModel.data?.interval?.type) {
+      fields.push({ label: 'Interval Type', value: externalModel.data.interval.type });
+    }
+
+    if (bounds) {
+      fields.push(
+        { label: 'Min Position', value: bounds.min.toLocaleString(), variant: 'highlight', highlightColor: 'green' },
+        { label: 'Max Position', value: bounds.max.toLocaleString(), variant: 'highlight', highlightColor: 'green' }
+      );
+    }
+
     return (
       <div>
-        <Link
-          to="/"
-          className="group mb-6 inline-flex items-center gap-2 rounded-lg bg-slate-800/60 px-4 py-2 text-sm font-medium text-slate-300 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm transition-all hover:bg-slate-800/80 hover:text-indigo-400 hover:shadow-md hover:ring-indigo-500/50"
-        >
-          <ArrowLeftIcon className="size-4 transition-transform group-hover:-translate-x-0.5" />
-          Back to Dashboard
-        </Link>
-
-        <div className="mb-6 flex items-baseline gap-4">
-          <h1 className="bg-gradient-to-r from-green-400 via-emerald-400 to-green-400 bg-clip-text text-4xl font-black tracking-tight text-transparent">
-            {decodedId}
-          </h1>
-          <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-bold text-green-300 ring-1 ring-green-500/50">
-            EXTERNAL
-          </span>
-        </div>
-
-        <div className="rounded-2xl border border-green-500/30 bg-slate-800/80 p-6 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm">
-          <h2 className="mb-4 text-lg font-bold text-slate-100">Model Information</h2>
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
-            <div className="rounded-lg bg-slate-900/60 p-4">
-              <dt className="mb-1 font-semibold text-slate-400">Database</dt>
-              <dd className="font-mono text-base font-bold text-slate-100">{model.database}</dd>
-            </div>
-            <div className="rounded-lg bg-slate-900/60 p-4">
-              <dt className="mb-1 font-semibold text-slate-400">Table</dt>
-              <dd className="font-mono text-base font-bold text-slate-100">{model.table}</dd>
-            </div>
-            {externalModel.data?.interval?.type && (
-              <div className="rounded-lg bg-slate-900/60 p-4">
-                <dt className="mb-1 font-semibold text-slate-400">Interval Type</dt>
-                <dd className="font-mono text-base font-bold text-slate-100">{externalModel.data.interval.type}</dd>
-              </div>
-            )}
-            {bounds && (
-              <>
-                <div className="rounded-lg bg-green-500/10 p-4 ring-1 ring-green-500/50">
-                  <dt className="mb-1 font-semibold text-green-400">Min Position</dt>
-                  <dd className="font-mono text-base font-bold text-green-200">{bounds.min.toLocaleString()}</dd>
-                </div>
-                <div className="rounded-lg bg-green-500/10 p-4 ring-1 ring-green-500/50">
-                  <dt className="mb-1 font-semibold text-green-400">Max Position</dt>
-                  <dd className="font-mono text-base font-bold text-green-200">{bounds.max.toLocaleString()}</dd>
-                </div>
-              </>
-            )}
-          </dl>
-        </div>
+        <BackToDashboardButton />
+        <ModelHeader modelId={decodedId} modelType="external" />
+        <ModelInfoCard title="Model Information" fields={fields} borderColor="border-green-500/30" />
       </div>
     );
   }
@@ -154,64 +139,34 @@ function ModelDetailComponent(): JSX.Element {
 
   if (!isIncremental) {
     // Scheduled transformation - no coverage
+    const fields: InfoField[] = [
+      { label: 'Database', value: model.database },
+      { label: 'Table', value: model.table },
+      { label: 'Content Type', value: transformation?.content_type },
+    ];
+
+    if (transformation?.schedule) {
+      fields.push({
+        label: 'Schedule',
+        value: transformation.schedule,
+        variant: 'highlight',
+        highlightColor: 'emerald',
+      });
+    }
+
+    if (transformation?.metadata?.last_run_at) {
+      fields.push({ label: 'Last Run', value: timeAgo(transformation.metadata.last_run_at) });
+    }
+
+    if (transformation?.metadata?.last_run_status) {
+      fields.push({ label: 'Status', value: transformation.metadata.last_run_status });
+    }
+
     return (
       <div>
-        <Link
-          to="/"
-          className="group mb-6 inline-flex items-center gap-2 rounded-lg bg-slate-800/60 px-4 py-2 text-sm font-medium text-slate-300 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm transition-all hover:bg-slate-800/80 hover:text-indigo-400 hover:shadow-md hover:ring-indigo-500/50"
-        >
-          <ArrowLeftIcon className="size-4 transition-transform group-hover:-translate-x-0.5" />
-          Back to Dashboard
-        </Link>
-
-        <div className="mb-6 flex items-baseline gap-4">
-          <h1 className="bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-400 bg-clip-text text-4xl font-black tracking-tight text-transparent">
-            {decodedId}
-          </h1>
-          <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-bold text-emerald-300 ring-1 ring-emerald-500/50">
-            SCHEDULED
-          </span>
-        </div>
-
-        <div className="rounded-2xl border border-emerald-500/30 bg-slate-800/80 p-6 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm">
-          <h2 className="mb-4 text-lg font-bold text-slate-100">Transformation Details</h2>
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
-            <div className="rounded-lg bg-slate-900/60 p-4">
-              <dt className="mb-1 font-semibold text-slate-400">Database</dt>
-              <dd className="font-mono text-base font-bold text-slate-100">{model.database}</dd>
-            </div>
-            <div className="rounded-lg bg-slate-900/60 p-4">
-              <dt className="mb-1 font-semibold text-slate-400">Table</dt>
-              <dd className="font-mono text-base font-bold text-slate-100">{model.table}</dd>
-            </div>
-            <div className="rounded-lg bg-slate-900/60 p-4">
-              <dt className="mb-1 font-semibold text-slate-400">Content Type</dt>
-              <dd className="font-mono text-base font-bold text-slate-100">{transformation?.content_type}</dd>
-            </div>
-            {transformation?.schedule && (
-              <div className="rounded-lg bg-emerald-500/10 p-4 ring-1 ring-emerald-500/50">
-                <dt className="mb-1 font-semibold text-emerald-400">Schedule</dt>
-                <dd className="font-mono text-base font-bold text-emerald-200">{transformation.schedule}</dd>
-              </div>
-            )}
-            {transformation?.metadata?.last_run_at && (
-              <div className="rounded-lg bg-slate-900/60 p-4">
-                <dt className="mb-1 font-semibold text-slate-400">Last Run</dt>
-                <dd className="font-mono text-base font-bold text-slate-100">
-                  {timeAgo(transformation.metadata.last_run_at)}
-                </dd>
-              </div>
-            )}
-            {transformation?.metadata?.last_run_status && (
-              <div className="rounded-lg bg-slate-900/60 p-4">
-                <dt className="mb-1 font-semibold text-slate-400">Status</dt>
-                <dd className="font-mono text-base font-bold text-slate-100">
-                  {transformation.metadata.last_run_status}
-                </dd>
-              </div>
-            )}
-          </dl>
-        </div>
+        <BackToDashboardButton />
+        <ModelHeader modelId={decodedId} modelType="scheduled" />
+        <ModelInfoCard title="Transformation Details" fields={fields} borderColor="border-emerald-500/30" />
       </div>
     );
   }
@@ -270,52 +225,51 @@ function ModelDetailComponent(): JSX.Element {
   if (globalMax === -Infinity) globalMax = 100;
 
   const currentZoom = zoomRange || { start: globalMin, end: globalMax };
-  const range = currentZoom.end - currentZoom.start || 1;
+
+  // Get available transformations for this interval type
+  const intervalType = transformation?.interval?.type || 'unknown';
+  const transformations = intervalTypes.data?.interval_types?.[intervalType] || [];
+  const currentTransformation: IntervalTypeTransformation | undefined = transformations[selectedTransformationIndex];
+
+  const infoFields: InfoField[] = [
+    { label: 'Database', value: model.database },
+    { label: 'Table', value: model.table },
+    { label: 'Type', value: transformation?.type, variant: 'highlight', highlightColor: 'indigo' },
+    { label: 'Content Type', value: transformation?.content_type },
+  ];
 
   return (
     <div>
-      <Link
-        to="/"
-        className="group mb-6 inline-flex items-center gap-2 rounded-lg bg-slate-800/60 px-4 py-2 text-sm font-medium text-slate-300 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm transition-all hover:bg-slate-800/80 hover:text-indigo-400 hover:shadow-md hover:ring-indigo-500/50"
-      >
-        <ArrowLeftIcon className="size-4 transition-transform group-hover:-translate-x-0.5" />
-        Back to Dashboard
-      </Link>
-
-      <div className="mb-6 flex items-baseline gap-4">
-        <h1 className="bg-gradient-to-r from-indigo-400 via-purple-400 to-indigo-400 bg-clip-text text-4xl font-black tracking-tight text-transparent">
-          {decodedId}
-        </h1>
-        <span className="rounded-full bg-indigo-500/20 px-3 py-1 text-xs font-bold text-indigo-300 ring-1 ring-indigo-500/50">
-          INCREMENTAL
-        </span>
-      </div>
-
-      <div className="mb-6 rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-6 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm">
-        <h2 className="mb-4 text-lg font-bold text-slate-100">Model Information</h2>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm lg:grid-cols-4">
-          <div className="rounded-lg bg-slate-900/60 p-4">
-            <dt className="mb-1 font-semibold text-slate-400">Database</dt>
-            <dd className="font-mono text-base font-bold text-slate-100">{model.database}</dd>
-          </div>
-          <div className="rounded-lg bg-slate-900/60 p-4">
-            <dt className="mb-1 font-semibold text-slate-400">Table</dt>
-            <dd className="font-mono text-base font-bold text-slate-100">{model.table}</dd>
-          </div>
-          <div className="rounded-lg bg-indigo-500/10 p-4 ring-1 ring-indigo-500/50">
-            <dt className="mb-1 font-semibold text-indigo-400">Type</dt>
-            <dd className="font-mono text-base font-bold text-indigo-200">{transformation?.type}</dd>
-          </div>
-          <div className="rounded-lg bg-slate-900/60 p-4">
-            <dt className="mb-1 font-semibold text-slate-400">Content Type</dt>
-            <dd className="font-mono text-base font-bold text-slate-100">{transformation?.content_type}</dd>
-          </div>
-        </dl>
+      <BackToDashboardButton />
+      <ModelHeader modelId={decodedId} modelType="incremental" />
+      <div className="mb-6">
+        <ModelInfoCard title="Model Information" fields={infoFields} borderColor="border-indigo-500/30" columns={4} />
       </div>
 
       <div className="rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-6 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm">
         <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-100">Coverage Analysis</h2>
+          <div className="flex items-center gap-4">
+            <h2 className="text-lg font-bold text-slate-100">Coverage Analysis</h2>
+            {/* Transformation selector buttons - only show if there are 2+ transformations */}
+            {transformations.length > 1 && (
+              <div className="flex gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
+                {transformations.map((transformation, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setSelectedTransformationIndex(index)}
+                    className={`rounded-md px-3 py-1 text-xs font-semibold transition-all ${
+                      selectedTransformationIndex === index
+                        ? 'bg-indigo-500 text-white shadow-sm'
+                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                    }`}
+                    title={transformation.expression || 'No transformation'}
+                  >
+                    {transformation.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-4 text-xs">
             <div className="flex items-center gap-2">
               <div className="size-3 rounded-sm bg-indigo-500" />
@@ -337,59 +291,20 @@ function ModelDetailComponent(): JSX.Element {
           <div className="mb-2 flex items-center justify-between">
             <span className="font-mono text-sm font-bold text-slate-200">{decodedId}</span>
             <span className="rounded-lg bg-slate-900/60 px-3 py-1 font-mono text-xs font-semibold text-slate-300">
-              {currentZoom.start.toLocaleString()} - {currentZoom.end.toLocaleString()}
+              {currentTransformation
+                ? `${formatValue(transformValue(currentZoom.start, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(currentZoom.end, currentTransformation), currentTransformation.format)}`
+                : `${currentZoom.start.toLocaleString()} - ${currentZoom.end.toLocaleString()}`}
             </span>
           </div>
-          <div className="relative h-24 overflow-hidden rounded-lg bg-slate-700 ring-1 ring-slate-600/50">
-            {(() => {
-              // Filter visible ranges
-              const visibleRanges =
-                modelCoverage?.ranges.filter(r => {
-                  const rangeEnd = r.position + r.interval;
-                  return rangeEnd >= currentZoom.start && r.position <= currentZoom.end;
-                }) || [];
-
-              // Sort by position
-              const sorted = [...visibleRanges].sort((a, b) => a.position - b.position);
-
-              // Merge adjacent/overlapping ranges
-              const merged: Array<{ position: number; interval: number }> = [];
-              for (const curr of sorted) {
-                if (merged.length === 0) {
-                  merged.push({ ...curr });
-                } else {
-                  const last = merged[merged.length - 1];
-                  const lastEnd = last.position + last.interval;
-                  const currEnd = curr.position + curr.interval;
-
-                  // If current range overlaps or is adjacent to last, merge them
-                  if (curr.position <= lastEnd) {
-                    last.interval = Math.max(lastEnd, currEnd) - last.position;
-                  } else {
-                    merged.push({ ...curr });
-                  }
-                }
-              }
-
-              return merged.map((r, idx) => {
-                const leftPercent = ((r.position - currentZoom.start) / range) * 100;
-                const rightPercent = ((r.position + r.interval - currentZoom.start) / range) * 100;
-                const left = Math.max(0, leftPercent);
-                const right = Math.min(100, rightPercent);
-                const width = right - left;
-
-                return (
-                  <div
-                    key={idx}
-                    className="absolute h-full bg-indigo-600"
-                    style={{ left: `${left}%`, width: `${width}%` }}
-                    data-tooltip-id="coverage-tooltip"
-                    data-tooltip-content={`Min: ${r.position.toLocaleString()}, Max: ${(r.position + r.interval).toLocaleString()}`}
-                  />
-                );
-              });
-            })()}
-          </div>
+          <CoverageBar
+            ranges={modelCoverage?.ranges}
+            zoomStart={currentZoom.start}
+            zoomEnd={currentZoom.end}
+            type="transformation"
+            height={96}
+            transformation={currentTransformation}
+            tooltipId="coverage-tooltip"
+          />
         </div>
 
         {/* Dependencies */}
@@ -409,111 +324,32 @@ function ModelDetailComponent(): JSX.Element {
                 const isScheduledDep = !depCoverage && !depBounds; // No coverage and no bounds = scheduled transformation
 
                 return (
-                  <div key={depId}>
-                    <div className="mb-1.5 flex items-center gap-2">
-                      <Link
-                        to="/model/$id"
-                        params={{ id: encodeURIComponent(depId) }}
-                        className="font-mono text-xs font-semibold text-slate-300 transition-colors hover:text-indigo-400 hover:underline"
-                      >
-                        {depId}
-                      </Link>
-                      {isExternalDep && (
-                        <span className="rounded-full bg-green-500/20 px-2 py-0.5 text-xs font-bold text-green-300">
-                          EXT
-                        </span>
-                      )}
-                      {isScheduledDep && (
-                        <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-bold text-emerald-300">
-                          SCHEDULED
-                        </span>
-                      )}
-                    </div>
-                    <div
-                      className={`relative h-12 overflow-hidden rounded-lg ring-1 ${isScheduledDep ? 'bg-slate-800/50 ring-slate-700/30' : 'bg-slate-700 ring-slate-600/50'}`}
-                    >
-                      {isScheduledDep ? (
-                        // Scheduled transformation - show grayed out with message
-                        <div className="flex h-full items-center justify-center">
-                          <span className="text-xs font-medium italic text-slate-500">Always available</span>
-                        </div>
-                      ) : isExternalDep && depBounds ? (
-                        // Render external model bounds as green bar
-                        <div
-                          className="absolute h-full bg-green-600"
-                          style={{
-                            left: `${Math.max(0, ((depBounds.min - currentZoom.start) / range) * 100)}%`,
-                            width: `${Math.min(100, ((Math.min(depBounds.max, currentZoom.end) - Math.max(depBounds.min, currentZoom.start)) / range) * 100)}%`,
-                          }}
-                          data-tooltip-id="coverage-tooltip"
-                          data-tooltip-content={`Min: ${depBounds.min.toLocaleString()}, Max: ${depBounds.max.toLocaleString()}`}
-                        />
-                      ) : (
-                        // Render transformation coverage ranges (merge adjacent/overlapping chunks)
-                        (() => {
-                          // Filter visible ranges
-                          const visibleRanges =
-                            depCoverage?.ranges.filter(r => {
-                              const rangeEnd = r.position + r.interval;
-                              return rangeEnd >= currentZoom.start && r.position <= currentZoom.end;
-                            }) || [];
-
-                          // Sort by position
-                          const sorted = [...visibleRanges].sort((a, b) => a.position - b.position);
-
-                          // Merge adjacent/overlapping ranges
-                          const merged: Array<{ position: number; interval: number }> = [];
-                          for (const curr of sorted) {
-                            if (merged.length === 0) {
-                              merged.push({ ...curr });
-                            } else {
-                              const last = merged[merged.length - 1];
-                              const lastEnd = last.position + last.interval;
-                              const currEnd = curr.position + curr.interval;
-
-                              // If current range overlaps or is adjacent to last, merge them
-                              if (curr.position <= lastEnd) {
-                                last.interval = Math.max(lastEnd, currEnd) - last.position;
-                              } else {
-                                merged.push({ ...curr });
-                              }
-                            }
-                          }
-
-                          return merged.map((r, idx) => {
-                            const leftPercent = ((r.position - currentZoom.start) / range) * 100;
-                            const rightPercent = ((r.position + r.interval - currentZoom.start) / range) * 100;
-                            const left = Math.max(0, leftPercent);
-                            const right = Math.min(100, rightPercent);
-                            const width = right - left;
-
-                            return (
-                              <div
-                                key={idx}
-                                className="absolute h-full bg-indigo-400"
-                                style={{ left: `${left}%`, width: `${width}%` }}
-                                data-tooltip-id="coverage-tooltip"
-                                data-tooltip-content={`Min: ${r.position.toLocaleString()}, Max: ${(r.position + r.interval).toLocaleString()}`}
-                              />
-                            );
-                          });
-                        })()
-                      )}
-                    </div>
-                  </div>
+                  <DependencyRow
+                    key={depId}
+                    dependencyId={depId}
+                    type={isScheduledDep ? 'scheduled' : isExternalDep ? 'external' : 'transformation'}
+                    ranges={depCoverage?.ranges}
+                    bounds={depBounds ? { min: depBounds.min, max: depBounds.max } : undefined}
+                    zoomStart={currentZoom.start}
+                    zoomEnd={currentZoom.end}
+                    transformation={currentTransformation}
+                    tooltipId="coverage-tooltip"
+                  />
                 );
               })}
             </div>
           </div>
         )}
 
-        <div className="mt-4 border-t border-gray-200 pt-4">
-          <RangeSlider
+        <div className="mt-4 border-t border-slate-700/50 pt-4">
+          <ZoomControls
             globalMin={globalMin}
             globalMax={globalMax}
             zoomStart={currentZoom.start}
             zoomEnd={currentZoom.end}
+            transformation={currentTransformation}
             onZoomChange={(start, end) => setZoomRange({ start, end })}
+            onResetZoom={() => setZoomRange(null)}
           />
         </div>
       </div>

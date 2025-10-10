@@ -9,6 +9,29 @@ const preview: Preview = {
         date: /Date$/i,
       },
     },
+    options: {
+      storySort: {
+        order: [
+          'Pages',
+          ['Dashboard', 'DAG', 'ModelDetail'],
+          'Components',
+          [
+            'BackToDashboardButton',
+            'ModelHeader',
+            'ModelInfoCard',
+            'ScheduledModelCard',
+            'CoverageBar',
+            'ModelCoverageRow',
+            'ZoomControls',
+            'IntervalTypeSection',
+            'DagNode',
+            'DagGraph',
+            'DependencyRow',
+          ],
+          '*',
+        ],
+      },
+    },
   },
 };
 

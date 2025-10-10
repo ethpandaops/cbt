@@ -1,6 +1,5 @@
 import { type JSX, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
 import {
   listTransformationsOptions,
   listTransformationCoverageOptions,
@@ -8,11 +7,12 @@ import {
   listExternalBoundsOptions,
   getIntervalTypesOptions,
 } from '@api/@tanstack/react-query.gen';
-import { ArrowPathIcon, XCircleIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, XCircleIcon } from '@heroicons/react/24/outline';
 import type { ZoomRanges, IncrementalModelItem } from '@/types';
 import type { IntervalTypeTransformation } from '@api/types.gen';
-import { RangeSlider } from './RangeSlider';
 import { Tooltip } from 'react-tooltip';
+import { ModelCoverageRow } from './ModelCoverageRow';
+import { ZoomControls } from './ZoomControls';
 import { transformValue, formatValue } from '@/utils/interval-transform';
 
 interface IncrementalModelsSectionProps {
@@ -194,7 +194,6 @@ export function IncrementalModelsSection({
         };
         const zoomStart = currentZoom.start;
         const zoomEnd = currentZoom.end;
-        const range = zoomEnd - zoomStart || 1;
 
         return (
           <div
@@ -233,20 +232,10 @@ export function IncrementalModelsSection({
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => onResetZoom(intervalType)}
-                    disabled={zoomStart === globalMin && zoomEnd === globalMax}
-                    className="group/btn rounded-lg bg-slate-700 px-3 py-2 text-slate-300 shadow-sm ring-1 ring-slate-600/50 transition-all hover:bg-indigo-500/20 hover:text-indigo-300 hover:ring-indigo-500/50 disabled:cursor-not-allowed disabled:opacity-40"
-                    title="Reset Zoom"
-                  >
-                    <ArrowsPointingOutIcon className="size-4 transition-transform group-hover/btn:scale-110" />
-                  </button>
-                  <div className="rounded-lg bg-slate-900/60 px-4 py-2 font-mono text-xs font-semibold text-slate-300 ring-1 ring-slate-700/50">
-                    {currentTransformation
-                      ? `${formatValue(transformValue(zoomStart, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(zoomEnd, currentTransformation), currentTransformation.format)}`
-                      : `${zoomStart.toLocaleString()} - ${zoomEnd.toLocaleString()}`}
-                  </div>
+                <div className="rounded-lg bg-slate-900/60 px-4 py-2 font-mono text-xs font-semibold text-slate-300 ring-1 ring-slate-700/50">
+                  {currentTransformation
+                    ? `${formatValue(transformValue(zoomStart, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(zoomEnd, currentTransformation), currentTransformation.format)}`
+                    : `${zoomStart.toLocaleString()} - ${zoomEnd.toLocaleString()}`}
                 </div>
               </div>
               <div className="space-y-2">
@@ -255,179 +244,34 @@ export function IncrementalModelsSection({
                   const isDimmed = hoveredModel !== null && !isHighlighted;
 
                   return (
-                    <div
+                    <ModelCoverageRow
                       key={model.id}
-                      className={`group/row flex items-center gap-3 rounded-lg p-2 transition-all ${
-                        isHighlighted
-                          ? 'bg-indigo-500/20 ring-2 ring-indigo-500/50'
-                          : isDimmed
-                            ? 'bg-slate-900/20 opacity-40'
-                            : 'bg-slate-900/40 hover:bg-slate-900/60'
-                      }`}
+                      model={model}
+                      zoomStart={zoomStart}
+                      zoomEnd={zoomEnd}
+                      globalMin={globalMin}
+                      globalMax={globalMax}
+                      isHighlighted={isHighlighted}
+                      isDimmed={isDimmed}
+                      transformation={currentTransformation}
                       onMouseEnter={() => setHoveredModel(model.id)}
                       onMouseLeave={() => setHoveredModel(null)}
-                    >
-                      <div className="flex w-72 shrink-0 items-center">
-                        <Link
-                          to="/model/$id"
-                          params={{ id: encodeURIComponent(model.id) }}
-                          className={`truncate font-mono text-xs font-semibold transition-colors ${
-                            isHighlighted
-                              ? 'text-indigo-300'
-                              : isDimmed
-                                ? 'text-slate-500'
-                                : 'text-slate-300 hover:text-indigo-400'
-                          }`}
-                          title={model.id}
-                        >
-                          {model.id}
-                        </Link>
-                      </div>
-                      <div
-                        className="relative flex-1 overflow-hidden rounded-md bg-slate-700 ring-1 ring-slate-600/50"
-                        style={{ height: '24px' }}
-                        onWheel={e => {
-                          e.preventDefault();
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const mouseX = e.clientX - rect.left;
-                          const position = mouseX / rect.width; // 0 to 1
-
-                          const delta = e.deltaY;
-                          const currentRange = zoomEnd - zoomStart;
-                          const zoomFactor = delta > 0 ? 1.1 : 0.9; // Zoom out or in
-                          const rangeChange = currentRange * (zoomFactor - 1);
-
-                          let newStart = zoomStart;
-                          let newEnd = zoomEnd;
-
-                          if (position < 0.33) {
-                            // Left third: only adjust max (right edge), unless at bound then adjust min
-                            newEnd = Math.min(globalMax, Math.max(zoomStart + 1, zoomEnd + rangeChange));
-                            // If we hit the max bound, adjust min instead
-                            if (newEnd === globalMax && zoomEnd === globalMax) {
-                              newStart = Math.max(globalMin, Math.min(zoomEnd - 1, zoomStart - rangeChange));
-                              newEnd = zoomEnd;
-                            }
-                          } else if (position < 0.67) {
-                            // Middle third: adjust both
-                            const center = (zoomStart + zoomEnd) / 2;
-                            const newRange = currentRange * zoomFactor;
-                            newStart = Math.max(globalMin, center - newRange / 2);
-                            newEnd = Math.min(globalMax, center + newRange / 2);
-                          } else {
-                            // Right third: only adjust min (left edge), unless at bound then adjust max
-                            newStart = Math.max(globalMin, Math.min(zoomEnd - 1, zoomStart - rangeChange));
-                            // If we hit the min bound, adjust max instead
-                            if (newStart === globalMin && zoomStart === globalMin) {
-                              newEnd = Math.min(globalMax, Math.max(zoomStart + 1, zoomEnd + rangeChange));
-                              newStart = zoomStart;
-                            }
-                          }
-
-                          onZoomChange(intervalType, newStart, newEnd);
-                        }}
-                      >
-                        {model.type === 'transformation'
-                          ? // Render coverage ranges (merge adjacent/overlapping chunks)
-                            (() => {
-                              const visibleRanges =
-                                model.data.coverage?.filter(rangeData => {
-                                  const rangeEnd = rangeData.position + rangeData.interval;
-                                  return rangeEnd >= zoomStart && rangeData.position <= zoomEnd;
-                                }) || [];
-
-                              // Sort by position
-                              const sorted = [...visibleRanges].sort((a, b) => a.position - b.position);
-
-                              // Merge adjacent/overlapping ranges
-                              const merged: Array<{ position: number; interval: number }> = [];
-                              for (const curr of sorted) {
-                                if (merged.length === 0) {
-                                  merged.push({ ...curr });
-                                } else {
-                                  const last = merged[merged.length - 1];
-                                  const lastEnd = last.position + last.interval;
-                                  const currEnd = curr.position + curr.interval;
-
-                                  // If current range overlaps or is adjacent to last, merge them
-                                  if (curr.position <= lastEnd) {
-                                    last.interval = Math.max(lastEnd, currEnd) - last.position;
-                                  } else {
-                                    merged.push({ ...curr });
-                                  }
-                                }
-                              }
-
-                              return merged.map((rangeData, idx) => {
-                                const leftPercent = ((rangeData.position - zoomStart) / range) * 100;
-                                const rightPercent =
-                                  ((rangeData.position + rangeData.interval - zoomStart) / range) * 100;
-                                const left = Math.max(0, leftPercent);
-                                const right = Math.min(100, rightPercent);
-                                const width = right - left;
-                                const chunkMin = rangeData.position;
-                                const chunkMax = rangeData.position + rangeData.interval;
-                                const tooltipContent = currentTransformation
-                                  ? `Min: ${formatValue(transformValue(chunkMin, currentTransformation), currentTransformation.format)}, Max: ${formatValue(transformValue(chunkMax, currentTransformation), currentTransformation.format)}`
-                                  : `Min: ${chunkMin.toLocaleString()}, Max: ${chunkMax.toLocaleString()}`;
-                                return (
-                                  <div
-                                    key={idx}
-                                    className="absolute h-full bg-indigo-600"
-                                    style={{
-                                      left: `${left}%`,
-                                      width: `${width}%`,
-                                    }}
-                                    data-tooltip-id="chunk-tooltip"
-                                    data-tooltip-content={tooltipContent}
-                                  />
-                                );
-                              });
-                            })()
-                          : // Render bounds as single continuous bar
-                            model.data.bounds &&
-                            model.data.bounds.max >= zoomStart &&
-                            model.data.bounds.min <= zoomEnd &&
-                            (() => {
-                              const boundsTooltip = currentTransformation
-                                ? `Min: ${formatValue(transformValue(model.data.bounds.min, currentTransformation), currentTransformation.format)}, Max: ${formatValue(transformValue(model.data.bounds.max, currentTransformation), currentTransformation.format)}`
-                                : `Min: ${model.data.bounds.min.toLocaleString()}, Max: ${model.data.bounds.max.toLocaleString()}`;
-                              return (
-                                <div
-                                  className="absolute h-full bg-green-600"
-                                  style={{
-                                    left: `${Math.max(0, ((model.data.bounds.min - zoomStart) / range) * 100)}%`,
-                                    width: `${Math.min(100, ((Math.min(model.data.bounds.max, zoomEnd) - Math.max(model.data.bounds.min, zoomStart)) / range) * 100)}%`,
-                                  }}
-                                  data-tooltip-id="chunk-tooltip"
-                                  data-tooltip-content={boundsTooltip}
-                                />
-                              );
-                            })()}
-                      </div>
-                    </div>
+                      onZoomChange={(start, end) => onZoomChange(intervalType, start, end)}
+                    />
                   );
                 })}
               </div>
 
-              {/* Range Slider */}
-              <div className="mt-6 rounded-lg border border-slate-700/50 bg-slate-900/40 p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-400">
-                    {currentTransformation ? currentTransformation.name : 'Zoom Range'}
-                  </span>
-                  <span className="font-mono text-xs text-slate-500">
-                    {currentTransformation
-                      ? `${formatValue(transformValue(globalMin, currentTransformation), currentTransformation.format)} → ${formatValue(transformValue(globalMax, currentTransformation), currentTransformation.format)}`
-                      : `${globalMin.toLocaleString()} → ${globalMax.toLocaleString()}`}
-                  </span>
-                </div>
-                <RangeSlider
+              {/* Zoom Controls */}
+              <div className="mt-6">
+                <ZoomControls
                   globalMin={globalMin}
                   globalMax={globalMax}
                   zoomStart={zoomStart}
                   zoomEnd={zoomEnd}
+                  transformation={currentTransformation}
                   onZoomChange={(start, end) => onZoomChange(intervalType, start, end)}
+                  onResetZoom={() => onResetZoom(intervalType)}
                 />
               </div>
             </div>
