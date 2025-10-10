@@ -70,23 +70,21 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Update GoReleaser config
         run: |
-          cp .goreleaser.yaml .goreleaser.yaml.new
+          cp .goreleaser.yaml ../.goreleaser.yaml.new
 
           # If we have a RELEASE_SUFFIX, update the goreleaser config to not set
           # the release as the latest
           if [[ -n "$RELEASE_SUFFIX" ]]; then
-            echo "release:" >> .goreleaser.yaml.new
-            echo "  prerelease: true" >> .goreleaser.yaml.new
-            echo "  make_latest: false" >> .goreleaser.yaml.new
+            echo "release:" >> ../.goreleaser.yaml.new
+            echo "  prerelease: true" >> ../.goreleaser.yaml.new
+            echo "  make_latest: false" >> ../.goreleaser.yaml.new
           fi
-      - name: Run GoReleaser in Docker
-        run: |
-          docker run --rm \
-            -v ${{ github.workspace }}:/workspace \
-            -w /workspace \
-            -e GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
-            -e DOCKER_USERNAME=${{ secrets.DOCKERHUB_USERNAME }} \
-            -e DOCKER_PASSWORD=${{ secrets.DOCKERHUB_TOKEN }} \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -e RELEASE_SUFFIX=${{ env.RELEASE_SUFFIX }} \
-            goreleaser/goreleaser-cross:v1.22.2 release --clean --config .goreleaser.yaml.new
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@5fdedb94abba051217030cc86d4523cf3f02243d # v4.6.0
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean --config ../.goreleaser.yaml.new
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SUFFIX: ${{ env.RELEASE_SUFFIX }}
