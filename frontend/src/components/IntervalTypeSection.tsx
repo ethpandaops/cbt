@@ -1,9 +1,10 @@
-import { type JSX, useState } from 'react';
+import { type JSX, useState, useRef } from 'react';
 import type { IncrementalModelItem, ZoomRange } from '@/types';
 import type { IntervalTypeTransformation } from '@api/types.gen';
 import { Tab, TabGroup, TabList } from '@headlessui/react';
 import { ModelCoverageRow } from './ModelCoverageRow';
 import { ZoomControls } from './ZoomControls';
+import { MultiCoverageTooltip } from './MultiCoverageTooltip';
 
 export interface IntervalTypeSectionProps {
   intervalType: string;
@@ -30,20 +31,55 @@ export function IntervalTypeSection({
 }: IntervalTypeSectionProps): JSX.Element {
   const [hoveredModel, setHoveredModel] = useState<string | null>(null);
   const [selectedTransformationIndex, setSelectedTransformationIndex] = useState(0);
+  const [hoveredCoverage, setHoveredCoverage] = useState<{ modelId: string; position: number; mouseX: number } | null>(
+    null
+  );
+  const sectionRef = useRef<HTMLDivElement>(null);
 
   const currentTransformation: IntervalTypeTransformation | undefined = transformations[selectedTransformationIndex];
 
   // Sort models by ID
   const sortedModels = [...models].sort((a, b) => a.id.localeCompare(b.id));
 
-  // Determine which models should be highlighted (simplified - no dependency tracking)
+  // Build dependency map
+  const dependencyMap = new Map<string, string[]>();
+  models.forEach(model => {
+    if (model.depends_on) {
+      dependencyMap.set(model.id, model.depends_on);
+    }
+  });
+
+  // Get all dependencies (including transitive) for a model
+  const getAllDependencies = (modelId: string, visited = new Set<string>()): Set<string> => {
+    if (visited.has(modelId)) return new Set();
+    visited.add(modelId);
+
+    const deps = new Set<string>();
+    const directDeps = dependencyMap.get(modelId) || [];
+
+    directDeps.forEach(dep => {
+      deps.add(dep);
+      const transDeps = getAllDependencies(dep, visited);
+      transDeps.forEach(d => deps.add(d));
+    });
+
+    return deps;
+  };
+
+  // Determine which models should be highlighted
   const highlightedModels = new Set<string>();
-  if (hoveredModel) {
-    highlightedModels.add(hoveredModel);
+  const activeModelId = hoveredCoverage?.modelId || hoveredModel;
+  if (activeModelId) {
+    highlightedModels.add(activeModelId);
+    const deps = getAllDependencies(activeModelId);
+    deps.forEach(dep => highlightedModels.add(dep));
   }
 
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-4 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm transition-all duration-300 hover:shadow-lg hover:ring-indigo-500/50 sm:p-6">
+    <div
+      ref={sectionRef}
+      className="group relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-4 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm transition-all duration-300 hover:shadow-lg hover:ring-indigo-500/50 sm:p-6"
+    >
       <div className="absolute inset-0 bg-linear-to-br from-indigo-500/10 via-transparent to-purple-500/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
       <div className="relative">
         <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
@@ -76,7 +112,7 @@ export function IntervalTypeSection({
         <div className="space-y-2">
           {sortedModels.map(model => {
             const isHighlighted = highlightedModels.has(model.id);
-            const isDimmed = hoveredModel !== null && !isHighlighted;
+            const isDimmed = (hoveredModel !== null || hoveredCoverage !== null) && !isHighlighted;
 
             return (
               <ModelCoverageRow
@@ -92,6 +128,8 @@ export function IntervalTypeSection({
                 onMouseEnter={() => setHoveredModel(model.id)}
                 onMouseLeave={() => setHoveredModel(null)}
                 onZoomChange={onZoomChange}
+                onCoverageHover={(modelId, position, mouseX) => setHoveredCoverage({ modelId, position, mouseX })}
+                onCoverageLeave={() => setHoveredCoverage(null)}
                 showLink={showLinks}
               />
             );
@@ -111,6 +149,21 @@ export function IntervalTypeSection({
           />
         </div>
       </div>
+
+      {/* Multi-coverage tooltip */}
+      {hoveredCoverage && (
+        <MultiCoverageTooltip
+          hoveredPosition={hoveredCoverage.position}
+          mouseX={hoveredCoverage.mouseX}
+          hoveredModelId={hoveredCoverage.modelId}
+          allModels={sortedModels}
+          dependencyIds={getAllDependencies(hoveredCoverage.modelId)}
+          transformation={currentTransformation}
+          zoomStart={zoomRange.start}
+          zoomEnd={zoomRange.end}
+          containerRef={sectionRef}
+        />
+      )}
     </div>
   );
 }

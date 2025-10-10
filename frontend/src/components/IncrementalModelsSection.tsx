@@ -1,4 +1,4 @@
-import { type JSX, useState } from 'react';
+import { type JSX, useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   listTransformationsOptions,
@@ -13,6 +13,7 @@ import type { IntervalTypeTransformation } from '@api/types.gen';
 import { Tooltip } from 'react-tooltip';
 import { ModelCoverageRow } from './ModelCoverageRow';
 import { ZoomControls } from './ZoomControls';
+import { MultiCoverageTooltip } from './MultiCoverageTooltip';
 import { transformValue, formatValue } from '@/utils/interval-transform';
 
 interface IncrementalModelsSectionProps {
@@ -27,8 +28,14 @@ export function IncrementalModelsSection({
   onResetZoom,
 }: IncrementalModelsSectionProps): JSX.Element {
   const [hoveredModel, setHoveredModel] = useState<string | null>(null);
+  const [hoveredCoverage, setHoveredCoverage] = useState<{
+    modelId: string;
+    position: number;
+    intervalType: string;
+  } | null>(null);
   // Track selected transformation index for each interval type
   const [selectedTransformations, setSelectedTransformations] = useState<Record<string, number>>({});
+  const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // Fetch all transformations (polling handled at root level) and filter client-side
   const allTransformations = useQuery(listTransformationsOptions());
@@ -97,9 +104,10 @@ export function IncrementalModelsSection({
 
   // Determine which models should be highlighted
   const highlightedModels = new Set<string>();
-  if (hoveredModel) {
-    highlightedModels.add(hoveredModel);
-    const deps = getAllDependencies(hoveredModel);
+  const activeModelId = hoveredCoverage?.modelId || hoveredModel;
+  if (activeModelId) {
+    highlightedModels.add(activeModelId);
+    const deps = getAllDependencies(activeModelId);
     deps.forEach(dep => highlightedModels.add(dep));
   }
 
@@ -112,6 +120,7 @@ export function IncrementalModelsSection({
       id: model.id,
       type: 'transformation',
       intervalType: model.interval?.type || 'unknown',
+      depends_on: model.depends_on,
       data: {
         coverage: modelCoverage?.ranges,
       },
@@ -198,6 +207,9 @@ export function IncrementalModelsSection({
         return (
           <div
             key={intervalType}
+            ref={el => {
+              if (el) sectionRefs.current.set(intervalType, el);
+            }}
             className="group relative overflow-hidden rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-4 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm transition-all duration-300 hover:shadow-lg hover:ring-indigo-500/50 sm:p-6"
           >
             <div className="absolute inset-0 bg-linear-to-br from-indigo-500/10 via-transparent to-purple-500/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
@@ -241,7 +253,7 @@ export function IncrementalModelsSection({
               <div className="space-y-2">
                 {sortedModels.map(model => {
                   const isHighlighted = highlightedModels.has(model.id);
-                  const isDimmed = hoveredModel !== null && !isHighlighted;
+                  const isDimmed = (hoveredModel !== null || hoveredCoverage !== null) && !isHighlighted;
 
                   return (
                     <ModelCoverageRow
@@ -257,6 +269,10 @@ export function IncrementalModelsSection({
                       onMouseEnter={() => setHoveredModel(model.id)}
                       onMouseLeave={() => setHoveredModel(null)}
                       onZoomChange={(start, end) => onZoomChange(intervalType, start, end)}
+                      onCoverageHover={(modelId, position, mouseX) =>
+                        setHoveredCoverage({ modelId, position, mouseX, intervalType })
+                      }
+                      onCoverageLeave={() => setHoveredCoverage(null)}
                     />
                   );
                 })}
@@ -275,6 +291,23 @@ export function IncrementalModelsSection({
                 />
               </div>
             </div>
+
+            {/* Multi-coverage tooltip for this interval type */}
+            {hoveredCoverage && hoveredCoverage.intervalType === intervalType && (
+              <MultiCoverageTooltip
+                hoveredPosition={hoveredCoverage.position}
+                mouseX={hoveredCoverage.mouseX}
+                hoveredModelId={hoveredCoverage.modelId}
+                allModels={sortedModels}
+                dependencyIds={getAllDependencies(hoveredCoverage.modelId)}
+                transformation={currentTransformation}
+                zoomStart={zoomStart}
+                zoomEnd={zoomEnd}
+                containerRef={{
+                  current: sectionRefs.current.get(intervalType) || null,
+                }}
+              />
+            )}
           </div>
         );
       })}

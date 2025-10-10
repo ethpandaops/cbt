@@ -1,4 +1,4 @@
-import { type JSX, useState } from 'react';
+import { type JSX } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -11,18 +11,12 @@ import {
   listTransformationsOptions,
   getIntervalTypesOptions,
 } from '@api/@tanstack/react-query.gen';
-import type { IntervalTypeTransformation } from '@api/types.gen';
 import { ArrowPathIcon, XCircleIcon } from '@heroicons/react/24/outline';
-import { Tab, TabGroup, TabList } from '@headlessui/react';
 import { BackToDashboardButton } from '@/components/BackToDashboardButton';
 import { ModelHeader } from '@/components/ModelHeader';
 import { ModelInfoCard, type InfoField } from '@/components/ModelInfoCard';
-import { DependencyRow } from '@/components/DependencyRow';
-import { CoverageBar } from '@/components/CoverageBar';
-import { ZoomControls } from '@/components/ZoomControls';
-import { Tooltip } from 'react-tooltip';
+import { IncrementalModelDetailView } from '@/components/IncrementalModelDetailView';
 import { timeAgo } from '@/utils/time';
-import { transformValue, formatValue } from '@/utils/interval-transform';
 
 function ModelDetailComponent(): JSX.Element {
   const { id } = Route.useParams();
@@ -34,9 +28,6 @@ function ModelDetailComponent(): JSX.Element {
 
   // Fetch interval types for transformation selector
   const intervalTypes = useQuery(getIntervalTypesOptions());
-
-  // Track selected transformation index
-  const [selectedTransformationIndex, setSelectedTransformationIndex] = useState(0);
 
   // Conditional queries based on model type
   const externalModel = useQuery({
@@ -65,8 +56,6 @@ function ModelDetailComponent(): JSX.Element {
     ...listTransformationsOptions(),
     enabled: model?.type === 'transformation',
   });
-
-  const [zoomRange, setZoomRange] = useState<{ start: number; end: number } | null>(null);
 
   if (allModels.isLoading) {
     return (
@@ -172,185 +161,19 @@ function ModelDetailComponent(): JSX.Element {
     );
   }
 
-  // Incremental transformation - show coverage
-  const modelCoverage = coverage.data?.coverage.find(c => c.id === decodedId);
-
-  // Build dependency tree (deduplicated) - recursively get all transitive dependencies
-  const getDependencies = (modelId: string, visited = new Set<string>()): string[] => {
-    if (visited.has(modelId)) return [];
-    visited.add(modelId);
-
-    // For the current model, use the already loaded transformation data
-    // For dependencies, look them up in the allTransformations list
-    let deps: string[] = [];
-    if (modelId === decodedId) {
-      deps = transformation?.depends_on || [];
-    } else {
-      const depModel = allTransformations.data?.models.find(m => m.id === modelId);
-      deps = depModel?.depends_on || [];
-    }
-
-    const result = [...deps];
-    for (const dep of deps) {
-      result.push(...getDependencies(dep, visited));
-    }
-
-    return result;
-  };
-
-  const allDeps = transformation?.depends_on ? [...new Set(getDependencies(decodedId))] : [];
-
-  // Calculate range from dependencies only (not the main model)
-  // This allows zooming out to see what data is available vs what's been processed
-  let globalMin = Infinity;
-  let globalMax = -Infinity;
-
-  allDeps.forEach(depId => {
-    const depCoverage = coverage.data?.coverage.find(c => c.id === depId);
-    const depBounds = allBounds.data?.bounds.find(b => b.id === depId);
-
-    // Include transformation coverage ranges
-    depCoverage?.ranges.forEach(range => {
-      globalMin = Math.min(globalMin, range.position);
-      globalMax = Math.max(globalMax, range.position + range.interval);
-    });
-
-    // Include external model bounds
-    if (depBounds) {
-      globalMin = Math.min(globalMin, depBounds.min);
-      globalMax = Math.max(globalMax, depBounds.max);
-    }
-  });
-
-  if (globalMin === Infinity) globalMin = 0;
-  if (globalMax === -Infinity) globalMax = 100;
-
-  const currentZoom = zoomRange || { start: globalMin, end: globalMax };
-
-  // Get available transformations for this interval type
-  const intervalType = transformation?.interval?.type || 'unknown';
-  const transformations = intervalTypes.data?.interval_types?.[intervalType] || [];
-  const currentTransformation: IntervalTypeTransformation | undefined = transformations[selectedTransformationIndex];
-
-  const infoFields: InfoField[] = [
-    { label: 'Database', value: model.database },
-    { label: 'Table', value: model.table },
-    { label: 'Type', value: transformation?.type, variant: 'highlight', highlightColor: 'indigo' },
-    { label: 'Content Type', value: transformation?.content_type },
-  ];
-
+  // Incremental transformation - use separate component
   return (
     <div>
       <ModelHeader modelId={decodedId} modelType="incremental" />
       <BackToDashboardButton />
-      <div className="mb-6">
-        <ModelInfoCard title="Model Information" fields={infoFields} borderColor="border-indigo-500/30" columns={4} />
-      </div>
-
-      <div className="rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-4 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm sm:p-6">
-        <div className="mb-4 flex flex-col gap-4 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-            <h2 className="text-base font-bold text-slate-100 sm:text-lg">Coverage Analysis</h2>
-            {/* Transformation selector tabs - only show if there are 2+ transformations */}
-            {transformations.length > 1 && (
-              <TabGroup selectedIndex={selectedTransformationIndex} onChange={setSelectedTransformationIndex}>
-                <TabList className="flex flex-wrap gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
-                  {transformations.map((transformation, index) => (
-                    <Tab
-                      key={index}
-                      className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-400 transition-all hover:bg-slate-800 hover:text-slate-200 data-[selected]:bg-indigo-500 data-[selected]:text-white data-[selected]:shadow-sm focus:outline-none sm:px-3"
-                      title={transformation.expression || 'No transformation'}
-                    >
-                      {transformation.name}
-                    </Tab>
-                  ))}
-                </TabList>
-              </TabGroup>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs sm:gap-4">
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <div className="size-2.5 rounded-sm bg-indigo-500 sm:size-3" />
-              <span className="font-medium text-slate-400">This Model</span>
-            </div>
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <div className="size-2.5 rounded-sm bg-indigo-400 sm:size-3" />
-              <span className="font-medium text-slate-400">Dependencies (Transform)</span>
-            </div>
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <div className="size-2.5 rounded-sm bg-green-500 sm:size-3" />
-              <span className="font-medium text-slate-400">Dependencies (External)</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Main model coverage */}
-        <div className="mb-6">
-          <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <span className="truncate font-mono text-xs font-bold text-slate-200 sm:text-sm">{decodedId}</span>
-            <span className="w-fit rounded-lg bg-slate-900/60 px-2.5 py-1 font-mono text-xs font-semibold text-slate-300 sm:px-3">
-              {currentTransformation
-                ? `${formatValue(transformValue(currentZoom.start, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(currentZoom.end, currentTransformation), currentTransformation.format)}`
-                : `${currentZoom.start.toLocaleString()} - ${currentZoom.end.toLocaleString()}`}
-            </span>
-          </div>
-          <CoverageBar
-            ranges={modelCoverage?.ranges}
-            zoomStart={currentZoom.start}
-            zoomEnd={currentZoom.end}
-            type="transformation"
-            height={96}
-            transformation={currentTransformation}
-          />
-        </div>
-
-        {/* Dependencies */}
-        {allDeps.length > 0 && (
-          <div className="mt-8 border-t border-slate-700/50 pt-6">
-            <h3 className="mb-4 text-base font-bold text-slate-100">
-              Dependencies{' '}
-              <span className="ml-2 rounded-full bg-slate-700 px-2 py-0.5 text-xs font-bold text-slate-300">
-                {allDeps.length}
-              </span>
-            </h3>
-            <div className="space-y-3">
-              {allDeps.map(depId => {
-                const depCoverage = coverage.data?.coverage.find(c => c.id === depId);
-                const depBounds = allBounds.data?.bounds.find(b => b.id === depId);
-                const isExternalDep = !depCoverage && depBounds;
-                const isScheduledDep = !depCoverage && !depBounds; // No coverage and no bounds = scheduled transformation
-
-                return (
-                  <DependencyRow
-                    key={depId}
-                    dependencyId={depId}
-                    type={isScheduledDep ? 'scheduled' : isExternalDep ? 'external' : 'transformation'}
-                    ranges={depCoverage?.ranges}
-                    bounds={depBounds ? { min: depBounds.min, max: depBounds.max } : undefined}
-                    zoomStart={currentZoom.start}
-                    zoomEnd={currentZoom.end}
-                    transformation={currentTransformation}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        <div className="mt-4 border-t border-slate-700/50 pt-4">
-          <ZoomControls
-            globalMin={globalMin}
-            globalMax={globalMax}
-            zoomStart={currentZoom.start}
-            zoomEnd={currentZoom.end}
-            transformation={currentTransformation}
-            onZoomChange={(start, end) => setZoomRange({ start, end })}
-            onResetZoom={() => setZoomRange(null)}
-          />
-        </div>
-      </div>
-
-      <Tooltip id="coverage-tooltip" className="!bg-gray-900 !text-white !text-xs !px-2 !py-1 !rounded !opacity-100" />
+      <IncrementalModelDetailView
+        decodedId={decodedId}
+        transformation={transformation}
+        coverage={coverage}
+        allBounds={allBounds}
+        allTransformations={allTransformations}
+        intervalTypes={intervalTypes}
+      />
     </div>
   );
 }

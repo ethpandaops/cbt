@@ -16,6 +16,8 @@ export interface ModelCoverageRowProps {
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
   onZoomChange?: (start: number, end: number) => void;
+  onCoverageHover?: (modelId: string, position: number, mouseX: number) => void;
+  onCoverageLeave?: () => void;
   showLink?: boolean;
   nameWidth?: string;
 }
@@ -32,6 +34,8 @@ export function ModelCoverageRow({
   onMouseEnter,
   onMouseLeave,
   onZoomChange,
+  onCoverageHover,
+  onCoverageLeave,
   showLink = true,
   nameWidth = 'w-72',
 }: ModelCoverageRowProps): JSX.Element {
@@ -91,6 +95,7 @@ export function ModelCoverageRow({
             ? 'bg-slate-900/20 opacity-40'
             : 'bg-slate-900/40 hover:bg-slate-900/60'
       }`}
+      data-model-id={model.id}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
@@ -133,6 +138,10 @@ export function ModelCoverageRow({
           zoomEnd={zoomEnd}
           type={isScheduled ? 'scheduled' : model.type}
           transformation={transformation}
+          onCoverageHover={
+            onCoverageHover ? (position, mouseX) => onCoverageHover(model.id, position, mouseX) : undefined
+          }
+          onCoverageLeave={onCoverageLeave}
         />
       </div>
     </div>

@@ -141,4 +141,103 @@ export const SingleModel: Story = {
   },
 };
 
+// Story with complex dependencies and gaps to showcase multi-tooltip feature
+const modelsWithDependencies: IncrementalModelItem[] = [
+  {
+    id: 'base_model',
+    type: 'external',
+    intervalType: 'slot_number',
+    data: {
+      bounds: { min: 0, max: 1000 },
+    },
+  },
+  {
+    id: 'model_a',
+    type: 'transformation',
+    intervalType: 'slot_number',
+    depends_on: ['base_model'],
+    data: {
+      coverage: [
+        { position: 100, interval: 200 },
+        { position: 400, interval: 300 },
+        { position: 800, interval: 150 },
+      ],
+    },
+  },
+  {
+    id: 'model_b',
+    type: 'transformation',
+    intervalType: 'slot_number',
+    depends_on: ['model_a'],
+    data: {
+      coverage: [
+        { position: 150, interval: 100 },
+        { position: 450, interval: 200 },
+        // Gap from 650-800
+        { position: 850, interval: 50 },
+      ],
+    },
+  },
+  {
+    id: 'model_c',
+    type: 'transformation',
+    intervalType: 'slot_number',
+    depends_on: ['model_a'],
+    data: {
+      coverage: [
+        // Gap from 0-200
+        { position: 200, interval: 150 },
+        { position: 500, interval: 100 },
+        { position: 700, interval: 200 },
+      ],
+    },
+  },
+  {
+    id: 'model_d_long_name_for_testing',
+    type: 'transformation',
+    intervalType: 'slot_number',
+    depends_on: ['model_b', 'model_c'],
+    data: {
+      coverage: [
+        { position: 250, interval: 50 },
+        { position: 550, interval: 100 },
+        // Large gap from 650-900
+        { position: 900, interval: 50 },
+      ],
+    },
+  },
+  {
+    id: 'model_e',
+    type: 'transformation',
+    intervalType: 'slot_number',
+    depends_on: ['model_d_long_name_for_testing'],
+    data: {
+      coverage: [
+        // Sparse coverage to show lots of gaps
+        { position: 260, interval: 30 },
+        { position: 920, interval: 20 },
+      ],
+    },
+  },
+];
+
+export const WithDependenciesAndGaps: Story = {
+  args: {
+    intervalType: 'slot_number',
+    models: modelsWithDependencies,
+    zoomRange: { start: 0, end: 1000 },
+    globalMin: 0,
+    globalMax: 1000,
+    transformations: [
+      {
+        name: 'Slot Number',
+        expression: 'x',
+      },
+    ],
+    onZoomChange: (start, end) => console.log('Zoom changed:', start, end),
+    onResetZoom: () => console.log('Reset zoom'),
+    showLinks: false,
+  },
+};
+
 // Interactive story - removed since Storybook 9 requires args for all stories

@@ -12,6 +12,8 @@ export interface DependencyRowProps {
   zoomEnd: number;
   transformation?: IntervalTypeTransformation;
   showLink?: boolean;
+  onCoverageHover?: (modelId: string, position: number, mouseX: number) => void;
+  onCoverageLeave?: () => void;
 }
 
 export function DependencyRow({
@@ -23,6 +25,8 @@ export function DependencyRow({
   zoomEnd,
   transformation,
   showLink = true,
+  onCoverageHover,
+  onCoverageLeave,
 }: DependencyRowProps): JSX.Element {
   const badgeConfig = {
     external: {
@@ -40,7 +44,7 @@ export function DependencyRow({
   const badge = type !== 'transformation' ? badgeConfig[type] : null;
 
   return (
-    <div>
+    <div data-model-id={dependencyId}>
       <div className="mb-1.5 flex items-center gap-2">
         {showLink ? (
           <Link
@@ -65,6 +69,10 @@ export function DependencyRow({
         type={type}
         height={48}
         transformation={transformation}
+        onCoverageHover={
+          onCoverageHover ? (position, mouseX) => onCoverageHover(dependencyId, position, mouseX) : undefined
+        }
+        onCoverageLeave={onCoverageLeave}
       />
     </div>
   );

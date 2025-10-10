@@ -1,7 +1,6 @@
 import { type JSX } from 'react';
 import type { Range } from '@api/types.gen';
 import type { IntervalTypeTransformation } from '@api/types.gen';
-import { transformValue, formatValue } from '@/utils/interval-transform';
 
 export interface CoverageBarProps {
   ranges?: Array<Range>;
@@ -12,7 +11,8 @@ export interface CoverageBarProps {
   height?: number;
   transformation?: IntervalTypeTransformation;
   className?: string;
-  tooltipId?: string;
+  onCoverageHover?: (position: number, mouseX: number) => void;
+  onCoverageLeave?: () => void;
 }
 
 export function CoverageBar({
@@ -22,11 +22,29 @@ export function CoverageBar({
   zoomEnd,
   type,
   height = 24,
-  transformation,
+  transformation: _transformation,
   className = '',
-  tooltipId = 'coverage-tooltip',
+
+  onCoverageHover,
+  onCoverageLeave,
 }: CoverageBarProps): JSX.Element {
   const range = zoomEnd - zoomStart || 1;
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if (!onCoverageHover) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percentX = (x / rect.width) * 100;
+
+    // Convert percent to data position
+    const dataPosition = zoomStart + (percentX / 100) * range;
+    onCoverageHover(dataPosition, e.clientX); // Pass mouseX
+  };
+
+  const handleMouseLeave = (): void => {
+    onCoverageLeave?.();
+  };
 
   // Scheduled transformations - always available
   if (type === 'scheduled') {
@@ -34,6 +52,8 @@ export function CoverageBar({
       <div
         className={`relative overflow-hidden rounded-lg bg-slate-800/50 ring-1 ring-slate-700/30 ${className}`}
         style={{ height: `${height}px` }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
       >
         <div className="flex h-full items-center justify-center">
           <span className="text-xs font-medium italic text-slate-500">Always available</span>
@@ -45,10 +65,6 @@ export function CoverageBar({
   // External models - render as single continuous bar
   if (type === 'external' && bounds) {
     const isVisible = bounds.max >= zoomStart && bounds.min <= zoomEnd;
-
-    const boundsTooltip = transformation
-      ? `${formatValue(transformValue(bounds.min, transformation), transformation.format)} → ${formatValue(transformValue(bounds.max, transformation), transformation.format)}`
-      : `${bounds.min.toLocaleString()} → ${bounds.max.toLocaleString()}`;
 
     // Calculate gaps for external models
     const gaps: Array<{ position: number; interval: number }> = [];
@@ -73,6 +89,8 @@ export function CoverageBar({
       <div
         className={`relative overflow-hidden rounded-lg bg-slate-700 ring-1 ring-slate-600/50 ${className}`}
         style={{ height: `${height}px` }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
       >
         {/* Render gaps (missing ranges) */}
         {gaps.map((gap, idx) => {
@@ -81,22 +99,15 @@ export function CoverageBar({
           const left = Math.max(0, leftPercent);
           const right = Math.min(100, rightPercent);
           const width = right - left;
-          const gapMin = gap.position;
-          const gapMax = gap.position + gap.interval;
-          const gapContent = transformation
-            ? `Missing: ${formatValue(transformValue(gapMin, transformation), transformation.format)} → ${formatValue(transformValue(gapMax, transformation), transformation.format)}`
-            : `Missing: ${gapMin.toLocaleString()} → ${gapMax.toLocaleString()}`;
 
           return (
             <div
               key={`gap-${idx}`}
-              className="absolute h-full cursor-help transition-colors hover:bg-red-900/20"
+              className="absolute h-full transition-colors hover:bg-red-900/20"
               style={{
                 left: `${left}%`,
                 width: `${width}%`,
               }}
-              data-tooltip-id={tooltipId}
-              data-tooltip-content={gapContent}
             />
           );
         })}
@@ -104,13 +115,11 @@ export function CoverageBar({
         {/* Render covered range */}
         {isVisible && (
           <div
-            className="absolute h-full bg-green-600 cursor-help transition-colors hover:bg-green-500"
+            className="absolute h-full bg-green-600 transition-colors hover:bg-green-500"
             style={{
               left: `${Math.max(0, ((bounds.min - zoomStart) / range) * 100)}%`,
               width: `${Math.min(100, ((Math.min(bounds.max, zoomEnd) - Math.max(bounds.min, zoomStart)) / range) * 100)}%`,
             }}
-            data-tooltip-id={tooltipId}
-            data-tooltip-content={boundsTooltip}
           />
         )}
       </div>
@@ -183,6 +192,8 @@ export function CoverageBar({
       <div
         className={`relative overflow-hidden rounded-lg bg-slate-700 ring-1 ring-slate-600/50 ${className}`}
         style={{ height: `${height}px` }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
       >
         {/* Render gaps (missing ranges) */}
         {gaps.map((gap, idx) => {
@@ -191,22 +202,15 @@ export function CoverageBar({
           const left = Math.max(0, leftPercent);
           const right = Math.min(100, rightPercent);
           const width = right - left;
-          const gapMin = gap.position;
-          const gapMax = gap.position + gap.interval;
-          const gapContent = transformation
-            ? `Missing: ${formatValue(transformValue(gapMin, transformation), transformation.format)} → ${formatValue(transformValue(gapMax, transformation), transformation.format)}`
-            : `Missing: ${gapMin.toLocaleString()} → ${gapMax.toLocaleString()}`;
 
           return (
             <div
               key={`gap-${idx}`}
-              className="absolute h-full cursor-help transition-colors hover:bg-red-900/20"
+              className="absolute h-full transition-colors hover:bg-red-900/20"
               style={{
                 left: `${left}%`,
                 width: `${width}%`,
               }}
-              data-tooltip-id={tooltipId}
-              data-tooltip-content={gapContent}
             />
           );
         })}
@@ -218,22 +222,15 @@ export function CoverageBar({
           const left = Math.max(0, leftPercent);
           const right = Math.min(100, rightPercent);
           const width = right - left;
-          const chunkMin = r.position;
-          const chunkMax = r.position + r.interval;
-          const tooltipContent = transformation
-            ? `${formatValue(transformValue(chunkMin, transformation), transformation.format)} → ${formatValue(transformValue(chunkMax, transformation), transformation.format)}`
-            : `${chunkMin.toLocaleString()} → ${chunkMax.toLocaleString()}`;
 
           return (
             <div
               key={idx}
-              className="absolute h-full bg-indigo-600 cursor-help transition-colors hover:bg-indigo-500"
+              className="absolute h-full bg-indigo-600 transition-colors hover:bg-indigo-500"
               style={{
                 left: `${left}%`,
                 width: `${width}%`,
               }}
-              data-tooltip-id={tooltipId}
-              data-tooltip-content={tooltipContent}
             />
           );
         })}
@@ -246,6 +243,8 @@ export function CoverageBar({
     <div
       className={`relative overflow-hidden rounded-lg bg-slate-700 ring-1 ring-slate-600/50 ${className}`}
       style={{ height: `${height}px` }}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
     />
   );
 }

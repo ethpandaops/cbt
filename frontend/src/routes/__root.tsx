@@ -12,6 +12,7 @@ import {
   listScheduledRunsOptions,
 } from '@api/@tanstack/react-query.gen';
 import Logo from '/logo.png';
+import { ModelSearchCombobox } from '@/components/ModelSearchCombobox';
 
 const queryClient = new QueryClient();
 
@@ -94,37 +95,48 @@ function RootComponent(): JSX.Element {
           <div className="absolute -bottom-48 left-1/2 size-96 -translate-x-1/2 rounded-full bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 blur-3xl" />
         </div>
 
-        <header className="relative border-b border-slate-700/50 bg-slate-900/60 shadow-xl backdrop-blur-xl">
+        <header className="relative z-30 border-b border-slate-700/50 bg-slate-900/60 shadow-xl backdrop-blur-xl">
           <div className="mx-auto max-w-screen-2xl px-4 py-6 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-6">
-              <div className="relative group">
-                <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-indigo-500/40 via-purple-500/40 to-pink-500/40 blur-xl transition-all duration-300 group-hover:blur-2xl group-hover:from-indigo-500/50 group-hover:via-purple-500/50 group-hover:to-pink-500/50" />
-                <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 blur-md" />
+            <div className="flex items-center gap-4 md:gap-6">
+              <div className="relative group shrink-0">
+                <div className="absolute inset-0 rounded-2xl bg-linear-to-br from-indigo-500/40 via-purple-500/40 to-pink-500/40 blur-xl transition-all duration-300 group-hover:blur-2xl group-hover:from-indigo-500/50 group-hover:via-purple-500/50 group-hover:to-pink-500/50" />
+                <div className="absolute inset-0 rounded-2xl bg-linear-to-br from-indigo-500/20 to-purple-500/20 blur-sm" />
                 <img
                   src={Logo}
-                  className="relative size-14 rounded-2xl object-contain backdrop-blur-sm transition-all duration-300 group-hover:scale-105 md:size-20"
+                  className="relative size-12 rounded-2xl object-contain backdrop-blur-sm transition-all duration-300 group-hover:scale-105 sm:size-14 md:size-20"
                   alt="Logo"
                 />
               </div>
-              <div className="flex flex-1 items-center justify-between">
-                <div>
+              <div className="flex min-w-0 flex-1 items-center justify-between gap-4">
+                <div className="min-w-0 shrink">
                   <Link to="/" className="group inline-flex items-baseline gap-3 transition-all">
-                    <h1 className="bg-gradient-to-r from-orange-400 via-amber-400 to-orange-400 bg-clip-text text-3xl font-black tracking-tight text-transparent transition-all group-hover:from-orange-300 group-hover:via-amber-300 group-hover:to-orange-300">
+                    <h1 className="bg-linear-to-r from-orange-400 via-amber-400 to-orange-400 bg-clip-text text-2xl font-black tracking-tight text-transparent transition-all group-hover:from-orange-300 group-hover:via-amber-300 group-hover:to-orange-300 sm:text-3xl">
                       <span className="md:hidden">CBT</span>
                       <span className="hidden md:inline">CBT Dashboard</span>
                     </h1>
                   </Link>
-                  <p className="mt-1.5 hidden text-sm font-medium text-slate-400 md:block">
+                  <p className="mt-1.5 hidden text-sm/6 font-medium text-slate-400 lg:block">
                     ClickHouse Build Tool · Real-time Model Coverage Analytics
                   </p>
                 </div>
-                <nav>
+
+                {/* Search - Icon on mobile/tablet, full on large screens */}
+                <div className="hidden flex-1 lg:block lg:max-w-xl">
+                  <ModelSearchCombobox variant="full" />
+                </div>
+
+                <nav className="flex shrink-0 items-center gap-2">
+                  {/* Mobile/tablet search icon */}
+                  <div className="lg:hidden">
+                    <ModelSearchCombobox variant="icon" />
+                  </div>
+
                   <TabGroup selectedIndex={selectedIndex} onChange={handleTabChange}>
                     <TabList className="flex items-center gap-1 rounded-lg bg-slate-800/40 p-1">
-                      <Tab className="rounded-md px-4 py-2 text-sm font-semibold text-slate-300 transition-all hover:bg-slate-700/60 hover:text-indigo-400 data-[selected]:bg-indigo-500/20 data-[selected]:text-indigo-300 data-[selected]:shadow-sm focus:outline-none">
+                      <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-slate-300 transition-all hover:bg-slate-700/60 hover:text-indigo-400 data-[selected]:bg-indigo-500/20 data-[selected]:text-indigo-300 data-[selected]:shadow-sm focus:outline-hidden sm:px-4 sm:py-2 sm:text-sm">
                         Dashboard
                       </Tab>
-                      <Tab className="rounded-md px-4 py-2 text-sm font-semibold text-slate-300 transition-all hover:bg-slate-700/60 hover:text-indigo-400 data-[selected]:bg-indigo-500/20 data-[selected]:text-indigo-300 data-[selected]:shadow-sm focus:outline-none">
+                      <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-slate-300 transition-all hover:bg-slate-700/60 hover:text-indigo-400 data-[selected]:bg-indigo-500/20 data-[selected]:text-indigo-300 data-[selected]:shadow-sm focus:outline-hidden sm:px-4 sm:py-2 sm:text-sm">
                         DAG View
                       </Tab>
                     </TabList>
