@@ -36,7 +36,6 @@ const createNodeStory = (
           label,
           isHighlighted,
           isDimmed,
-          showLink: false,
         },
       },
     ];

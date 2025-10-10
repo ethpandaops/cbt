@@ -73,7 +73,6 @@ export const Simple: Story = {
   args: {
     data: simpleData,
     className: 'flex-1',
-    showLinks: false,
   },
 };
 
@@ -81,7 +80,6 @@ export const Complex: Story = {
   args: {
     data: complexData,
     className: 'flex-1',
-    showLinks: false,
   },
 };
 
@@ -89,7 +87,6 @@ export const Large: Story = {
   args: {
     data: largeData,
     className: 'flex-1',
-    showLinks: false,
   },
 };
 
@@ -97,7 +94,6 @@ export const Empty: Story = {
   args: {
     data: emptyData,
     className: 'flex-1',
-    showLinks: false,
   },
 };
 
@@ -109,7 +105,6 @@ export const OnlyExternal: Story = {
       scheduledModels: [],
     },
     className: 'flex-1',
-    showLinks: false,
   },
 };
 
@@ -121,6 +116,5 @@ export const OnlyScheduled: Story = {
       scheduledModels: [{ id: 'scheduled.job1' }, { id: 'scheduled.job2' }],
     },
     className: 'flex-1',
-    showLinks: false,
   },
 };

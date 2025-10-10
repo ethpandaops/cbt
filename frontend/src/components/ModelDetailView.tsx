@@ -2,38 +2,40 @@ import { type JSX, useState, useRef } from 'react';
 import type { UseQueryResult } from '@tanstack/react-query';
 import type {
   IntervalTypeTransformation,
-  Transformation,
-  TransformationCoverage,
-  ExternalBound,
-  ListTransformations200ModelsItem,
-  IntervalTypes,
+  TransformationModel,
+  ListTransformationCoverageResponse,
+  ListExternalBoundsResponse,
+  ListTransformationsResponse,
+  GetIntervalTypesResponse,
 } from '@api/types.gen';
-import { Tab, TabGroup, TabList } from '@headlessui/react';
 import { ModelInfoCard, type InfoField } from './ModelInfoCard';
 import { DependencyRow } from './DependencyRow';
 import { CoverageBar } from './CoverageBar';
 import { ZoomControls } from './ZoomControls';
-import { MultiCoverageTooltip } from './MultiCoverageTooltip';
+import { CoverageTooltip } from './CoverageTooltip';
+import { SQLCodeBlock } from './SQLCodeBlock';
+import { TransformationSelector } from './shared/TransformationSelector';
+import { useDependencyTree } from '@/hooks/useDependencyTree';
 import type { IncrementalModelItem } from '@/types';
 import { transformValue, formatValue } from '@/utils/interval-transform';
 
-export interface IncrementalModelDetailViewProps {
+export interface ModelDetailViewProps {
   decodedId: string;
-  transformation: Transformation;
-  coverage: UseQueryResult<TransformationCoverage, Error>;
-  allBounds: UseQueryResult<{ bounds: ExternalBound[] }, Error>;
-  allTransformations: UseQueryResult<ListTransformations200ModelsItem, Error>;
-  intervalTypes: UseQueryResult<IntervalTypes, Error>;
+  transformation: TransformationModel;
+  coverage: UseQueryResult<ListTransformationCoverageResponse, Error>;
+  allBounds: UseQueryResult<ListExternalBoundsResponse, Error>;
+  allTransformations: UseQueryResult<ListTransformationsResponse, Error>;
+  intervalTypes: UseQueryResult<GetIntervalTypesResponse, Error>;
 }
 
-export function IncrementalModelDetailView({
+export function ModelDetailView({
   decodedId,
   transformation,
   coverage,
   allBounds,
   allTransformations,
   intervalTypes,
-}: IncrementalModelDetailViewProps): JSX.Element {
+}: ModelDetailViewProps): JSX.Element {
   const [selectedTransformationIndex, setSelectedTransformationIndex] = useState(0);
   const [hoveredCoverage, setHoveredCoverage] = useState<{ modelId: string; position: number; mouseX: number } | null>(
     null
@@ -43,34 +45,16 @@ export function IncrementalModelDetailView({
 
   const modelCoverage = coverage.data?.coverage.find(c => c.id === decodedId);
 
-  // Build dependency tree (deduplicated) - recursively get all transitive dependencies
-  const getDependencies = (modelId: string, visited = new Set<string>()): string[] => {
-    if (visited.has(modelId)) return [];
-    visited.add(modelId);
-
-    let deps: string[] = [];
-    if (modelId === decodedId) {
-      deps = transformation?.depends_on || [];
-    } else {
-      const depModel = allTransformations.data?.models.find(m => m.id === modelId);
-      deps = depModel?.depends_on || [];
-    }
-
-    const result = [...deps];
-    for (const dep of deps) {
-      result.push(...getDependencies(dep, visited));
-    }
-
-    return result;
-  };
-
-  const allDeps = transformation?.depends_on ? [...new Set(getDependencies(decodedId))] : [];
-
   // Build dependency map
   const dependencyMap = new Map<string, string[]>();
   if (transformation?.depends_on) {
     dependencyMap.set(decodedId, transformation.depends_on);
   }
+
+  // Get all dependencies using the custom hook
+  const { allDependenciesArray: allDeps, getAllDependencies } = useDependencyTree(decodedId, dependencyMap);
+
+  // Add dependencies to the map for nested resolution
   allDeps.forEach(depId => {
     const depModel = allTransformations.data?.models.find(m => m.id === depId);
     if (depModel?.depends_on) {
@@ -78,24 +62,7 @@ export function IncrementalModelDetailView({
     }
   });
 
-  // Get all dependencies (including transitive) for a model
-  const getAllDependencies = (modelId: string, visited = new Set<string>()): Set<string> => {
-    if (visited.has(modelId)) return new Set();
-    visited.add(modelId);
-
-    const deps = new Set<string>();
-    const directDeps = dependencyMap.get(modelId) || [];
-
-    directDeps.forEach(dep => {
-      deps.add(dep);
-      const transDeps = getAllDependencies(dep, visited);
-      transDeps.forEach(d => deps.add(d));
-    });
-
-    return deps;
-  };
-
-  // Build all models array for MultiCoverageTooltip
+  // Build all models array for CoverageTooltip
   const allModelsForTooltip: IncrementalModelItem[] = [];
   if (modelCoverage) {
     allModelsForTooltip.push({
@@ -168,14 +135,46 @@ export function IncrementalModelDetailView({
     { label: 'Database', value: decodedId.split('.')[0] },
     { label: 'Table', value: decodedId.split('.').slice(1).join('.') },
     { label: 'Type', value: transformation?.type, variant: 'highlight', highlightColor: 'indigo' },
-    { label: 'Content Type', value: transformation?.content_type },
+    { label: 'Content Type', value: transformation?.content_type, variant: 'highlight', highlightColor: 'indigo' },
   ];
 
+  if (transformation?.description) {
+    infoFields.push({ label: 'Description', value: transformation.description });
+  }
+
+  if (transformation?.tags && transformation.tags.length > 0) {
+    infoFields.push({ label: 'Tags', value: transformation.tags.join(', ') });
+  }
+
+  if (transformation?.interval?.min !== undefined && transformation?.interval?.max !== undefined) {
+    infoFields.push(
+      { label: 'Min Interval', value: transformation.interval.min.toString() },
+      { label: 'Max Interval', value: transformation.interval.max.toString() }
+    );
+  }
+
+  if (transformation?.schedules) {
+    if (transformation.schedules.forwardfill) {
+      infoFields.push({
+        label: 'Forwardfill Schedule',
+        value: transformation.schedules.forwardfill,
+        variant: 'highlight',
+        highlightColor: 'emerald',
+      });
+    }
+    if (transformation.schedules.backfill) {
+      infoFields.push({
+        label: 'Backfill Schedule',
+        value: transformation.schedules.backfill,
+        variant: 'highlight',
+        highlightColor: 'amber',
+      });
+    }
+  }
+
   return (
-    <div>
-      <div className="mb-6">
-        <ModelInfoCard title="Model Information" fields={infoFields} borderColor="border-indigo-500/30" columns={4} />
-      </div>
+    <div className="space-y-6">
+      <ModelInfoCard title="Model Information" fields={infoFields} borderColor="border-indigo-500/30" columns={4} />
 
       <div
         ref={sectionRef}
@@ -184,21 +183,11 @@ export function IncrementalModelDetailView({
         <div className="mb-4 flex flex-col gap-4 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
             <h2 className="text-base font-bold text-slate-100 sm:text-lg">Coverage Analysis</h2>
-            {transformations.length > 1 && (
-              <TabGroup selectedIndex={selectedTransformationIndex} onChange={setSelectedTransformationIndex}>
-                <TabList className="flex flex-wrap gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
-                  {transformations.map((transformation, index) => (
-                    <Tab
-                      key={index}
-                      className="rounded-md px-2.5 py-1 text-xs font-semibold text-slate-400 transition-all hover:bg-slate-800 hover:text-slate-200 data-[selected]:bg-indigo-500 data-[selected]:text-white data-[selected]:shadow-sm focus:outline-none sm:px-3"
-                      title={transformation.expression || 'No transformation'}
-                    >
-                      {transformation.name}
-                    </Tab>
-                  ))}
-                </TabList>
-              </TabGroup>
-            )}
+            <TransformationSelector
+              transformations={transformations}
+              selectedIndex={selectedTransformationIndex}
+              onSelect={setSelectedTransformationIndex}
+            />
           </div>
           <div className="flex flex-wrap items-center gap-3 text-xs sm:gap-4">
             <div className="flex items-center gap-1.5 sm:gap-2">
@@ -286,9 +275,27 @@ export function IncrementalModelDetailView({
         </div>
       </div>
 
-      {/* Multi-coverage tooltip */}
+      {/* Transformation content - shown after coverage */}
+      {transformation?.content && transformation.content_type === 'sql' && (
+        <SQLCodeBlock sql={transformation.content} title="Transformation Query" />
+      )}
+
+      {transformation?.content && transformation.content_type === 'exec' && (
+        <div className="overflow-hidden rounded-lg border border-indigo-500/30 bg-slate-900/80 shadow-lg">
+          <div className="border-b border-slate-700/50 bg-slate-800/60 px-4 py-2">
+            <span className="text-sm font-semibold text-slate-300">Execution Command</span>
+          </div>
+          <div className="p-4">
+            <pre className="overflow-auto text-sm">
+              <code className="font-mono text-slate-200">{transformation.content}</code>
+            </pre>
+          </div>
+        </div>
+      )}
+
+      {/* Coverage tooltip */}
       {hoveredCoverage && (
-        <MultiCoverageTooltip
+        <CoverageTooltip
           hoveredPosition={hoveredCoverage.position}
           hoveredModelId={hoveredCoverage.modelId}
           mouseX={hoveredCoverage.mouseX}

@@ -1,5 +1,8 @@
 import type { Range } from '@api/types.gen';
 
+// Re-export model type configuration
+export * from './modelTypes';
+
 // Shared types for zoom functionality
 export interface ZoomRange {
   start: number;

@@ -59,7 +59,6 @@ export const TransformationDefault: Story = {
     zoomEnd: 1000,
     globalMin: 0,
     globalMax: 1000,
-    showLink: false,
   },
 };
 
@@ -71,7 +70,6 @@ export const TransformationHighlighted: Story = {
     globalMin: 0,
     globalMax: 1000,
     isHighlighted: true,
-    showLink: false,
   },
 };
 
@@ -83,7 +81,6 @@ export const TransformationDimmed: Story = {
     globalMin: 0,
     globalMax: 1000,
     isDimmed: true,
-    showLink: false,
   },
 };
 
@@ -94,7 +91,6 @@ export const ExternalDefault: Story = {
     zoomEnd: 1000,
     globalMin: 0,
     globalMax: 1000,
-    showLink: false,
   },
 };
 
@@ -105,7 +101,6 @@ export const Scheduled: Story = {
     zoomEnd: 1000,
     globalMin: 0,
     globalMax: 1000,
-    showLink: false,
   },
 };
 
@@ -116,7 +111,6 @@ export const WithoutLink: Story = {
     zoomEnd: 1000,
     globalMin: 0,
     globalMax: 1000,
-    showLink: false,
   },
 };
 
@@ -128,7 +122,6 @@ export const CustomNameWidth: Story = {
     globalMin: 0,
     globalMax: 1000,
     nameWidth: 'w-96',
-    showLink: false,
   },
 };
 
@@ -139,6 +132,5 @@ export const ZoomedIn: Story = {
     zoomEnd: 600,
     globalMin: 0,
     globalMax: 1000,
-    showLink: false,
   },
 };

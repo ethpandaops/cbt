@@ -34,8 +34,6 @@ export const TransformationDependency: Story = {
     ],
     zoomStart: 0,
     zoomEnd: 1000,
-    tooltipId: 'dep-tooltip',
-    showLink: false,
   },
 };
 
@@ -46,8 +44,6 @@ export const ExternalDependency: Story = {
     bounds: { min: 0, max: 800 },
     zoomStart: 0,
     zoomEnd: 1000,
-    tooltipId: 'dep-tooltip',
-    showLink: false,
   },
 };
 
@@ -57,8 +53,6 @@ export const ScheduledDependency: Story = {
     type: 'scheduled',
     zoomStart: 0,
     zoomEnd: 1000,
-    tooltipId: 'dep-tooltip',
-    showLink: false,
   },
 };
 
@@ -69,8 +63,6 @@ export const LongName: Story = {
     ranges: [{ position: 200, interval: 300 }],
     zoomStart: 0,
     zoomEnd: 1000,
-    tooltipId: 'dep-tooltip',
-    showLink: false,
   },
 };
 
@@ -85,7 +77,5 @@ export const WithTransformation: Story = {
       name: 'Slot Number',
       expression: 'x',
     },
-    tooltipId: 'dep-tooltip',
-    showLink: false,
   },
 };

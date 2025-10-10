@@ -17,7 +17,7 @@ interface TooltipData {
   coverageBarRight?: number;
 }
 
-export interface MultiCoverageTooltipProps {
+export interface CoverageTooltipProps {
   hoveredPosition: number;
   hoveredModelId: string;
   mouseX: number; // Actual mouse X position in pixels
@@ -29,7 +29,7 @@ export interface MultiCoverageTooltipProps {
   containerRef: React.RefObject<HTMLElement | null>;
 }
 
-export function MultiCoverageTooltip({
+export function CoverageTooltip({
   hoveredPosition,
   hoveredModelId,
   mouseX,
@@ -39,7 +39,7 @@ export function MultiCoverageTooltip({
   zoomStart,
   zoomEnd,
   containerRef,
-}: MultiCoverageTooltipProps): JSX.Element | null {
+}: CoverageTooltipProps): JSX.Element | null {
   const [tooltipsData, setTooltipsData] = useState<TooltipData[]>([]);
   const tooltipRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 

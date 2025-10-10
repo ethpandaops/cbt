@@ -15,7 +15,8 @@ import { ArrowPathIcon, XCircleIcon } from '@heroicons/react/24/outline';
 import { BackToDashboardButton } from '@/components/BackToDashboardButton';
 import { ModelHeader } from '@/components/ModelHeader';
 import { ModelInfoCard, type InfoField } from '@/components/ModelInfoCard';
-import { IncrementalModelDetailView } from '@/components/IncrementalModelDetailView';
+import { ModelDetailView } from '@/components/ModelDetailView';
+import { SQLCodeBlock } from '@/components/SQLCodeBlock';
 import { timeAgo } from '@/utils/time';
 
 function ModelDetailComponent(): JSX.Element {
@@ -88,14 +89,19 @@ function ModelDetailComponent(): JSX.Element {
     }
 
     const bounds = externalBounds.data;
+    const extModel = externalModel.data;
 
     const fields: InfoField[] = [
       { label: 'Database', value: model.database },
       { label: 'Table', value: model.table },
     ];
 
-    if (externalModel.data?.interval?.type) {
-      fields.push({ label: 'Interval Type', value: externalModel.data.interval.type });
+    if (extModel?.description) {
+      fields.push({ label: 'Description', value: extModel.description });
+    }
+
+    if (extModel?.interval?.type) {
+      fields.push({ label: 'Interval Type', value: extModel.interval.type });
     }
 
     if (bounds) {
@@ -106,7 +112,7 @@ function ModelDetailComponent(): JSX.Element {
     }
 
     return (
-      <div>
+      <div className="space-y-6">
         <ModelHeader modelId={decodedId} modelType="external" />
         <BackToDashboardButton />
         <ModelInfoCard title="Model Information" fields={fields} borderColor="border-green-500/30" />
@@ -132,8 +138,12 @@ function ModelDetailComponent(): JSX.Element {
     const fields: InfoField[] = [
       { label: 'Database', value: model.database },
       { label: 'Table', value: model.table },
-      { label: 'Content Type', value: transformation?.content_type },
+      { label: 'Content Type', value: transformation?.content_type, variant: 'highlight', highlightColor: 'indigo' },
     ];
+
+    if (transformation?.description) {
+      fields.push({ label: 'Description', value: transformation.description });
+    }
 
     if (transformation?.schedule) {
       fields.push({
@@ -152,11 +162,36 @@ function ModelDetailComponent(): JSX.Element {
       fields.push({ label: 'Status', value: transformation.metadata.last_run_status });
     }
 
+    if (transformation?.tags && transformation.tags.length > 0) {
+      fields.push({ label: 'Tags', value: transformation.tags.join(', ') });
+    }
+
+    if (transformation?.depends_on && transformation.depends_on.length > 0) {
+      fields.push({ label: 'Dependencies', value: `${transformation.depends_on.length} model(s)` });
+    }
+
     return (
-      <div>
+      <div className="space-y-6">
         <ModelHeader modelId={decodedId} modelType="scheduled" />
         <BackToDashboardButton />
         <ModelInfoCard title="Transformation Details" fields={fields} borderColor="border-emerald-500/30" />
+
+        {transformation?.content && transformation.content_type === 'sql' && (
+          <SQLCodeBlock sql={transformation.content} title="Transformation Query" />
+        )}
+
+        {transformation?.content && transformation.content_type === 'exec' && (
+          <div className="overflow-hidden rounded-lg border border-emerald-500/30 bg-slate-900/80 shadow-lg">
+            <div className="border-b border-slate-700/50 bg-slate-800/60 px-4 py-2">
+              <span className="text-sm font-semibold text-slate-300">Execution Command</span>
+            </div>
+            <div className="p-4">
+              <pre className="overflow-auto text-sm">
+                <code className="font-mono text-slate-200">{transformation.content}</code>
+              </pre>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -166,7 +201,7 @@ function ModelDetailComponent(): JSX.Element {
     <div>
       <ModelHeader modelId={decodedId} modelType="incremental" />
       <BackToDashboardButton />
-      <IncrementalModelDetailView
+      <ModelDetailView
         decodedId={decodedId}
         transformation={transformation}
         coverage={coverage}

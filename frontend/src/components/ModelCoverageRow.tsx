@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import type { IncrementalModelItem } from '@/types';
 import type { IntervalTypeTransformation } from '@api/types.gen';
 import { CoverageBar } from './CoverageBar';
+import { TypeBadge } from './shared/TypeBadge';
 
 export interface ModelCoverageRowProps {
   model: IncrementalModelItem;
@@ -18,7 +19,6 @@ export interface ModelCoverageRowProps {
   onZoomChange?: (start: number, end: number) => void;
   onCoverageHover?: (modelId: string, position: number, mouseX: number) => void;
   onCoverageLeave?: () => void;
-  showLink?: boolean;
   nameWidth?: string;
 }
 
@@ -36,7 +36,6 @@ export function ModelCoverageRow({
   onZoomChange,
   onCoverageHover,
   onCoverageLeave,
-  showLink = true,
   nameWidth = 'w-72',
 }: ModelCoverageRowProps): JSX.Element {
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>): void => {
@@ -100,35 +99,18 @@ export function ModelCoverageRow({
       onMouseLeave={onMouseLeave}
     >
       <div className={`flex shrink-0 items-center gap-2 ${nameWidth}`}>
-        {showLink ? (
-          <Link
-            to="/model/$id"
-            params={{ id: encodeURIComponent(model.id) }}
-            className={`truncate font-mono text-xs font-semibold transition-colors ${
-              isHighlighted ? 'text-indigo-300' : isDimmed ? 'text-slate-500' : 'text-slate-300 hover:text-indigo-400'
-            }`}
-            title={model.id}
-          >
-            {model.id}
-          </Link>
-        ) : (
-          <span
-            className={`truncate font-mono text-xs font-semibold ${
-              isHighlighted ? 'text-indigo-300' : isDimmed ? 'text-slate-500' : 'text-slate-300'
-            }`}
-            title={model.id}
-          >
-            {model.id}
-          </span>
-        )}
-        {isExternal && (
-          <span className="rounded-full bg-green-500/20 px-2 py-0.5 text-xs font-bold text-green-300">EXT</span>
-        )}
-        {isScheduled && (
-          <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-bold text-emerald-300">
-            SCHEDULED
-          </span>
-        )}
+        <Link
+          to="/model/$id"
+          params={{ id: encodeURIComponent(model.id) }}
+          className={`truncate font-mono text-xs font-semibold transition-colors ${
+            isHighlighted ? 'text-indigo-300' : isDimmed ? 'text-slate-500' : 'text-slate-300 hover:text-indigo-400'
+          }`}
+          title={model.id}
+        >
+          {model.id}
+        </Link>
+        {isExternal && <TypeBadge type="external" compact />}
+        {isScheduled && <TypeBadge type="scheduled" compact />}
       </div>
       <div className="flex-1" onWheel={handleWheel}>
         <CoverageBar

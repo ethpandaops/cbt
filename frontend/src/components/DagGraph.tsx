@@ -30,10 +30,9 @@ export interface DagData {
 export interface DagGraphProps {
   data: DagData;
   className?: string;
-  showLinks?: boolean;
 }
 
-export function DagGraph({ data, className = '', showLinks = true }: DagGraphProps): JSX.Element {
+export function DagGraph({ data, className = '' }: DagGraphProps): JSX.Element {
   // Build nodes and edges from the data with Dagre auto-layout
   const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
     const nodes: Node[] = [];
@@ -45,7 +44,7 @@ export function DagGraph({ data, className = '', showLinks = true }: DagGraphPro
         id: model.id,
         type: 'external',
         position: { x: 0, y: 0 }, // Will be set by Dagre
-        data: { label: model.id, showLink: showLinks },
+        data: { label: model.id },
       });
     });
 
@@ -54,7 +53,7 @@ export function DagGraph({ data, className = '', showLinks = true }: DagGraphPro
         id: model.id,
         type: 'scheduled',
         position: { x: 0, y: 0 }, // Will be set by Dagre
-        data: { label: model.id, showLink: showLinks },
+        data: { label: model.id },
       });
     });
 
@@ -63,7 +62,7 @@ export function DagGraph({ data, className = '', showLinks = true }: DagGraphPro
         id: model.id,
         type: 'transformation',
         position: { x: 0, y: 0 }, // Will be set by Dagre
-        data: { label: model.id, showLink: showLinks },
+        data: { label: model.id },
       });
     });
 
@@ -127,7 +126,7 @@ export function DagGraph({ data, className = '', showLinks = true }: DagGraphPro
     });
 
     return { nodes, edges };
-  }, [data, showLinks]);
+  }, [data]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);

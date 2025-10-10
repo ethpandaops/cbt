@@ -1,53 +1,20 @@
 import { type JSX } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { MODEL_TYPE_CONFIG, type ModelType } from '@/types';
 
-interface DagNodeBaseProps {
+interface DagNodeData {
   isHighlighted: boolean;
   isDimmed: boolean;
   label: string;
-  type: 'external' | 'transformation' | 'scheduled';
-  showLink?: boolean;
 }
 
-const nodeConfig = {
-  external: {
-    badge: 'EXTERNAL',
-    color: 'green',
-    handleColor: '!bg-green-500',
-    highlightedClasses:
-      'border-green-400 bg-gradient-to-br from-green-900/60 to-green-800/60 ring-green-400/50 shadow-green-500/30',
-    dimmedClasses:
-      'border-green-500/20 bg-gradient-to-br from-slate-900/40 to-slate-950/40 opacity-30 ring-green-500/10',
-    defaultClasses:
-      'border-green-500/50 bg-gradient-to-br from-slate-800 to-slate-900 ring-green-500/30 hover:shadow-green-500/20',
-  },
-  transformation: {
-    badge: 'INCREMENTAL',
-    color: 'indigo',
-    handleColor: '!bg-indigo-500',
-    highlightedClasses:
-      'border-indigo-400 bg-gradient-to-br from-indigo-900/60 to-indigo-800/60 ring-indigo-400/50 shadow-indigo-500/30',
-    dimmedClasses:
-      'border-indigo-500/20 bg-gradient-to-br from-slate-900/40 to-slate-950/40 opacity-30 ring-indigo-500/10',
-    defaultClasses:
-      'border-indigo-500/50 bg-gradient-to-br from-slate-800 to-slate-900 ring-indigo-500/30 hover:shadow-indigo-500/20',
-  },
-  scheduled: {
-    badge: 'SCHEDULED',
-    color: 'emerald',
-    handleColor: '!bg-emerald-500',
-    highlightedClasses:
-      'border-emerald-400 bg-gradient-to-br from-emerald-900/60 to-emerald-800/60 ring-emerald-400/50 shadow-emerald-500/30',
-    dimmedClasses:
-      'border-emerald-500/20 bg-gradient-to-br from-slate-900/40 to-slate-950/40 opacity-30 ring-emerald-500/10',
-    defaultClasses:
-      'border-emerald-500/50 bg-gradient-to-br from-slate-800 to-slate-900 ring-emerald-500/30 hover:shadow-emerald-500/20',
-  },
-};
+interface DagNodeContentProps extends DagNodeData {
+  type: ModelType;
+}
 
-function DagNodeContent({ isHighlighted, isDimmed, label, type }: DagNodeBaseProps): JSX.Element {
-  const config = nodeConfig[type];
+function DagNodeContent({ isHighlighted, isDimmed, label, type }: DagNodeContentProps): JSX.Element {
+  const config = MODEL_TYPE_CONFIG[type];
   const colorClass = `text-${config.color}-300`;
   const bgClass = `bg-${config.color}-500`;
 
@@ -56,76 +23,47 @@ function DagNodeContent({ isHighlighted, isDimmed, label, type }: DagNodeBasePro
   }`;
 
   return (
-    <div className={className}>
+    <Link to="/model/$id" params={{ id: encodeURIComponent(label) }} className={className}>
       <div className="flex items-center gap-1.5 sm:gap-2">
         <div className={`size-1.5 rounded-full sm:size-2 ${bgClass}`} />
-        <div className={`font-mono text-xs font-bold ${colorClass}`}>{config.badge}</div>
+        <div className={`font-mono text-xs font-bold ${colorClass}`}>{config.label}</div>
       </div>
-      <div className="mt-1.5 font-mono text-xs font-semibold text-slate-100 sm:mt-2 sm:text-sm" title={label}>
+      <div className="mt-1.5 font-mono text-xs font-semibold text-slate-100 sm:mt-2 sm:text-sm/4" title={label}>
         {label}
       </div>
+    </Link>
+  );
+}
+
+interface DagNodeBaseProps extends NodeProps {
+  type: ModelType;
+  hasSourceHandle?: boolean;
+  hasTargetHandle?: boolean;
+}
+
+function DagNode({ data, type, hasSourceHandle = false, hasTargetHandle = false }: DagNodeBaseProps): JSX.Element {
+  const isHighlighted = data.isHighlighted as boolean;
+  const isDimmed = data.isDimmed as boolean;
+  const label = data.label as string;
+  const config = MODEL_TYPE_CONFIG[type];
+
+  return (
+    <div className="relative">
+      {hasTargetHandle && <Handle type="target" position={Position.Top} className={config.handleColor} />}
+      <DagNodeContent isHighlighted={isHighlighted} isDimmed={isDimmed} label={label} type={type} />
+      {hasSourceHandle && <Handle type="source" position={Position.Bottom} className={config.handleColor} />}
     </div>
   );
 }
 
-export function ExternalNode({ data }: NodeProps): JSX.Element {
-  const isHighlighted = data.isHighlighted as boolean;
-  const isDimmed = data.isDimmed as boolean;
-  const label = data.label as string;
-  const showLink = data.showLink === undefined ? true : Boolean(data.showLink);
-
-  return (
-    <div className="relative">
-      <Handle type="source" position={Position.Bottom} className="!bg-green-500" />
-      {showLink ? (
-        <Link to="/model/$id" params={{ id: encodeURIComponent(label) }}>
-          <DagNodeContent isHighlighted={isHighlighted} isDimmed={isDimmed} label={label} type="external" />
-        </Link>
-      ) : (
-        <DagNodeContent isHighlighted={isHighlighted} isDimmed={isDimmed} label={label} type="external" />
-      )}
-    </div>
-  );
+export function ExternalNode(props: NodeProps): JSX.Element {
+  return <DagNode {...props} type="external" hasSourceHandle />;
 }
 
-export function TransformationNode({ data }: NodeProps): JSX.Element {
-  const isHighlighted = data.isHighlighted as boolean;
-  const isDimmed = data.isDimmed as boolean;
-  const label = data.label as string;
-  const showLink = data.showLink === undefined ? true : Boolean(data.showLink);
-
-  return (
-    <div className="relative">
-      <Handle type="target" position={Position.Top} className="!bg-indigo-500" />
-      <Handle type="source" position={Position.Bottom} className="!bg-indigo-500" />
-      {showLink ? (
-        <Link to="/model/$id" params={{ id: encodeURIComponent(label) }}>
-          <DagNodeContent isHighlighted={isHighlighted} isDimmed={isDimmed} label={label} type="transformation" />
-        </Link>
-      ) : (
-        <DagNodeContent isHighlighted={isHighlighted} isDimmed={isDimmed} label={label} type="transformation" />
-      )}
-    </div>
-  );
+export function TransformationNode(props: NodeProps): JSX.Element {
+  return <DagNode {...props} type="incremental" hasSourceHandle hasTargetHandle />;
 }
 
-export function ScheduledNode({ data }: NodeProps): JSX.Element {
-  const isHighlighted = data.isHighlighted as boolean;
-  const isDimmed = data.isDimmed as boolean;
-  const label = data.label as string;
-  const showLink = data.showLink === undefined ? true : Boolean(data.showLink);
-
-  return (
-    <div className="relative">
-      <Handle type="target" position={Position.Top} className="!bg-emerald-500" />
-      <Handle type="source" position={Position.Bottom} className="!bg-emerald-500" />
-      {showLink ? (
-        <Link to="/model/$id" params={{ id: encodeURIComponent(label) }}>
-          <DagNodeContent isHighlighted={isHighlighted} isDimmed={isDimmed} label={label} type="scheduled" />
-        </Link>
-      ) : (
-        <DagNodeContent isHighlighted={isHighlighted} isDimmed={isDimmed} label={label} type="scheduled" />
-      )}
-    </div>
-  );
+export function ScheduledNode(props: NodeProps): JSX.Element {
+  return <DagNode {...props} type="scheduled" hasSourceHandle hasTargetHandle />;
 }

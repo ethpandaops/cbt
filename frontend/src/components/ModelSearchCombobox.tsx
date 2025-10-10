@@ -5,6 +5,8 @@ import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { listAllModelsOptions } from '@api/@tanstack/react-query.gen';
 import type { ModelSummary } from '@api/types.gen';
+import { TypeBadge } from './shared/TypeBadge';
+import type { ModelType } from '@/types';
 
 export interface ModelSearchComboboxProps {
   /**
@@ -49,20 +51,10 @@ export function ModelSearchCombobox({ variant = 'full' }: ModelSearchComboboxPro
     }
   };
 
-  const getModelTypeBadge = (model: ModelSummary): JSX.Element => {
-    if (model.type === 'external') {
-      return (
-        <span className="inline-flex shrink-0 items-center rounded-md bg-green-500/20 px-2 py-0.5 text-xs font-semibold text-green-300 ring-1 ring-green-500/30">
-          External
-        </span>
-      );
-    }
-    // For transformations, we don't know if incremental/scheduled without fetching more data
-    return (
-      <span className="inline-flex shrink-0 items-center rounded-md bg-indigo-500/20 px-2 py-0.5 text-xs font-semibold text-indigo-300 ring-1 ring-indigo-500/30">
-        Transform
-      </span>
-    );
+  const getModelType = (model: ModelSummary): ModelType => {
+    if (model.type === 'external') return 'external';
+    // For transformations, default to incremental (we don't have enough info to determine scheduled)
+    return 'incremental';
   };
 
   if (variant === 'icon') {
@@ -127,7 +119,7 @@ export function ModelSearchCombobox({ variant = 'full' }: ModelSearchComboboxPro
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
                               <span className="truncate font-mono text-sm/6 font-semibold">{model.id}</span>
-                              {getModelTypeBadge(model)}
+                              <TypeBadge type={getModelType(model)} compact />
                             </div>
                             {model.description && (
                               <p className="mt-1 truncate text-xs text-slate-400">{model.description}</p>
@@ -202,7 +194,7 @@ export function ModelSearchCombobox({ variant = 'full' }: ModelSearchComboboxPro
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="truncate font-mono text-sm/6 font-semibold">{model.id}</span>
-                            {getModelTypeBadge(model)}
+                            <TypeBadge type={getModelType(model)} compact />
                           </div>
                           {model.description && (
                             <p className="mt-1 truncate text-xs text-slate-400">{model.description}</p>

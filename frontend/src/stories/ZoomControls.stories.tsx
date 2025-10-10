@@ -64,7 +64,6 @@ export const WithoutResetButton: Story = {
     globalMax: 1000,
     zoomStart: 300,
     zoomEnd: 700,
-    showResetButton: false,
     onZoomChange: (start, end) => console.log('Zoom changed:', start, end),
   },
 };

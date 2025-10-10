@@ -1,36 +1,13 @@
 import { type JSX } from 'react';
+import { MODEL_TYPE_CONFIG, type ModelType } from '@/types';
 
 export interface ModelHeaderProps {
   modelId: string;
-  modelType: 'external' | 'scheduled' | 'incremental';
+  modelType: ModelType;
 }
 
-const typeConfig = {
-  external: {
-    gradient: 'from-green-400 via-emerald-400 to-green-400',
-    badgeBg: 'bg-green-500/20',
-    badgeText: 'text-green-300',
-    badgeRing: 'ring-green-500/50',
-    label: 'EXTERNAL',
-  },
-  scheduled: {
-    gradient: 'from-emerald-400 via-teal-400 to-emerald-400',
-    badgeBg: 'bg-emerald-500/20',
-    badgeText: 'text-emerald-300',
-    badgeRing: 'ring-emerald-500/50',
-    label: 'SCHEDULED',
-  },
-  incremental: {
-    gradient: 'from-indigo-400 via-purple-400 to-indigo-400',
-    badgeBg: 'bg-indigo-500/20',
-    badgeText: 'text-indigo-300',
-    badgeRing: 'ring-indigo-500/50',
-    label: 'INCREMENTAL',
-  },
-};
-
 export function ModelHeader({ modelId, modelType }: ModelHeaderProps): JSX.Element {
-  const config = typeConfig[modelType];
+  const config = MODEL_TYPE_CONFIG[modelType];
 
   return (
     <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:gap-4">

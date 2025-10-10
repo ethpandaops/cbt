@@ -7,13 +7,15 @@ import {
   listExternalBoundsOptions,
   getIntervalTypesOptions,
 } from '@api/@tanstack/react-query.gen';
-import { ArrowPathIcon, XCircleIcon } from '@heroicons/react/24/outline';
 import type { ZoomRanges, IncrementalModelItem } from '@/types';
 import type { IntervalTypeTransformation } from '@api/types.gen';
 import { Tooltip } from 'react-tooltip';
 import { ModelCoverageRow } from './ModelCoverageRow';
 import { ZoomControls } from './ZoomControls';
-import { MultiCoverageTooltip } from './MultiCoverageTooltip';
+import { CoverageTooltip } from './CoverageTooltip';
+import { LoadingState } from './shared/LoadingState';
+import { ErrorState } from './shared/ErrorState';
+import { TransformationSelector } from './shared/TransformationSelector';
 import { transformValue, formatValue } from '@/utils/interval-transform';
 
 interface IncrementalModelsSectionProps {
@@ -31,6 +33,7 @@ export function IncrementalModelsSection({
   const [hoveredCoverage, setHoveredCoverage] = useState<{
     modelId: string;
     position: number;
+    mouseX: number;
     intervalType: string;
   } | null>(null);
   // Track selected transformation index for each interval type
@@ -58,23 +61,11 @@ export function IncrementalModelsSection({
   const error = incrementalTransformations.error || coverage.error || externalModels.error || bounds.error;
 
   if (isLoading) {
-    return (
-      <div className="flex items-center gap-3 text-slate-400">
-        <ArrowPathIcon className="h-5 w-5 animate-spin" />
-        <span>Loading...</span>
-      </div>
-    );
+    return <LoadingState />;
   }
 
   if (error) {
-    return (
-      <div className="rounded-lg border border-red-500/50 bg-red-950/80 p-4 text-red-200">
-        <div className="flex items-center gap-2">
-          <XCircleIcon className="h-5 w-5 shrink-0" />
-          <span className="font-medium">Error: {error.message}</span>
-        </div>
-      </div>
-    );
+    return <ErrorState message={error.message} variant="compact" />;
   }
 
   // Build dependency map for transformation models
@@ -219,30 +210,16 @@ export function IncrementalModelsSection({
                   <h3 className="bg-linear-to-r from-indigo-400 to-purple-400 bg-clip-text text-lg font-black tracking-tight text-transparent sm:text-xl">
                     {intervalType}
                   </h3>
-                  {/* Transformation selector buttons - only show if there are 2+ transformations */}
-                  {transformations.length > 1 && (
-                    <div className="flex flex-wrap gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
-                      {transformations.map((transformation, index) => (
-                        <button
-                          key={index}
-                          onClick={() =>
-                            setSelectedTransformations(prev => ({
-                              ...prev,
-                              [intervalType]: index,
-                            }))
-                          }
-                          className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-all sm:px-3 ${
-                            selectedTransformationIndex === index
-                              ? 'bg-indigo-500 text-white shadow-sm'
-                              : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                          }`}
-                          title={transformation.expression || 'No transformation'}
-                        >
-                          {transformation.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <TransformationSelector
+                    transformations={transformations}
+                    selectedIndex={selectedTransformationIndex}
+                    onSelect={index =>
+                      setSelectedTransformations(prev => ({
+                        ...prev,
+                        [intervalType]: index,
+                      }))
+                    }
+                  />
                 </div>
                 <div className="w-fit rounded-lg bg-slate-900/60 px-3 py-1.5 font-mono text-xs font-semibold text-slate-300 ring-1 ring-slate-700/50 sm:px-4 sm:py-2">
                   {currentTransformation
@@ -292,9 +269,9 @@ export function IncrementalModelsSection({
               </div>
             </div>
 
-            {/* Multi-coverage tooltip for this interval type */}
+            {/* Coverage tooltip for this interval type */}
             {hoveredCoverage && hoveredCoverage.intervalType === intervalType && (
-              <MultiCoverageTooltip
+              <CoverageTooltip
                 hoveredPosition={hoveredCoverage.position}
                 mouseX={hoveredCoverage.mouseX}
                 hoveredModelId={hoveredCoverage.modelId}
