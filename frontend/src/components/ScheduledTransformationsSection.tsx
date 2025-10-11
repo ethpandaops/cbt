@@ -25,7 +25,7 @@ export function ScheduledTransformationsSection(): JSX.Element {
   }
 
   return (
-    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))' }}>
       {scheduledTransformations.data?.models.map(model => {
         const modelRun = runs.data?.runs.find(r => r.id === model.id);
         return (

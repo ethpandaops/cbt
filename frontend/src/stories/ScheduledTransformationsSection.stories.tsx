@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ScheduledTransformationsSection } from '@/components/ScheduledTransformationsSection';
+import { listTransformationsQueryKey, listScheduledRunsQueryKey } from '@api/@tanstack/react-query.gen';
 import type { ListTransformationsResponse, ListScheduledRunsResponse } from '@api/types.gen';
 
 const meta = {
@@ -33,18 +34,18 @@ const meta = {
       const transformationsData = mockData.transformations;
       const runsData = mockData.runs;
 
-      // Pre-populate the QueryClient cache
+      // Pre-populate the QueryClient cache using the actual query key generators
       if (transformationsData) {
-        queryClient.setQueryData(['/api/v1/transformations'], transformationsData);
+        queryClient.setQueryData(listTransformationsQueryKey(), transformationsData);
       }
       if (runsData) {
-        queryClient.setQueryData(['/api/v1/scheduled-runs'], runsData);
+        queryClient.setQueryData(listScheduledRunsQueryKey(), runsData);
       }
 
       return (
         <QueryClientProvider client={queryClient}>
           <div className="bg-slate-950 p-8">
-            <Story />
+            <ScheduledTransformationsSection />
           </div>
         </QueryClientProvider>
       );
@@ -64,6 +65,7 @@ const mockTransformations: ListTransformationsResponse = {
       type: 'scheduled',
       content_type: 'sql',
       content: 'SELECT * FROM beacon_blocks WHERE date = CURRENT_DATE',
+      schedule: '0 0 * * *', // Daily at midnight
     },
     {
       id: 'beacon_api.weekly_report',
@@ -72,6 +74,7 @@ const mockTransformations: ListTransformationsResponse = {
       type: 'scheduled',
       content_type: 'sql',
       content: 'SELECT * FROM beacon_blocks WHERE week = CURRENT_WEEK',
+      schedule: '0 0 * * 1', // Weekly on Monday at midnight
     },
     {
       id: 'beacon_api.monthly_stats',
@@ -80,6 +83,7 @@ const mockTransformations: ListTransformationsResponse = {
       type: 'scheduled',
       content_type: 'sql',
       content: 'SELECT * FROM beacon_blocks WHERE month = CURRENT_MONTH',
+      schedule: '0 0 1 * *', // Monthly on 1st at midnight
     },
   ],
   total: 3,
@@ -124,6 +128,7 @@ export const ManyModels: Story = {
             type: 'scheduled',
             content_type: 'sql',
             content: 'SELECT * FROM beacon_blocks WHERE hour = CURRENT_HOUR',
+            schedule: '0 * * * *', // Every hour
           },
           {
             id: 'beacon_api.daily_summary',
@@ -132,6 +137,7 @@ export const ManyModels: Story = {
             type: 'scheduled',
             content_type: 'sql',
             content: 'SELECT * FROM beacon_blocks WHERE date = CURRENT_DATE',
+            schedule: '0 0 * * *', // Daily at midnight
           },
           {
             id: 'beacon_api.weekly_report',
@@ -140,6 +146,7 @@ export const ManyModels: Story = {
             type: 'scheduled',
             content_type: 'sql',
             content: 'SELECT * FROM beacon_blocks WHERE week = CURRENT_WEEK',
+            schedule: '0 0 * * 1', // Weekly on Monday
           },
           {
             id: 'beacon_api.monthly_stats',
@@ -148,6 +155,7 @@ export const ManyModels: Story = {
             type: 'scheduled',
             content_type: 'sql',
             content: 'SELECT * FROM beacon_blocks WHERE month = CURRENT_MONTH',
+            schedule: '0 0 1 * *', // Monthly on 1st
           },
           {
             id: 'beacon_api.quarterly_analysis',
@@ -156,6 +164,7 @@ export const ManyModels: Story = {
             type: 'scheduled',
             content_type: 'sql',
             content: 'SELECT * FROM beacon_blocks WHERE quarter = CURRENT_QUARTER',
+            schedule: '0 0 1 */3 *', // Quarterly
           },
           {
             id: 'beacon_api.yearly_metrics',
@@ -164,6 +173,7 @@ export const ManyModels: Story = {
             type: 'scheduled',
             content_type: 'sql',
             content: 'SELECT * FROM beacon_blocks WHERE year = CURRENT_YEAR',
+            schedule: '0 0 1 1 *', // Yearly on Jan 1st
           },
           {
             id: 'beacon_api.realtime_stats',
@@ -172,6 +182,7 @@ export const ManyModels: Story = {
             type: 'scheduled',
             content_type: 'sql',
             content: 'SELECT * FROM beacon_blocks WHERE timestamp > NOW() - INTERVAL 5 MINUTE',
+            schedule: '*/5 * * * *', // Every 5 minutes
           },
           {
             id: 'beacon_api.validator_performance',
@@ -180,6 +191,7 @@ export const ManyModels: Story = {
             type: 'scheduled',
             content_type: 'sql',
             content: 'SELECT * FROM validators WHERE active = true',
+            schedule: '@every 15m', // Every 15 minutes
           },
         ],
         total: 8,
@@ -237,6 +249,7 @@ export const SingleModel: Story = {
             type: 'scheduled',
             content_type: 'sql',
             content: 'SELECT * FROM beacon_blocks WHERE date = CURRENT_DATE',
+            schedule: '0 0 * * *', // Daily at midnight
           },
         ],
         total: 1,

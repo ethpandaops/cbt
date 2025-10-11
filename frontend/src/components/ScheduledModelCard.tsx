@@ -20,12 +20,9 @@ export function ScheduledModelCard({ id, lastRun, schedule }: ScheduledModelCard
     >
       <div className="absolute inset-0 bg-linear-to-br from-emerald-500/10 via-transparent to-teal-500/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
       <div className="relative">
-        <div className="mb-2 flex items-start justify-between gap-2 sm:mb-3">
-          <div className="flex-1">
-            <h3
-              className="line-clamp-2 font-mono text-xs font-bold leading-tight text-slate-100 sm:text-sm/4"
-              title={id}
-            >
+        <div className="mb-2 flex items-start justify-between gap-3 sm:mb-3">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate font-mono text-xs font-bold leading-tight text-slate-100 sm:text-sm/4" title={id}>
               {id}
             </h3>
             {schedule && (
