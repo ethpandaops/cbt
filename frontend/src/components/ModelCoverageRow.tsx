@@ -1,6 +1,6 @@
 import { type JSX } from 'react';
 import { Link } from '@tanstack/react-router';
-import type { IncrementalModelItem } from '@types';
+import type { IncrementalModelItem } from '@/types';
 import type { IntervalTypeTransformation } from '@api/types.gen';
 import { CoverageBar } from './CoverageBar';
 import { TypeBadge } from './shared/TypeBadge';

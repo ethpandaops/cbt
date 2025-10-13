@@ -18,7 +18,7 @@ import { CoverageTooltip } from './CoverageTooltip';
 import { SQLCodeBlock } from './SQLCodeBlock';
 import { TransformationSelector } from './shared/TransformationSelector';
 import { DagGraph, type DagData } from './DagGraph';
-import type { IncrementalModelItem } from '@types';
+import type { IncrementalModelItem } from '@/types';
 import { transformValue, formatValue } from '@utils/interval-transform';
 import { getOrderedDependencies } from '@utils/dependency-resolver';
 
@@ -138,8 +138,6 @@ export function ModelDetailView({
 
       if (depModel && depModel.type === 'incremental') {
         incrementalModels.push(depModel);
-      } else if (depModel && depModel.type === 'external') {
-        externalModels.push(depModel);
       } else if (depBounds) {
         // External model with bounds but not in transformations list
         externalModels.push({

@@ -7,7 +7,7 @@ import {
   listExternalBoundsOptions,
   getIntervalTypesOptions,
 } from '@api/@tanstack/react-query.gen';
-import type { ZoomRanges, IncrementalModelItem } from '@types';
+import type { ZoomRanges, IncrementalModelItem } from '@/types';
 import type { IntervalTypeTransformation } from '@api/types.gen';
 import { Tooltip } from 'react-tooltip';
 import { ModelCoverageRow } from './ModelCoverageRow';

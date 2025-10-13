@@ -1,5 +1,5 @@
 import { type JSX } from 'react';
-import { MODEL_TYPE_CONFIG, type ModelType } from '@types';
+import { MODEL_TYPE_CONFIG, type ModelType } from '@/types';
 
 export interface TypeBadgeProps {
   type: ModelType;

@@ -12,7 +12,7 @@ const meta = {
   },
   tags: ['autodocs'],
   decorators: [
-    (Story, context) => {
+    (_Story, context) => {
       const queryClient = new QueryClient({
         defaultOptions: {
           queries: {
@@ -54,7 +54,6 @@ const meta = {
 } satisfies Meta<typeof ScheduledTransformationsSection>;
 
 export default meta;
-type Story = StoryObj<typeof meta>;
 
 const mockTransformations: ListTransformationsResponse = {
   models: [
@@ -107,7 +106,7 @@ const mockRuns: ListScheduledRunsResponse = {
   total: 3,
 };
 
-export const Default: Story = {
+export const Default: StoryObj<typeof meta> = {
   parameters: {
     mockData: {
       transformations: mockTransformations,
@@ -116,7 +115,7 @@ export const Default: Story = {
   },
 };
 
-export const ManyModels: Story = {
+export const ManyModels: StoryObj<typeof meta> = {
   parameters: {
     mockData: {
       transformations: {
@@ -237,7 +236,7 @@ export const ManyModels: Story = {
   },
 };
 
-export const SingleModel: Story = {
+export const SingleModel: StoryObj<typeof meta> = {
   parameters: {
     mockData: {
       transformations: {
@@ -267,7 +266,7 @@ export const SingleModel: Story = {
   },
 };
 
-export const NoRuns: Story = {
+export const NoRuns: StoryObj<typeof meta> = {
   parameters: {
     mockData: {
       transformations: mockTransformations,
@@ -284,7 +283,7 @@ export const NoRuns: Story = {
   },
 };
 
-export const MixedRunTimes: Story = {
+export const MixedRunTimes: StoryObj<typeof meta> = {
   parameters: {
     mockData: {
       transformations: mockTransformations,
@@ -314,7 +313,7 @@ export const MixedRunTimes: Story = {
   },
 };
 
-export const Empty: Story = {
+export const Empty: StoryObj<typeof meta> = {
   parameters: {
     mockData: {
       transformations: {

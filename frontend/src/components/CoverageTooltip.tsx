@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import type { IncrementalModelItem } from '@types';
+import type { IncrementalModelItem } from '@/types';
 import type { IntervalTypeTransformation } from '@api/types.gen';
 import { findCoverageAtPosition, findGapAtPosition, mergeRanges } from '@utils/coverage-helpers';
 import { transformValue, formatValue } from '@utils/interval-transform';
