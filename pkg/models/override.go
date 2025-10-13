@@ -96,11 +96,20 @@ func (m *ModelOverride) ResolveConfig(actualType ModelType) error {
 
 // TransformationOverride contains override values for transformation model configurations
 // All fields are optional - nil means keep existing value
+// The structure is type-agnostic - fields are applied based on the actual transformation type:
+// - Incremental transformations: interval, schedules (forwardfill/backfill), limits, tags
+// - Scheduled transformations: schedule, tags
 type TransformationOverride struct {
+	// Incremental transformation fields
 	Interval  *IntervalOverride  `yaml:"interval,omitempty"`
 	Schedules *SchedulesOverride `yaml:"schedules,omitempty"`
 	Limits    *LimitsOverride    `yaml:"limits,omitempty"`
-	Tags      []string           `yaml:"tags,omitempty"`
+
+	// Scheduled transformation fields
+	Schedule *string `yaml:"schedule,omitempty"`
+
+	// Common fields (both types)
+	Tags []string `yaml:"tags,omitempty"`
 }
 
 // IntervalOverride allows overriding interval configuration
@@ -136,10 +145,21 @@ func (m *ModelOverride) IsDisabled() bool {
 	return m != nil && m.Enabled != nil && !*m.Enabled
 }
 
-// applyToTransformation is a no-op for TransformationOverride
-// The actual override application is handled at a different layer through the handler system
-func (t *TransformationOverride) applyToTransformation(_ Transformation) {
-	// No-op: overrides are applied through the handler system
+// applyToTransformation applies override configuration to a transformation model's handler
+func (t *TransformationOverride) applyToTransformation(model Transformation) {
+	handler := model.GetHandler()
+	if handler == nil {
+		return
+	}
+
+	// Apply overrides through handler-specific interface
+	type overrideApplier interface {
+		ApplyOverrides(override *TransformationOverride)
+	}
+
+	if applier, ok := handler.(overrideApplier); ok {
+		applier.ApplyOverrides(t)
+	}
 }
 
 func (t *TransformationOverride) applyToExternal(_ *external.Config) {

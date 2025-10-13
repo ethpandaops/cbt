@@ -463,3 +463,99 @@ func ptrUint64(u uint64) *uint64 {
 func ptrDuration(d time.Duration) *time.Duration {
 	return &d
 }
+
+// TestTransformationOverride_ScheduledFields tests scheduled transformation override fields
+func TestTransformationOverride_ScheduledFields(t *testing.T) {
+	tests := []struct {
+		name      string
+		yaml      string
+		checkFunc func(t *testing.T, override *TransformationOverride)
+	}{
+		{
+			name: "schedule override",
+			yaml: `
+schedule: "@every 1h"
+`,
+			checkFunc: func(t *testing.T, override *TransformationOverride) {
+				require.NotNil(t, override.Schedule)
+				assert.Equal(t, "@every 1h", *override.Schedule)
+			},
+		},
+		{
+			name: "schedule and tags override",
+			yaml: `
+schedule: "@daily"
+tags:
+  - "scheduled"
+  - "reference-data"
+`,
+			checkFunc: func(t *testing.T, override *TransformationOverride) {
+				require.NotNil(t, override.Schedule)
+				assert.Equal(t, "@daily", *override.Schedule)
+				assert.Equal(t, []string{"scheduled", "reference-data"}, override.Tags)
+			},
+		},
+		{
+			name: "combined incremental and scheduled fields (type-agnostic)",
+			yaml: `
+# Incremental fields
+interval:
+  max: 3600
+schedules:
+  forwardfill: "@every 5m"
+# Scheduled field
+schedule: "@hourly"
+# Common field
+tags:
+  - "mixed"
+`,
+			checkFunc: func(t *testing.T, override *TransformationOverride) {
+				// Both types of fields can coexist - handler chooses which to apply
+				require.NotNil(t, override.Interval)
+				assert.Equal(t, uint64(3600), *override.Interval.Max)
+				require.NotNil(t, override.Schedules)
+				assert.Equal(t, "@every 5m", *override.Schedules.ForwardFill)
+				require.NotNil(t, override.Schedule)
+				assert.Equal(t, "@hourly", *override.Schedule)
+				assert.Equal(t, []string{"mixed"}, override.Tags)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var override TransformationOverride
+			err := yaml.Unmarshal([]byte(tt.yaml), &override)
+			require.NoError(t, err)
+			tt.checkFunc(t, &override)
+		})
+	}
+}
+
+// TestModelOverride_ResolveScheduledConfig tests resolving scheduled transformation overrides
+func TestModelOverride_ResolveScheduledConfig(t *testing.T) {
+	yamlContent := `
+enabled: true
+config:
+  schedule: "@every 30m"
+  tags:
+    - "override-tag"
+`
+
+	var override ModelOverride
+	err := yaml.Unmarshal([]byte(yamlContent), &override)
+	require.NoError(t, err)
+
+	// Resolve as transformation type (works for both incremental and scheduled)
+	err = override.ResolveConfig(ModelTypeTransformation)
+	require.NoError(t, err)
+
+	require.NotNil(t, override.Config)
+	transformationOverride, ok := override.Config.(*TransformationOverride)
+	require.True(t, ok, "expected TransformationOverride type")
+
+	// Check scheduled transformation fields
+	require.NotNil(t, transformationOverride.Schedule)
+	assert.Equal(t, "@every 30m", *transformationOverride.Schedule)
+	assert.Equal(t, []string{"override-tag"}, transformationOverride.Tags)
+}

@@ -78,40 +78,44 @@ models:
 # Optional: Override configuration for specific transformation models
 # Useful for environment-specific adjustments (staging, production, etc.)
 # You can use either full ID (database.table) or table-only format for models using default database
+# Overrides apply different fields based on transformation type (incremental vs scheduled)
 # overrides:
 #   # Disable a model entirely (full ID format)
 #   analytics.block_never_loads:
 #     enabled: false
-#   
+#
+#   # INCREMENTAL TRANSFORMATION OVERRIDES
 #   # Override using table-only format (works because model uses defaultDatabase: "analytics")
-#   hourly_block_stats:
+#   block_propagation:
 #     config:
 #       interval:
 #         max: 7200  # Increase to 2 hours in staging
 #       schedules:
 #         forwardfill: "@every 10m"  # Slower schedule
 #         backfill: ""  # Disable backfill (use empty string)
-#   
-#   # Table-only format for simpler configs
-#   entity_changes:
-#     config:
-#       schedules:
-#         forwardfill: "@every 5m"
-#         backfill: "@every 30m"
-#   
-#   # Mix both formats as needed
-#   five_minute_report:  # Table-only format
-#     config:
-#       tags:
-#         - "staging-only"
-#         - "low-priority"
-#   
-#   # Models with custom databases must use full ID
-#   custom_db.special_model:
-#     config:
 #       limits:
 #         min: 1000000  # Start from specific position
 #         max: 2000000  # End at specific position
+#       tags:
+#         - "staging-only"
+#
+#   # SCHEDULED TRANSFORMATION OVERRIDES
+#   # Scheduled transformations use a single 'schedule' field instead of 'schedules'
+#   entity_changes:
+#     config:
+#       schedule: "@every 10m"  # Override the cron schedule
+#       tags:
+#         - "low-priority"
+#
+#   # Models with custom databases must use full ID
+#   custom_db.special_model:
+#     config:
+#       schedule: "@hourly"  # For scheduled transformation
+#       # OR for incremental:
+#       # interval:
+#       #   max: 3600
+#       # schedules:
+#       #   forwardfill: "@every 5m"
 interval_types:
   slot:
   - name: Slot
