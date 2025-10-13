@@ -10,36 +10,28 @@ export interface ModelCoverageRowProps {
   model: IncrementalModelItem;
   zoomStart: number;
   zoomEnd: number;
-  globalMin: number;
-  globalMax: number;
   isHighlighted?: boolean;
   isDimmed?: boolean;
   transformation?: IntervalTypeTransformation;
   orGroups?: number[];
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
-  onZoomChange?: (start: number, end: number) => void;
   onCoverageHover?: (modelId: string, position: number, mouseX: number) => void;
   onCoverageLeave?: () => void;
-  nameWidth?: string;
 }
 
 export function ModelCoverageRow({
   model,
   zoomStart,
   zoomEnd,
-  globalMin: _globalMin,
-  globalMax: _globalMax,
   isHighlighted = false,
   isDimmed = false,
   transformation,
   orGroups,
   onMouseEnter,
   onMouseLeave,
-  onZoomChange: _onZoomChange,
   onCoverageHover,
   onCoverageLeave,
-  nameWidth: _nameWidth = 'w-72',
 }: ModelCoverageRowProps): JSX.Element {
   // Determine badge type
   const isScheduled = model.type === 'transformation' && !model.data.coverage && !model.data.bounds;
