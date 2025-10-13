@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
@@ -114,4 +115,41 @@ func (h *Handler) GetSchedule() string {
 // GetTags returns the tags for this transformation
 func (h *Handler) GetTags() []string {
 	return h.config.Tags
+}
+
+// ApplyOverrides applies configuration overrides to this scheduled transformation handler
+// Uses reflection to avoid circular dependency with models package
+func (h *Handler) ApplyOverrides(override interface{}) {
+	v := reflect.ValueOf(override)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return
+	}
+
+	h.applyScheduleOverride(v)
+	h.applyTagsOverride(v)
+}
+
+func (h *Handler) applyScheduleOverride(v reflect.Value) {
+	scheduleField := v.FieldByName("Schedule")
+	if !scheduleField.IsValid() || scheduleField.IsNil() {
+		return
+	}
+
+	h.config.Schedule = scheduleField.Elem().String()
+}
+
+func (h *Handler) applyTagsOverride(v reflect.Value) {
+	tagsField := v.FieldByName("Tags")
+	if !tagsField.IsValid() || tagsField.Len() == 0 {
+		return
+	}
+
+	// Append override tags to existing tags
+	for i := 0; i < tagsField.Len(); i++ {
+		tag := tagsField.Index(i).String()
+		h.config.Tags = append(h.config.Tags, tag)
+	}
 }

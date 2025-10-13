@@ -247,10 +247,18 @@ overrides:
 
 #### Override Features
 
+Overrides apply different fields based on the transformation type:
+
+**For Incremental Transformations:**
 - **`enabled`**: Set to `false` to completely disable a model
 - **`config.interval`**: Override `max` and/or `min` interval settings
 - **`config.schedules`**: Override `forwardfill` and/or `backfill` schedules (set to `""` empty string to disable)
 - **`config.limits`**: Set or override position limits (`min`/`max`)
+- **`config.tags`**: Add additional tags (appended to existing tags)
+
+**For Scheduled Transformations:**
+- **`enabled`**: Set to `false` to completely disable a model
+- **`config.schedule`**: Override the cron schedule expression
 - **`config.tags`**: Add additional tags (appended to existing tags)
 
 #### Use Cases
@@ -259,7 +267,7 @@ overrides:
 ```yaml
 # Assuming defaultDatabase: "analytics"
 overrides:
-  # Reduce resource usage in staging (table-only format)
+  # Incremental transformation: reduce resource usage in staging (table-only format)
   heavy_aggregation:
     config:
       interval:
@@ -267,7 +275,12 @@ overrides:
       schedules:
         forwardfill: "@every 30m"
         backfill: ""  # No backfill in staging (use empty string)
-  
+
+  # Scheduled transformation: slow down refresh rate
+  exchange_rates:
+    config:
+      schedule: "@every 2h"  # Less frequent in staging
+
   # Disable production-only models (table-only format)
   production_reporting:
     enabled: false
@@ -279,19 +292,24 @@ overrides:
   # Disable debug/test models in production
   analytics.debug_tracker:
     enabled: false
-  
-  # Ensure critical models run frequently
+
+  # Incremental: ensure critical models run frequently
   analytics.real_time_metrics:
     config:
       schedules:
         forwardfill: "@every 30s"
         backfill: "@every 1m"
+
+  # Scheduled: increase refresh rate for production
+  reference.user_cache:
+    config:
+      schedule: "@every 5m"
 ```
 
 **Development Environment:**
 ```yaml
 overrides:
-  # Process limited data ranges for testing
+  # Incremental: process limited data ranges for testing
   analytics.block_stats:
     config:
       limits:
@@ -299,6 +317,11 @@ overrides:
         max: 2000000  # Stop at specific position
       schedules:
         forwardfill: "@every 5m"  # Less frequent for development
+
+  # Scheduled: run less frequently in dev
+  metrics.daily_summary:
+    config:
+      schedule: "@daily"
 ```
 
 #### How Overrides Work

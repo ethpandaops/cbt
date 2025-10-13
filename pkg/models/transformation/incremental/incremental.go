@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
@@ -253,4 +254,83 @@ func (h *Handler) GetTags() []string {
 // GetFlatDependencies returns dependencies as string slice (API handler interface)
 func (h *Handler) GetFlatDependencies() []string {
 	return h.GetFlattenedDependencies()
+}
+
+// ApplyOverrides applies configuration overrides to this incremental transformation handler
+// Uses reflection to avoid circular dependency with models package
+func (h *Handler) ApplyOverrides(override interface{}) {
+	v := reflect.ValueOf(override)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return
+	}
+
+	h.applyIntervalOverride(v)
+	h.applySchedulesOverride(v)
+	h.applyLimitsOverride(v)
+	h.applyTagsOverride(v)
+}
+
+func (h *Handler) applyIntervalOverride(v reflect.Value) {
+	intervalField := v.FieldByName("Interval")
+	if !intervalField.IsValid() || intervalField.IsNil() || h.config.Interval == nil {
+		return
+	}
+
+	intervalVal := intervalField.Elem()
+	if maxField := intervalVal.FieldByName("Max"); maxField.IsValid() && !maxField.IsNil() {
+		h.config.Interval.Max = maxField.Elem().Uint()
+	}
+	if minField := intervalVal.FieldByName("Min"); minField.IsValid() && !minField.IsNil() {
+		h.config.Interval.Min = minField.Elem().Uint()
+	}
+}
+
+func (h *Handler) applySchedulesOverride(v reflect.Value) {
+	schedulesField := v.FieldByName("Schedules")
+	if !schedulesField.IsValid() || schedulesField.IsNil() || h.config.Schedules == nil {
+		return
+	}
+
+	schedulesVal := schedulesField.Elem()
+	if ffField := schedulesVal.FieldByName("ForwardFill"); ffField.IsValid() && !ffField.IsNil() {
+		h.config.Schedules.ForwardFill = ffField.Elem().String()
+	}
+	if bfField := schedulesVal.FieldByName("Backfill"); bfField.IsValid() && !bfField.IsNil() {
+		h.config.Schedules.Backfill = bfField.Elem().String()
+	}
+}
+
+func (h *Handler) applyLimitsOverride(v reflect.Value) {
+	limitsField := v.FieldByName("Limits")
+	if !limitsField.IsValid() || limitsField.IsNil() {
+		return
+	}
+
+	limitsVal := limitsField.Elem()
+	if h.config.Limits == nil {
+		h.config.Limits = &LimitsConfig{}
+	}
+
+	if minField := limitsVal.FieldByName("Min"); minField.IsValid() && !minField.IsNil() {
+		h.config.Limits.Min = minField.Elem().Uint()
+	}
+	if maxField := limitsVal.FieldByName("Max"); maxField.IsValid() && !maxField.IsNil() {
+		h.config.Limits.Max = maxField.Elem().Uint()
+	}
+}
+
+func (h *Handler) applyTagsOverride(v reflect.Value) {
+	tagsField := v.FieldByName("Tags")
+	if !tagsField.IsValid() || tagsField.Len() == 0 {
+		return
+	}
+
+	// Append override tags to existing tags
+	for i := 0; i < tagsField.Len(); i++ {
+		tag := tagsField.Index(i).String()
+		h.config.Tags = append(h.config.Tags, tag)
+	}
 }
