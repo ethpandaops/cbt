@@ -1,13 +1,25 @@
 import { defineConfig } from 'vitest/config';
+import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    storybookTest({
+      configDir: path.join(__dirname, '.storybook'),
+    }),
+  ],
   test: {
+    name: 'storybook',
     globals: true,
-    environment: 'jsdom',
-    setupFiles: './vitest.setup.ts',
+    browser: {
+      enabled: true,
+      name: 'chromium',
+      provider: 'playwright',
+      headless: true,
+    },
+    setupFiles: ['./.storybook/vitest-setup.ts'],
   },
   resolve: {
     alias: {
