@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { fn } from 'storybook/test';
+import { fn, expect, userEvent, within } from 'storybook/test';
 import { TransformationSelector } from '@/components/shared/TransformationSelector';
 
 const meta = {
@@ -115,5 +115,41 @@ export const NoTransformations: Story = {
         story: 'Component returns null when there are no transformations',
       },
     },
+  },
+};
+
+/**
+ * Interaction test: Click on different transformation tabs
+ */
+export const TransformationClickInteraction: Story = {
+  args: {
+    transformations: [
+      { name: 'Slot Number', expression: 'value' },
+      { name: 'Date', expression: '(value * 12) + 1606824000', format: 'date' },
+      { name: 'Epoch', expression: 'value / 32' },
+    ],
+    selectedIndex: 0,
+    onSelect: fn(),
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+
+    // Verify the first tab is visible and active
+    const slotNumberTab = canvas.getByText('Slot Number');
+    await expect(slotNumberTab).toBeInTheDocument();
+
+    // Click on the Date tab
+    const dateTab = canvas.getByText('Date');
+    await userEvent.click(dateTab);
+
+    // Verify onSelect was called with index 1
+    await expect(args.onSelect).toHaveBeenCalledWith(1);
+
+    // Click on the Epoch tab
+    const epochTab = canvas.getByText('Epoch');
+    await userEvent.click(epochTab);
+
+    // Verify onSelect was called with index 2
+    await expect(args.onSelect).toHaveBeenCalledWith(2);
   },
 };
