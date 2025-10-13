@@ -27,7 +27,6 @@ export const Default: Story = {
     zoomStart: 0,
     zoomEnd: 1000,
     onZoomChange: (start, end) => console.log('Zoom changed:', start, end),
-    onResetZoom: () => console.log('Reset zoom'),
   },
 };
 
@@ -38,7 +37,6 @@ export const ZoomedIn: Story = {
     zoomStart: 300,
     zoomEnd: 700,
     onZoomChange: (start, end) => console.log('Zoom changed:', start, end),
-    onResetZoom: () => console.log('Reset zoom'),
   },
 };
 
@@ -54,7 +52,6 @@ export const WithTransformation: Story = {
       format: 'date',
     },
     onZoomChange: (start, end) => console.log('Zoom changed:', start, end),
-    onResetZoom: () => console.log('Reset zoom'),
   },
 };
 
@@ -65,7 +62,6 @@ export const WithoutResetButton: Story = {
     zoomStart: 300,
     zoomEnd: 700,
     onZoomChange: (start, end) => console.log('Zoom changed:', start, end),
-    onResetZoom: () => console.log('Reset zoom'),
   },
 };
 
@@ -77,7 +73,6 @@ export const CustomTransformationName: Story = {
     zoomEnd: 700,
     transformationName: 'Custom Range',
     onZoomChange: (start, end) => console.log('Zoom changed:', start, end),
-    onResetZoom: () => console.log('Reset zoom'),
   },
 };
 

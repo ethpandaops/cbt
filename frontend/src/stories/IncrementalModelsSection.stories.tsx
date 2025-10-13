@@ -199,7 +199,6 @@ export const Default: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -218,7 +217,6 @@ export const WithZoom: StoryObj<typeof meta> = {
       slot_number: { start: 10200000, end: 10800000 },
     },
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -235,7 +233,6 @@ export const MultipleIntervalTypes: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -311,7 +308,6 @@ export const ManyModels: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -440,7 +436,6 @@ export const SparseCoverage: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -487,7 +482,6 @@ export const NoExternalModels: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -504,7 +498,6 @@ export const OnlyExternalModels: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -540,7 +533,6 @@ export const ComplexDependencies: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -608,7 +600,6 @@ export const WithMultipleTransformations: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -640,7 +631,6 @@ export const OrGroupSimple: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -702,7 +692,6 @@ export const OrGroupComplex: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -774,7 +763,6 @@ export const OrGroupNested: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -867,7 +855,6 @@ export const OrGroupMultiple: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -952,7 +939,6 @@ export const OrGroupSharedDependency: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
-    onResetZoom: fn(),
   },
   parameters: {
     mockData: {
@@ -1026,6 +1012,83 @@ export const OrGroupSharedDependency: StoryObj<typeof meta> = {
       description: {
         story:
           "Model with dependencies appearing in multiple OR groups: Model A depends on [(B OR C) AND D]. Model B depends on [D AND (C OR E)]. Hover over Model A to see: Model C shows OR #1 badge (from A's direct OR group), Model D shows no badge (direct AND dep). When you inspect closely, Model C and Model D each participate in multiple dependency chains with different OR group contexts. This demonstrates how a single model can have multiple OR badges when it participates in different OR groups across the dependency tree.",
+      },
+    },
+  },
+};
+
+export const NoData: StoryObj<typeof meta> = {
+  args: {
+    zoomRanges: {},
+    onZoomChange: fn(),
+  },
+  parameters: {
+    mockData: {
+      transformations: {
+        models: [
+          {
+            id: 'beacon_api.blocks',
+            database: 'beacon_api',
+            table: 'blocks',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM blocks',
+            interval: {
+              type: 'slot_number',
+              min: 1,
+              max: 7200,
+            },
+          },
+          {
+            id: 'beacon_api.attestations',
+            database: 'beacon_api',
+            table: 'attestations',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM attestations',
+            depends_on: ['beacon_api.blocks'],
+            interval: {
+              type: 'slot_number',
+              min: 1,
+              max: 7200,
+            },
+          },
+        ],
+        total: 2,
+      },
+      coverage: {
+        coverage: [],
+        total: 0,
+      },
+      externalModels: {
+        models: [
+          {
+            id: 'beacon_api.validators',
+            database: 'beacon_api',
+            table: 'validators',
+            interval: {
+              type: 'slot_number',
+            },
+          },
+        ],
+        total: 1,
+      },
+      bounds: {
+        bounds: [
+          {
+            id: 'beacon_api.validators',
+            min: 0,
+            max: 0,
+          },
+        ],
+        total: 1,
+      },
+      intervalTypes: mockIntervalTypes,
+    },
+    docs: {
+      description: {
+        story:
+          'Models exist but have no coverage/bounds data. Shows disabled zoom controls with N/A values and disabled slider.',
       },
     },
   },

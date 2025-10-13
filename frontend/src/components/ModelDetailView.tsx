@@ -199,37 +199,70 @@ export function ModelDetailView({
     }
   });
 
-  // Calculate range from dependencies only
+  // Calculate range using same logic as IncrementalModelsSection
+  // globalMin/globalMax include all models (this model + dependencies)
+  // transformationMin is for transformations only, transformationMax includes both
   let globalMin = Infinity;
   let globalMax = -Infinity;
+  let transformationMin = Infinity;
+  let transformationMax = -Infinity;
 
+  // Include the current model's coverage in the calculation
+  if (modelCoverage) {
+    modelCoverage.ranges.forEach(range => {
+      globalMin = Math.min(globalMin, range.position);
+      globalMax = Math.max(globalMax, range.position + range.interval);
+      transformationMin = Math.min(transformationMin, range.position);
+      transformationMax = Math.max(transformationMax, range.position + range.interval);
+    });
+  }
+
+  // Include dependencies
   orderedDeps.forEach(dep => {
     const depCoverage = coverage.data?.coverage.find(c => c.id === dep.id);
     const depBounds = allBounds.data?.bounds.find(b => b.id === dep.id);
 
-    depCoverage?.ranges.forEach(range => {
-      globalMin = Math.min(globalMin, range.position);
-      globalMax = Math.max(globalMax, range.position + range.interval);
-    });
+    if (depCoverage) {
+      // Transformation dependency
+      depCoverage.ranges.forEach(range => {
+        globalMin = Math.min(globalMin, range.position);
+        globalMax = Math.max(globalMax, range.position + range.interval);
+        transformationMin = Math.min(transformationMin, range.position);
+        transformationMax = Math.max(transformationMax, range.position + range.interval);
+      });
+    }
 
     if (depBounds) {
+      // External model - only affects globalMin/globalMax and transformationMax
       // Skip uninitialized models (min == max == 0)
       if (!(depBounds.min === 0 && depBounds.max === 0)) {
         globalMin = Math.min(globalMin, depBounds.min);
         globalMax = Math.max(globalMax, depBounds.max);
+        transformationMax = Math.max(transformationMax, depBounds.max);
       }
     }
   });
 
+  // If no data, set reasonable defaults
   if (!isFinite(globalMin)) globalMin = 0;
   if (!isFinite(globalMax)) globalMax = 100;
+  if (!isFinite(transformationMin)) transformationMin = globalMin;
+  if (!isFinite(transformationMax)) transformationMax = globalMax;
 
   // Additional safety: ensure min <= max
   if (globalMin > globalMax) {
     [globalMin, globalMax] = [0, 100];
   }
+  if (transformationMin > transformationMax) {
+    transformationMin = globalMin;
+    transformationMax = globalMax;
+  }
 
-  const currentZoom = zoomRange || { start: globalMin, end: globalMax };
+  // Default zoom: min from transformations only, max from transformations + external
+  const currentZoom = zoomRange || { start: transformationMin, end: transformationMax };
+
+  // Check if data is available (same logic as ZoomControls and IncrementalModelsSection)
+  const hasData = !((globalMin === 0 && globalMax === 0) || (globalMin === 0 && globalMax === 100));
 
   const intervalType = transformation?.interval?.type || 'unknown';
   const transformations = intervalTypes.data?.interval_types?.[intervalType] || [];
@@ -352,9 +385,11 @@ export function ModelDetailView({
           <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span className="truncate font-mono text-xs font-bold text-slate-200 sm:text-sm">{decodedId}</span>
             <span className="w-fit rounded-lg bg-slate-900/60 px-2.5 py-1 font-mono text-xs font-semibold text-slate-300 sm:px-3">
-              {currentTransformation
-                ? `${formatValue(transformValue(currentZoom.start, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(currentZoom.end, currentTransformation), currentTransformation.format)}`
-                : `${currentZoom.start.toLocaleString()} - ${currentZoom.end.toLocaleString()}`}
+              {!hasData
+                ? 'N/A - N/A'
+                : currentTransformation
+                  ? `${formatValue(transformValue(currentZoom.start, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(currentZoom.end, currentTransformation), currentTransformation.format)}`
+                  : `${currentZoom.start.toLocaleString()} - ${currentZoom.end.toLocaleString()}`}
             </span>
           </div>
           <CoverageBar
@@ -437,7 +472,6 @@ export function ModelDetailView({
             zoomEnd={currentZoom.end}
             transformation={currentTransformation}
             onZoomChange={(start, end) => setZoomRange({ start, end })}
-            onResetZoom={() => setZoomRange(null)}
           />
         </div>
       </div>

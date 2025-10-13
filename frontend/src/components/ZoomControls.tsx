@@ -10,7 +10,6 @@ export interface ZoomControlsProps {
   zoomEnd: number;
   transformation?: IntervalTypeTransformation;
   onZoomChange: (start: number, end: number) => void;
-  onResetZoom: () => void;
   transformationName?: string;
 }
 
@@ -21,40 +20,38 @@ export function ZoomControls({
   zoomEnd,
   transformation,
   onZoomChange,
-  onResetZoom,
   transformationName,
 }: ZoomControlsProps): JSX.Element {
-  const isZoomed = zoomStart !== globalMin || zoomEnd !== globalMax;
+  // Disable when:
+  // 1. Both are 0 (no models at all)
+  // 2. Using default fallback values (0 and 100) which indicates no real data
+  const isDisabled = (globalMin === 0 && globalMax === 0) || (globalMin === 0 && globalMax === 100);
 
   return (
-    <div className="rounded-lg border border-slate-700/40 bg-slate-900/30 px-3 py-2 backdrop-blur-sm">
+    <div
+      className={`rounded-lg border border-slate-700/40 bg-slate-900/30 px-3 py-2 backdrop-blur-sm ${isDisabled ? 'opacity-50' : ''}`}
+    >
       <div className="mb-1 flex items-center justify-between gap-3">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
           {transformationName || transformation?.name || 'Range'}
         </span>
-        <div className="flex items-center gap-2">
-          {isZoomed && (
-            <button
-              onClick={onResetZoom}
-              className="rounded-lg bg-indigo-500/20 px-2 py-1 text-xs font-semibold text-indigo-300 ring-1 ring-indigo-500/30 transition-colors hover:bg-indigo-500/30 hover:text-indigo-200"
-            >
-              Reset Zoom
-            </button>
-          )}
-          <div className="rounded-lg bg-slate-900/60 px-3 py-1.5 font-mono text-xs font-semibold text-slate-300 ring-1 ring-slate-700/50">
-            {transformation
+        <div className="rounded-lg bg-slate-900/60 px-3 py-1.5 font-mono text-xs font-semibold text-slate-300 ring-1 ring-slate-700/50">
+          {isDisabled
+            ? 'min: N/A max: N/A'
+            : transformation
               ? `min: ${formatValue(transformValue(globalMin, transformation), transformation.format)} max: ${formatValue(transformValue(globalMax, transformation), transformation.format)}`
               : `min: ${globalMin.toLocaleString()} max: ${globalMax.toLocaleString()}`}
-          </div>
         </div>
       </div>
-      <RangeSlider
-        globalMin={globalMin}
-        globalMax={globalMax}
-        zoomStart={zoomStart}
-        zoomEnd={zoomEnd}
-        onZoomChange={onZoomChange}
-      />
+      <div className={isDisabled ? 'pointer-events-none' : ''}>
+        <RangeSlider
+          globalMin={globalMin}
+          globalMax={globalMax}
+          zoomStart={zoomStart}
+          zoomEnd={zoomEnd}
+          onZoomChange={onZoomChange}
+        />
+      </div>
     </div>
   );
 }

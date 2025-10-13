@@ -32,6 +32,9 @@ export function ScheduledTransformationRow({
   const status = model.metadata?.last_run_status;
   const lastRunAt = model.metadata?.last_run_at || lastRun;
 
+  // Check if lastRunAt is valid (not 1970 epoch and not missing)
+  const isValidLastRun = lastRunAt && new Date(lastRunAt).getFullYear() !== 1970;
+
   // Status indicator colors
   const statusColors = {
     success: 'bg-emerald-500/20 text-emerald-300 ring-emerald-500/50',
@@ -52,7 +55,9 @@ export function ScheduledTransformationRow({
       onMouseLeave={onMouseLeave}
     >
       <div className="relative p-4">
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[2fr_1fr_1fr_1fr] lg:items-start">
+        <div
+          className={`grid grid-cols-1 gap-3 ${isValidLastRun ? 'lg:grid-cols-[2fr_1fr_1fr_1fr]' : 'lg:grid-cols-[2fr_1fr_1fr]'} lg:items-start`}
+        >
           {/* Model ID and Dependencies */}
           <div className="flex min-w-0 flex-col gap-1.5">
             <div className="flex items-center gap-2">
@@ -109,13 +114,15 @@ export function ScheduledTransformationRow({
             </span>
           </div>
 
-          {/* Last Run */}
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Last Run</span>
-            <span className="text-xs font-semibold text-slate-300" title={lastRunAt}>
-              {timeAgo(lastRunAt)}
-            </span>
-          </div>
+          {/* Last Run - only show if valid */}
+          {isValidLastRun && (
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Last Run</span>
+              <span className="text-xs font-semibold text-slate-300" title={lastRunAt}>
+                {timeAgo(lastRunAt)}
+              </span>
+            </div>
+          )}
 
           {/* Next Run */}
           <div className="flex flex-col gap-1">

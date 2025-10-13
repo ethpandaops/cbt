@@ -161,6 +161,21 @@ export const NoLastRun: Story = {
   },
 };
 
+export const LastRunFrom1970: Story = {
+  args: {
+    model: {
+      ...baseModel,
+      id: 'beacon_api.uninitialized_job',
+      schedule: '@every 30m',
+      metadata: {
+        last_run_at: '1970-01-01T00:00:00Z',
+        last_run_status: 'pending',
+      },
+    },
+    lastRun: '1970-01-01T00:00:00Z',
+  },
+};
+
 export const LongName: Story = {
   args: {
     model: {
