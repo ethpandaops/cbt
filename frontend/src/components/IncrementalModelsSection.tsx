@@ -41,6 +41,8 @@ export function IncrementalModelsSection({
   // Track selected transformation index for each interval type
   const [selectedTransformations, setSelectedTransformations] = useState<Record<string, number>>({});
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Track previous max values to detect when max increases
+  const prevMaxValues = useRef<Map<string, number>>(new Map());
 
   // Memoize coverage hover handler to prevent creating new objects on every mousemove
   const handleCoverageHover = useCallback((modelId: string, position: number, mouseX: number, intervalType: string) => {
@@ -256,7 +258,21 @@ export function IncrementalModelsSection({
           end: transformationMax,
         };
         const zoomStart = currentZoom.start;
-        const zoomEnd = currentZoom.end;
+        let zoomEnd = currentZoom.end;
+
+        // Auto-expand zoom if user is at the max and new data arrives
+        const prevMax = prevMaxValues.current.get(intervalType);
+        if (prevMax !== undefined && transformationMax > prevMax) {
+          // Max increased - check if user was zoomed to the previous max
+          const tolerance = 0.01; // Small tolerance for floating point comparison
+          if (Math.abs(zoomEnd - prevMax) < tolerance) {
+            // User was at the max, auto-expand to new max
+            zoomEnd = transformationMax;
+            onZoomChange(intervalType, zoomStart, zoomEnd);
+          }
+        }
+        // Update the tracked max value
+        prevMaxValues.current.set(intervalType, transformationMax);
 
         return (
           <div

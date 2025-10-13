@@ -68,13 +68,16 @@ export function getNextRunDescription(schedule: string | undefined, lastRun?: st
     const overdueDays = Math.floor(overdueHours / 24);
 
     if (overdueDays > 0) {
-      return `OVERDUE ${overdueDays}d`;
+      return `OVERDUE by ${overdueDays} day${overdueDays !== 1 ? 's' : ''}`;
     }
     if (overdueHours > 0) {
-      return `OVERDUE ${overdueHours}h`;
+      return `OVERDUE by ${overdueHours} hour${overdueHours !== 1 ? 's' : ''}`;
     }
     if (overdueMins > 0) {
-      return `OVERDUE ${overdueMins}m`;
+      return `OVERDUE by ${overdueMins} minute${overdueMins !== 1 ? 's' : ''}`;
+    }
+    if (overdueSecs > 0) {
+      return `OVERDUE by ${overdueSecs} second${overdueSecs !== 1 ? 's' : ''}`;
     }
     return 'OVERDUE';
   }
@@ -117,5 +120,6 @@ export function formatNextRun(schedule: string | undefined, lastRun?: string | D
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
   });
 }

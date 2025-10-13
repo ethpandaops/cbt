@@ -53,6 +53,7 @@ export function ModelCoverageRow({
           zoomEnd={zoomEnd}
           type={isScheduled ? 'scheduled' : model.type}
           transformation={transformation}
+          isHighlighted={isHighlighted}
           onCoverageHover={
             onCoverageHover ? (position, mouseX) => onCoverageHover(model.id, position, mouseX) : undefined
           }
