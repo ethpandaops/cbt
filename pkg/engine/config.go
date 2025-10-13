@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ethpandaops/cbt/pkg/api"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
-	"github.com/ethpandaops/cbt/pkg/frontend"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/scheduler"
 	"github.com/ethpandaops/cbt/pkg/worker"
@@ -22,6 +20,8 @@ var (
 	ErrTransformationNameRequired = errors.New("transformation name is required")
 	// ErrInvalidTransformationFormat is returned when a transformation has an invalid format
 	ErrInvalidTransformationFormat = errors.New("invalid transformation format")
+	// ErrFrontendAddrRequired is returned when frontend is enabled but no address is configured
+	ErrFrontendAddrRequired = errors.New("frontend address is required when frontend is enabled")
 )
 
 // Config represents the complete engine configuration
@@ -45,14 +45,17 @@ type Config struct {
 	// Models configuration
 	Models models.Config `yaml:"models"`
 
-	// API service configuration
-	API api.Config `yaml:"api"`
-
-	// Frontend service configuration
-	Frontend frontend.Config `yaml:"frontend"`
+	// Frontend service configuration (includes API)
+	Frontend FrontendConfig `yaml:"frontend"`
 
 	// Interval type transformations for API exposure
 	IntervalTypes IntervalTypesConfig `yaml:"interval_types"`
+}
+
+// FrontendConfig represents frontend and API service configuration
+type FrontendConfig struct {
+	Enabled bool   `yaml:"enabled" default:"false"`
+	Addr    string `yaml:"addr" default:":8080" validate:"hostname_port"`
 }
 
 // RedisConfig represents Redis connection configuration
@@ -99,6 +102,14 @@ func (c IntervalTypesConfig) Validate() error {
 	return nil
 }
 
+// Validate validates the frontend configuration
+func (c *FrontendConfig) Validate() error {
+	if c.Enabled && c.Addr == "" {
+		return ErrFrontendAddrRequired
+	}
+	return nil
+}
+
 // Validate validates the configuration
 func (c *Config) Validate() error {
 	if c.Redis.URL == "" {
@@ -118,10 +129,6 @@ func (c *Config) Validate() error {
 	}
 
 	if err := c.Models.Validate(); err != nil {
-		return err
-	}
-
-	if err := c.API.Validate(); err != nil {
 		return err
 	}
 

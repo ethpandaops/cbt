@@ -35,7 +35,6 @@ type Service struct {
 	admin       admin.Service
 	models      models.Service
 	api         api.Service
-	frontend    frontend.Service
 
 	// Servers
 	healthServer *http.Server
@@ -96,9 +95,22 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 	// Convert interval types config to API format
 	apiIntervalTypes := convertToAPIIntervalTypes(cfg.IntervalTypes)
 
-	apiService := api.NewService(&cfg.API, modelsService, adminManager, apiIntervalTypes, log)
+	// Create frontend handler if enabled
+	var frontendHandler http.Handler
+	if cfg.Frontend.Enabled {
+		var err error
+		frontendHandler, err = frontend.NewHandler()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create frontend handler: %w", err)
+		}
+	}
 
-	frontendService := frontend.NewService(&cfg.Frontend, log)
+	// Create API service with frontend handler
+	apiConfig := &api.Config{
+		Enabled: cfg.Frontend.Enabled,
+		Addr:    cfg.Frontend.Addr,
+	}
+	apiService := api.NewService(apiConfig, modelsService, adminManager, apiIntervalTypes, frontendHandler, log)
 
 	return &Service{
 		log:    log,
@@ -113,7 +125,6 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 		admin:        adminManager,
 		models:       modelsService,
 		api:          apiService,
-		frontend:     frontendService,
 	}, nil
 }
 
@@ -162,14 +173,9 @@ func (a *Service) Start() error {
 		return fmt.Errorf("failed to start worker: %w", err)
 	}
 
-	// Start API service
+	// Start API and frontend service
 	if err := a.api.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start API service: %w", err)
-	}
-
-	// Start frontend service
-	if err := a.frontend.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start frontend service: %w", err)
+		return fmt.Errorf("failed to start API and frontend service: %w", err)
 	}
 
 	a.log.Info("CBT Engine started successfully")
@@ -196,11 +202,8 @@ func (a *Service) Stop() error {
 	}
 
 	// Stop all services
-	if a.frontend != nil {
-		stopService("frontend service", a.frontend.Stop)
-	}
 	if a.api != nil {
-		stopService("API service", a.api.Stop)
+		stopService("API and frontend service", a.api.Stop)
 	}
 	if a.worker != nil {
 		stopService("worker service", a.worker.Stop)
