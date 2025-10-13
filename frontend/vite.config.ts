@@ -53,69 +53,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          // TanStack ecosystem (check before react to avoid conflicts)
-          if (id.includes('@tanstack')) {
-            return 'tanstack-vendor';
-          }
-
-          // DAG visualization (check before react to avoid conflicts)
-          if (id.includes('@xyflow') || id.includes('dagre')) {
-            return 'dag-vendor';
-          }
-
-          // Syntax highlighting (check before react to avoid conflicts)
-          // Only Prism is used, exclude highlight.js if it somehow gets imported
-          if (id.includes('react-syntax-highlighter') && !id.includes('highlight.js')) {
-            return 'syntax-vendor';
-          }
-
-          // Explicitly exclude highlight.js (we use Prism only)
-          if (id.includes('highlight.js')) {
-            return 'highlightjs-unused';
-          }
-
-          // Headless UI with its react-dom dependencies (check before react to avoid conflicts)
-          if (id.includes('@headlessui') || id.includes('@floating-ui')) {
-            return 'headlessui-vendor';
-          }
-
-          // Heroicons separately
-          if (id.includes('@heroicons')) {
-            return 'ui-vendor';
-          }
-
-          // React core only - use strict matching to avoid catching react-tooltip, react-range-slider-input
-          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
-            return 'react-vendor';
-          }
-
-          // Tooltip library - used in specific components
-          if (id.includes('react-tooltip')) {
-            return 'tooltip-vendor';
-          }
-
-          // CEL expression evaluator - used for interval transformations
+          // Fix cel-js circular dependency warning by keeping all cel-js in one chunk
           if (id.includes('cel-js')) {
-            return 'cel-vendor';
-          }
-
-          // Range slider - used in zoom controls
-          if (id.includes('react-range-slider-input')) {
-            return 'slider-vendor';
-          }
-
-          // Zod validation - keep with core vendor (used everywhere in API client)
-          if (id.includes('node_modules/zod')) {
-            return 'zod-vendor';
-          }
-
-          // Generated API client
-          if (id.includes('/src/api/')) {
-            return 'api-client';
-          }
-
-          // Other node_modules
-          if (id.includes('node_modules')) {
             return 'vendor';
           }
         },
