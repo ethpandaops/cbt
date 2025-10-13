@@ -23,14 +23,9 @@ import type { DependencyWithOrGroups } from '@utils/dependency-resolver';
 interface IncrementalModelsSectionProps {
   zoomRanges: ZoomRanges;
   onZoomChange: (intervalType: string, start: number, end: number) => void;
-  onResetZoom: (intervalType: string) => void;
 }
 
-export function IncrementalModelsSection({
-  zoomRanges,
-  onZoomChange,
-  onResetZoom,
-}: IncrementalModelsSectionProps): JSX.Element {
+export function IncrementalModelsSection({ zoomRanges, onZoomChange }: IncrementalModelsSectionProps): JSX.Element {
   const [hoveredModel, setHoveredModel] = useState<string | null>(null);
   const [hoveredCoverage, setHoveredCoverage] = useState<{
     modelId: string;
@@ -274,6 +269,9 @@ export function IncrementalModelsSection({
         // Update the tracked max value
         prevMaxValues.current.set(intervalType, transformationMax);
 
+        // Check if data is available (same logic as ZoomControls)
+        const hasData = !((globalMin === 0 && globalMax === 0) || (globalMin === 0 && globalMax === 100));
+
         return (
           <div
             key={intervalType}
@@ -301,9 +299,11 @@ export function IncrementalModelsSection({
                   />
                 </div>
                 <div className="w-fit rounded-lg bg-slate-900/60 px-3 py-1.5 font-mono text-xs font-semibold text-slate-300 ring-1 ring-slate-700/50 sm:px-4 sm:py-2">
-                  {currentTransformation
-                    ? `${formatValue(transformValue(zoomStart, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(zoomEnd, currentTransformation), currentTransformation.format)}`
-                    : `${zoomStart.toLocaleString()} - ${zoomEnd.toLocaleString()}`}
+                  {!hasData
+                    ? 'N/A - N/A'
+                    : currentTransformation
+                      ? `${formatValue(transformValue(zoomStart, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(zoomEnd, currentTransformation), currentTransformation.format)}`
+                      : `${zoomStart.toLocaleString()} - ${zoomEnd.toLocaleString()}`}
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -353,7 +353,6 @@ export function IncrementalModelsSection({
                   zoomEnd={zoomEnd}
                   transformation={currentTransformation}
                   onZoomChange={(start, end) => onZoomChange(intervalType, start, end)}
-                  onResetZoom={() => onResetZoom(intervalType)}
                 />
               </div>
             </div>

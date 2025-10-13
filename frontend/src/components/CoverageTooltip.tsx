@@ -123,26 +123,35 @@ export function CoverageTooltip({
         let missingContent: string;
 
         if (model.type === 'transformation' && model.data.coverage) {
-          const gap = findGapAtPosition(model.data.coverage, hoveredPosition, zoomStart, zoomEnd);
-          if (gap) {
-            const gapMin = gap.position;
-            const gapMax = gap.position + gap.interval;
-            missingContent = transformation
-              ? `Missing: ${formatValue(transformValue(gapMin, transformation), transformation.format)} → ${formatValue(transformValue(gapMax, transformation), transformation.format)}`
-              : `Missing: ${gapMin.toLocaleString()} → ${gapMax.toLocaleString()}`;
+          // Check if coverage array is empty (no data loaded)
+          if (model.data.coverage.length === 0) {
+            missingContent = 'Missing: N/A';
           } else {
-            missingContent = 'Missing';
+            const gap = findGapAtPosition(model.data.coverage, hoveredPosition, zoomStart, zoomEnd);
+            if (gap) {
+              const gapMin = gap.position;
+              const gapMax = gap.position + gap.interval;
+              missingContent = transformation
+                ? `Missing: ${formatValue(transformValue(gapMin, transformation), transformation.format)} → ${formatValue(transformValue(gapMax, transformation), transformation.format)}`
+                : `Missing: ${gapMin.toLocaleString()} → ${gapMax.toLocaleString()}`;
+            } else {
+              missingContent = 'Missing';
+            }
           }
         } else if (model.type === 'external' && model.data.bounds) {
           const { min, max } = model.data.bounds;
-          // For external models, show the entire bounds as missing
-          missingContent = transformation
-            ? `Missing: ${formatValue(transformValue(min, transformation), transformation.format)} → ${formatValue(transformValue(max, transformation), transformation.format)}`
-            : `Missing: ${min.toLocaleString()} → ${max.toLocaleString()}`;
+          // Check if bounds are uninitialized (0, 0)
+          if (min === 0 && max === 0) {
+            missingContent = 'Missing: N/A';
+          } else {
+            // For external models, show the entire bounds as missing
+            missingContent = transformation
+              ? `Missing: ${formatValue(transformValue(min, transformation), transformation.format)} → ${formatValue(transformValue(max, transformation), transformation.format)}`
+              : `Missing: ${min.toLocaleString()} → ${max.toLocaleString()}`;
+          }
         } else {
-          missingContent = transformation
-            ? `Missing: ${formatValue(transformValue(hoveredPosition, transformation), transformation.format)}`
-            : `Missing: ${hoveredPosition.toLocaleString()}`;
+          // No coverage or bounds data at all
+          missingContent = 'Missing: N/A';
         }
 
         tooltips.push({

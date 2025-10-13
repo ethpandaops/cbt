@@ -15,14 +15,6 @@ function IndexComponent(): JSX.Element {
     }));
   };
 
-  const handleResetZoom = (intervalType: string): void => {
-    setZoomRanges(prev => {
-      const newRanges = { ...prev };
-      delete newRanges[intervalType];
-      return newRanges;
-    });
-  };
-
   return (
     <div className="space-y-12">
       {/* Section 1: Incremental Transformations (Transformations & External) */}
@@ -36,11 +28,7 @@ function IndexComponent(): JSX.Element {
           </div>
           <div className="h-px flex-1 bg-gradient-to-r from-indigo-500/40 via-purple-500/40 to-transparent" />
         </div>
-        <IncrementalModelsSection
-          zoomRanges={zoomRanges}
-          onZoomChange={handleZoomChange}
-          onResetZoom={handleResetZoom}
-        />
+        <IncrementalModelsSection zoomRanges={zoomRanges} onZoomChange={handleZoomChange} />
       </section>
 
       {/* Section 2: Scheduled Transformation Model Runs */}
