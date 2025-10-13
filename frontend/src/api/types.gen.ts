@@ -98,9 +98,12 @@ export type TransformationModelBase = {
    */
   tags?: Array<string>;
   /**
-   * Upstream model dependencies
+   * Upstream model dependencies preserving AND/OR semantics.
+   * - String elements represent required dependencies (AND logic)
+   * - Array elements represent OR groups (at least one required)
+   *
    */
-  depends_on?: Array<string>;
+  depends_on?: Array<string | Array<string>>;
   /**
    * System-managed metadata
    */
@@ -403,9 +406,12 @@ export type TransformationModelBaseWritable = {
    */
   tags?: Array<string>;
   /**
-   * Upstream model dependencies
+   * Upstream model dependencies preserving AND/OR semantics.
+   * - String elements represent required dependencies (AND logic)
+   * - Array elements represent OR groups (at least one required)
+   *
    */
-  depends_on?: Array<string>;
+  depends_on?: Array<string | Array<string>>;
 };
 
 export type ListAllModelsData = {

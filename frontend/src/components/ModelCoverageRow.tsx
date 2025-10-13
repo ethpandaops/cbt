@@ -4,6 +4,7 @@ import type { IncrementalModelItem } from '@/types';
 import type { IntervalTypeTransformation } from '@api/types.gen';
 import { CoverageBar } from './CoverageBar';
 import { TypeBadge } from './shared/TypeBadge';
+import { getOrGroupColor } from '@/utils/or-group-colors';
 
 export interface ModelCoverageRowProps {
   model: IncrementalModelItem;
@@ -14,6 +15,7 @@ export interface ModelCoverageRowProps {
   isHighlighted?: boolean;
   isDimmed?: boolean;
   transformation?: IntervalTypeTransformation;
+  orGroups?: number[];
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
   onZoomChange?: (start: number, end: number) => void;
@@ -31,6 +33,7 @@ export function ModelCoverageRow({
   isHighlighted = false,
   isDimmed = false,
   transformation,
+  orGroups,
   onMouseEnter,
   onMouseLeave,
   onZoomChange,
@@ -109,6 +112,21 @@ export function ModelCoverageRow({
         >
           {model.id}
         </Link>
+        {orGroups && orGroups.length > 0 && (
+          <div className="flex items-center gap-1">
+            {orGroups.map(groupId => {
+              const colors = getOrGroupColor(groupId);
+              return (
+                <span
+                  key={groupId}
+                  className={`rounded px-1.5 py-0.5 text-xs font-semibold ring-1 ${colors.bg} ${colors.text} ${colors.ring}`}
+                >
+                  OR #{groupId}
+                </span>
+              );
+            })}
+          </div>
+        )}
         {isExternal && <TypeBadge type="external" compact />}
         {isScheduled && <TypeBadge type="scheduled" compact />}
       </div>

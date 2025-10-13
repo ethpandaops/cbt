@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"path"
@@ -263,9 +264,11 @@ type TransformationModel struct {
 	ContentType TransformationModelContentType `json:"content_type"`
 	Database    string                         `json:"database"`
 
-	// DependsOn Upstream model dependencies
-	DependsOn   *[]string `json:"depends_on,omitempty"`
-	Description *string   `json:"description,omitempty"`
+	// DependsOn Upstream model dependencies preserving AND/OR semantics.
+	// - String elements represent required dependencies (AND logic)
+	// - Array elements represent OR groups (at least one required)
+	DependsOn   *[]TransformationModel_DependsOn_Item `json:"depends_on,omitempty"`
+	Description *string                               `json:"description,omitempty"`
 
 	// Id Fully qualified ID (database.table)
 	Id string `json:"id"`
@@ -324,6 +327,17 @@ type TransformationModel struct {
 // TransformationModelContentType Execution method (SQL query or shell command)
 type TransformationModelContentType string
 
+// TransformationModelDependsOn0 Single required dependency (AND logic)
+type TransformationModelDependsOn0 = string
+
+// TransformationModelDependsOn1 OR group - at least one dependency required
+type TransformationModelDependsOn1 = []string
+
+// TransformationModel_DependsOn_Item defines model for TransformationModel.depends_on.Item.
+type TransformationModel_DependsOn_Item struct {
+	union json.RawMessage
+}
+
 // TransformationModelMetadataLastRunStatus defines model for TransformationModel.Metadata.LastRunStatus.
 type TransformationModelMetadataLastRunStatus string
 
@@ -339,9 +353,11 @@ type TransformationModelBase struct {
 	ContentType TransformationModelBaseContentType `json:"content_type"`
 	Database    string                             `json:"database"`
 
-	// DependsOn Upstream model dependencies
-	DependsOn   *[]string `json:"depends_on,omitempty"`
-	Description *string   `json:"description,omitempty"`
+	// DependsOn Upstream model dependencies preserving AND/OR semantics.
+	// - String elements represent required dependencies (AND logic)
+	// - Array elements represent OR groups (at least one required)
+	DependsOn   *[]TransformationModelBase_DependsOn_Item `json:"depends_on,omitempty"`
+	Description *string                                   `json:"description,omitempty"`
 
 	// Id Fully qualified ID (database.table)
 	Id string `json:"id"`
@@ -366,6 +382,17 @@ type TransformationModelBase struct {
 
 // TransformationModelBaseContentType Execution method (SQL query or shell command)
 type TransformationModelBaseContentType string
+
+// TransformationModelBaseDependsOn0 Single required dependency (AND logic)
+type TransformationModelBaseDependsOn0 = string
+
+// TransformationModelBaseDependsOn1 OR group - at least one dependency required
+type TransformationModelBaseDependsOn1 = []string
+
+// TransformationModelBase_DependsOn_Item defines model for TransformationModelBase.depends_on.Item.
+type TransformationModelBase_DependsOn_Item struct {
+	union json.RawMessage
+}
 
 // TransformationModelBaseMetadataLastRunStatus defines model for TransformationModelBase.Metadata.LastRunStatus.
 type TransformationModelBaseMetadataLastRunStatus string
@@ -428,6 +455,130 @@ type ListTransformationCoverageParams struct {
 type ListScheduledRunsParams struct {
 	// Database Filter by database name
 	Database *string `form:"database,omitempty" json:"database,omitempty"`
+}
+
+// AsTransformationModelDependsOn0 returns the union data inside the TransformationModel_DependsOn_Item as a TransformationModelDependsOn0
+func (t TransformationModel_DependsOn_Item) AsTransformationModelDependsOn0() (TransformationModelDependsOn0, error) {
+	var body TransformationModelDependsOn0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTransformationModelDependsOn0 overwrites any union data inside the TransformationModel_DependsOn_Item as the provided TransformationModelDependsOn0
+func (t *TransformationModel_DependsOn_Item) FromTransformationModelDependsOn0(v TransformationModelDependsOn0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTransformationModelDependsOn0 performs a merge with any union data inside the TransformationModel_DependsOn_Item, using the provided TransformationModelDependsOn0
+func (t *TransformationModel_DependsOn_Item) MergeTransformationModelDependsOn0(v TransformationModelDependsOn0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsTransformationModelDependsOn1 returns the union data inside the TransformationModel_DependsOn_Item as a TransformationModelDependsOn1
+func (t TransformationModel_DependsOn_Item) AsTransformationModelDependsOn1() (TransformationModelDependsOn1, error) {
+	var body TransformationModelDependsOn1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTransformationModelDependsOn1 overwrites any union data inside the TransformationModel_DependsOn_Item as the provided TransformationModelDependsOn1
+func (t *TransformationModel_DependsOn_Item) FromTransformationModelDependsOn1(v TransformationModelDependsOn1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTransformationModelDependsOn1 performs a merge with any union data inside the TransformationModel_DependsOn_Item, using the provided TransformationModelDependsOn1
+func (t *TransformationModel_DependsOn_Item) MergeTransformationModelDependsOn1(v TransformationModelDependsOn1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t TransformationModel_DependsOn_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *TransformationModel_DependsOn_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsTransformationModelBaseDependsOn0 returns the union data inside the TransformationModelBase_DependsOn_Item as a TransformationModelBaseDependsOn0
+func (t TransformationModelBase_DependsOn_Item) AsTransformationModelBaseDependsOn0() (TransformationModelBaseDependsOn0, error) {
+	var body TransformationModelBaseDependsOn0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTransformationModelBaseDependsOn0 overwrites any union data inside the TransformationModelBase_DependsOn_Item as the provided TransformationModelBaseDependsOn0
+func (t *TransformationModelBase_DependsOn_Item) FromTransformationModelBaseDependsOn0(v TransformationModelBaseDependsOn0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTransformationModelBaseDependsOn0 performs a merge with any union data inside the TransformationModelBase_DependsOn_Item, using the provided TransformationModelBaseDependsOn0
+func (t *TransformationModelBase_DependsOn_Item) MergeTransformationModelBaseDependsOn0(v TransformationModelBaseDependsOn0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsTransformationModelBaseDependsOn1 returns the union data inside the TransformationModelBase_DependsOn_Item as a TransformationModelBaseDependsOn1
+func (t TransformationModelBase_DependsOn_Item) AsTransformationModelBaseDependsOn1() (TransformationModelBaseDependsOn1, error) {
+	var body TransformationModelBaseDependsOn1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTransformationModelBaseDependsOn1 overwrites any union data inside the TransformationModelBase_DependsOn_Item as the provided TransformationModelBaseDependsOn1
+func (t *TransformationModelBase_DependsOn_Item) FromTransformationModelBaseDependsOn1(v TransformationModelBaseDependsOn1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTransformationModelBaseDependsOn1 performs a merge with any union data inside the TransformationModelBase_DependsOn_Item, using the provided TransformationModelBaseDependsOn1
+func (t *TransformationModelBase_DependsOn_Item) MergeTransformationModelBaseDependsOn1(v TransformationModelBaseDependsOn1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t TransformationModelBase_DependsOn_Item) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *TransformationModelBase_DependsOn_Item) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
 }
 
 // ServerInterface represents all server handlers.
@@ -767,64 +918,66 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"ElCnQkcAAA==",
+	"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",
+	"JFdmAqVIAAA=",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

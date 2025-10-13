@@ -7,6 +7,7 @@ import (
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/api/generated"
 	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -294,10 +295,11 @@ func buildTransformationModel(modelID string, node models.Transformation, dag mo
 		populateIncrementalFields(&model, node)
 	}
 
-	// Get dependencies
-	deps := dag.GetDependencies(modelID)
-	if len(deps) > 0 {
-		model.DependsOn = &deps
+	// Get structured dependencies (preserving OR groups)
+	structuredDeps := dag.GetStructuredDependencies(modelID)
+	if len(structuredDeps) > 0 {
+		apiDeps := convertDepsToAPIFormat(structuredDeps)
+		model.DependsOn = &apiDeps
 	}
 
 	return model
@@ -420,6 +422,24 @@ func stringPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// convertDepsToAPIFormat converts structured dependencies to API format
+// Returns []generated.TransformationModel_DependsOn_Item where each element is either string (AND) or []string (OR group)
+func convertDepsToAPIFormat(deps []transformation.Dependency) []generated.TransformationModel_DependsOn_Item {
+	result := make([]generated.TransformationModel_DependsOn_Item, len(deps))
+	for i, dep := range deps {
+		var item generated.TransformationModel_DependsOn_Item
+		if dep.IsGroup {
+			// OR group - marshal as []string
+			_ = item.FromTransformationModelDependsOn1(dep.GroupDeps)
+		} else {
+			// Single dependency - marshal as string
+			_ = item.FromTransformationModelDependsOn0(dep.SingleDep)
+		}
+		result[i] = item
+	}
+	return result
 }
 
 // ListExternalBounds handles GET /api/v1/models/external/bounds

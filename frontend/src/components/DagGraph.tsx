@@ -44,9 +44,10 @@ export interface DagData {
 export interface DagGraphProps {
   data: DagData;
   className?: string;
+  triggerFitView?: number; // Increment this value to trigger fitView
 }
 
-function DagGraphInner({ data, className = '' }: DagGraphProps): JSX.Element {
+function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps): JSX.Element {
   const navigate = useNavigate();
   const { fitView } = useReactFlow();
   const [layoutDirection, setLayoutDirection] = useState<'TB' | 'LR' | 'RL'>('TB');
@@ -106,22 +107,54 @@ function DagGraphInner({ data, className = '' }: DagGraphProps): JSX.Element {
       });
     });
 
-    // Create edges from dependencies
+    // Create edges from dependencies with OR group tracking
     [...data.incrementalModels, ...data.scheduledModels].forEach(model => {
       if (model.depends_on) {
         model.depends_on.forEach(dep => {
-          edges.push({
-            id: `${dep}-${model.id}`,
-            source: dep,
-            target: model.id,
-            type: 'smoothstep',
-            animated: true,
-            style: { stroke: '#6366f1', strokeWidth: 2 },
-            markerEnd: {
-              type: 'arrowclosed' as const,
-              color: '#6366f1',
-            },
-          });
+          if (typeof dep === 'string') {
+            // Regular AND dependency
+            edges.push({
+              id: `${dep}-${model.id}`,
+              source: dep,
+              target: model.id,
+              type: 'smoothstep',
+              animated: true,
+              style: { stroke: '#6366f1', strokeWidth: 2 },
+              markerEnd: {
+                type: 'arrowclosed' as const,
+                color: '#6366f1',
+              },
+            });
+          } else {
+            // OR group dependency
+            dep.forEach(orDep => {
+              edges.push({
+                id: `${orDep}-${model.id}`,
+                source: orDep,
+                target: model.id,
+                type: 'smoothstep',
+                animated: true,
+                label: 'OR',
+                labelStyle: {
+                  fill: '#94a3b8',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  fontFamily: 'monospace',
+                },
+                labelBgStyle: {
+                  fill: '#1e293b',
+                  fillOpacity: 0.9,
+                },
+                labelBgPadding: [4, 6] as [number, number],
+                labelBgBorderRadius: 4,
+                style: { stroke: '#22d3ee', strokeWidth: 2, strokeDasharray: '5,5' },
+                markerEnd: {
+                  type: 'arrowclosed' as const,
+                  color: '#22d3ee',
+                },
+              });
+            });
+          }
         });
       }
     });
@@ -242,6 +275,16 @@ function DagGraphInner({ data, className = '' }: DagGraphProps): JSX.Element {
     return () => clearTimeout(timer);
   }, [layoutDirection, fitView]);
 
+  // Fit view when triggerFitView prop changes
+  useEffect(() => {
+    if (triggerFitView !== undefined && triggerFitView > 0) {
+      const timer = setTimeout(() => {
+        fitView({ duration: 400, padding: 0.1 });
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [triggerFitView, fitView]);
+
   // Get all ancestor nodes (nodes that this node depends on)
   const getAncestors = useCallback(
     (nodeId: string, visited = new Set<string>()): Set<string> => {
@@ -327,7 +370,7 @@ function DagGraphInner({ data, className = '' }: DagGraphProps): JSX.Element {
       {/* Search and Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {/* Search Bar */}
-        <div className="relative flex-1 max-w-md">
+        <div className="relative w-full sm:flex-1 sm:max-w-md">
           <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-slate-400" />
           <input
             type="text"

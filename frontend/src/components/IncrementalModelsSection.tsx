@@ -1,4 +1,4 @@
-import { type JSX, useState, useRef } from 'react';
+import { type JSX, useState, useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   listTransformationsOptions,
@@ -17,6 +17,8 @@ import { LoadingState } from './shared/LoadingState';
 import { ErrorState } from './shared/ErrorState';
 import { TransformationSelector } from './shared/TransformationSelector';
 import { transformValue, formatValue } from '@/utils/interval-transform';
+import { getOrderedDependencies } from '@/utils/dependency-resolver';
+import type { DependencyWithOrGroups } from '@/utils/dependency-resolver';
 
 interface IncrementalModelsSectionProps {
   zoomRanges: ZoomRanges;
@@ -39,6 +41,27 @@ export function IncrementalModelsSection({
   // Track selected transformation index for each interval type
   const [selectedTransformations, setSelectedTransformations] = useState<Record<string, number>>({});
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Memoize coverage hover handler to prevent creating new objects on every mousemove
+  const handleCoverageHover = useCallback((modelId: string, position: number, mouseX: number, intervalType: string) => {
+    setHoveredCoverage(prev => {
+      // Only update if values actually changed to prevent unnecessary re-renders
+      if (
+        prev &&
+        prev.modelId === modelId &&
+        Math.abs(prev.position - position) < 0.01 &&
+        Math.abs(prev.mouseX - mouseX) < 5 &&
+        prev.intervalType === intervalType
+      ) {
+        return prev;
+      }
+      return { modelId, position, mouseX, intervalType };
+    });
+  }, []);
+
+  const handleCoverageLeave = useCallback(() => {
+    setHoveredCoverage(null);
+  }, []);
 
   // Fetch all transformations (polling handled at root level) and filter client-side
   const allTransformations = useQuery(listTransformationsOptions());
@@ -68,15 +91,27 @@ export function IncrementalModelsSection({
     return <ErrorState message={error.message} variant="compact" />;
   }
 
-  // Build dependency map for transformation models
-  const dependencyMap = new Map<string, string[]>();
+  // Build dependency map for transformation models with OR group support
+  const dependencyMap = new Map<string, Array<string | string[]>>();
   incrementalTransformations.data?.models.forEach(model => {
     if (model.depends_on) {
       dependencyMap.set(model.id, model.depends_on);
     }
   });
 
-  // Get all dependencies (including transitive) for a model
+  // Build OR group information for each model
+  const modelOrGroupInfo = new Map<
+    string,
+    { dependencies: DependencyWithOrGroups[]; orGroupMembers: Map<number, string[]> }
+  >();
+  incrementalTransformations.data?.models.forEach(model => {
+    if (model.depends_on) {
+      const result = getOrderedDependencies(model.id, dependencyMap);
+      modelOrGroupInfo.set(model.id, result);
+    }
+  });
+
+  // Get all dependencies (including transitive) for a model - flattened for highlighting
   const getAllDependencies = (modelId: string, visited = new Set<string>()): Set<string> => {
     if (visited.has(modelId)) return new Set();
     visited.add(modelId);
@@ -84,8 +119,17 @@ export function IncrementalModelsSection({
     const deps = new Set<string>();
     const directDeps = dependencyMap.get(modelId) || [];
 
+    // Flatten OR groups for dependency checking
     directDeps.forEach(dep => {
-      deps.add(dep);
+      if (typeof dep === 'string') {
+        deps.add(dep);
+      } else {
+        dep.forEach(orDep => deps.add(orDep));
+      }
+    });
+
+    // Recursively get transitive dependencies
+    deps.forEach(dep => {
       const transDeps = getAllDependencies(dep, visited);
       transDeps.forEach(d => deps.add(d));
     });
@@ -232,6 +276,18 @@ export function IncrementalModelsSection({
                   const isHighlighted = highlightedModels.has(model.id);
                   const isDimmed = (hoveredModel !== null || hoveredCoverage !== null) && !isHighlighted;
 
+                  // Find which OR groups this dependency belongs to when another model is hovered
+                  let orGroupsForDep: number[] | undefined;
+                  if (activeModelId && activeModelId !== model.id) {
+                    const parentInfo = modelOrGroupInfo.get(activeModelId);
+                    if (parentInfo) {
+                      const depInfo = parentInfo.dependencies.find(d => d.id === model.id);
+                      if (depInfo && depInfo.orGroups.length > 0) {
+                        orGroupsForDep = depInfo.orGroups;
+                      }
+                    }
+                  }
+
                   return (
                     <ModelCoverageRow
                       key={model.id}
@@ -243,13 +299,14 @@ export function IncrementalModelsSection({
                       isHighlighted={isHighlighted}
                       isDimmed={isDimmed}
                       transformation={currentTransformation}
+                      orGroups={orGroupsForDep}
                       onMouseEnter={() => setHoveredModel(model.id)}
                       onMouseLeave={() => setHoveredModel(null)}
                       onZoomChange={(start, end) => onZoomChange(intervalType, start, end)}
                       onCoverageHover={(modelId, position, mouseX) =>
-                        setHoveredCoverage({ modelId, position, mouseX, intervalType })
+                        handleCoverageHover(modelId, position, mouseX, intervalType)
                       }
-                      onCoverageLeave={() => setHoveredCoverage(null)}
+                      onCoverageLeave={handleCoverageLeave}
                     />
                   );
                 })}

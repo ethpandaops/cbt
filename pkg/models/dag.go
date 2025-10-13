@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/heimdalr/dag"
 )
 
@@ -36,8 +37,11 @@ type DAGReader interface {
 	// GetExternalNode retrieves an external node by its ID
 	GetExternalNode(id string) (External, error)
 
-	// GetDependencies returns direct dependencies of a node
+	// GetDependencies returns direct dependencies of a node (flattened)
 	GetDependencies(id string) []string
+
+	// GetStructuredDependencies returns direct dependencies preserving OR groups
+	GetStructuredDependencies(id string) []transformation.Dependency
 
 	// GetDependents returns nodes that depend on the given node
 	GetDependents(id string) []string
@@ -332,11 +336,11 @@ func (d *DependencyGraph) GetTransformationNode(modelID string) (Transformation,
 	}
 
 	if node.NodeType == NodeTypeTransformation {
-		transformation, ok := node.Model.(Transformation)
+		trans, ok := node.Model.(Transformation)
 		if !ok {
 			return nil, fmt.Errorf("%w for %s", ErrInvalidTransformationModelType, modelID)
 		}
-		return transformation, nil
+		return trans, nil
 	}
 
 	return nil, fmt.Errorf("%w: %s", ErrNotTransformationModel, modelID)
@@ -377,6 +381,46 @@ func (d *DependencyGraph) GetDependencies(modelID string) []string {
 	}
 
 	return dependencies
+}
+
+// GetStructuredDependencies returns the direct dependencies preserving OR groups
+func (d *DependencyGraph) GetStructuredDependencies(modelID string) []transformation.Dependency {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
+	// Get the transformation node
+	node, err := d.GetNode(modelID)
+	if err != nil {
+		return nil
+	}
+
+	// Only transformation models have structured dependencies
+	if node.NodeType != NodeTypeTransformation {
+		return nil
+	}
+
+	transformModel, ok := node.Model.(Transformation)
+	if !ok {
+		return nil
+	}
+
+	// Get handler
+	handler := transformModel.GetHandler()
+	if handler == nil {
+		return nil
+	}
+
+	// Check if handler provides GetDependencies method
+	type depProvider interface {
+		GetDependencies() []transformation.Dependency
+	}
+
+	provider, ok := handler.(depProvider)
+	if !ok {
+		return nil
+	}
+
+	return provider.GetDependencies()
 }
 
 // GetAllDependents returns all dependents (recursive) of a model

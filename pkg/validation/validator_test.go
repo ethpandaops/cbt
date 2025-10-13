@@ -498,6 +498,11 @@ func (m *mockDAGReader) GetDependencies(_ string) []string {
 	return m.dependencies
 }
 
+func (m *mockDAGReader) GetStructuredDependencies(_ string) []transformation.Dependency {
+	// For tests, return nil (structured dependencies not needed in validation tests)
+	return nil
+}
+
 func (m *mockDAGReader) GetTransformationNode(id string) (models.Transformation, error) {
 	node, err := m.GetNode(id)
 	if err != nil {

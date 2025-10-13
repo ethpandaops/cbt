@@ -219,6 +219,9 @@ func (m *mockDAGReader) GetExternalNode(_ string) (models.External, error) {
 }
 
 func (m *mockDAGReader) GetDependencies(_ string) []string               { return []string{} }
+func (m *mockDAGReader) GetStructuredDependencies(_ string) []transformation.Dependency {
+	return nil
+}
 func (m *mockDAGReader) GetDependents(_ string) []string                 { return []string{} }
 func (m *mockDAGReader) GetAllDependencies(_ string) []string            { return []string{} }
 func (m *mockDAGReader) GetAllDependents(_ string) []string              { return []string{} }

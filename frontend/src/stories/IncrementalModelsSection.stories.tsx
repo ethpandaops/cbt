@@ -636,3 +636,398 @@ export const WithMultipleTransformations: Story = {
     },
   },
 };
+
+export const OrGroupSimple: Story = {
+  args: {
+    zoomRanges: {},
+    onZoomChange: fn(),
+    onResetZoom: fn(),
+  },
+  parameters: {
+    mockData: {
+      transformations: {
+        models: [
+          {
+            id: 'beacon_api.source_a',
+            database: 'beacon_api',
+            table: 'source_a',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM source_a',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.source_b',
+            database: 'beacon_api',
+            table: 'source_b',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM source_b',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.consumer',
+            database: 'beacon_api',
+            table: 'consumer',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM consumer',
+            depends_on: [['beacon_api.source_a', 'beacon_api.source_b']],
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+        ],
+        total: 3,
+      },
+      coverage: {
+        coverage: [
+          { id: 'beacon_api.source_a', ranges: [{ position: 10000000, interval: 900000 }] },
+          { id: 'beacon_api.source_b', ranges: [{ position: 10050000, interval: 850000 }] },
+          { id: 'beacon_api.consumer', ranges: [{ position: 10100000, interval: 750000 }] },
+        ],
+        total: 3,
+      },
+      externalModels: { models: [], total: 0 },
+      bounds: { bounds: [], total: 0 },
+      intervalTypes: mockIntervalTypes,
+    },
+    docs: {
+      description: {
+        story:
+          'Simple OR group: consumer requires either source_a OR source_b. Hover over consumer to see OR #1 badges on both sources.',
+      },
+    },
+  },
+};
+
+export const OrGroupComplex: Story = {
+  args: {
+    zoomRanges: {},
+    onZoomChange: fn(),
+    onResetZoom: fn(),
+  },
+  parameters: {
+    mockData: {
+      transformations: {
+        models: [
+          {
+            id: 'beacon_api.blocks',
+            database: 'beacon_api',
+            table: 'blocks',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM blocks',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.attestations_v1',
+            database: 'beacon_api',
+            table: 'attestations_v1',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM attestations_v1',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.attestations_v2',
+            database: 'beacon_api',
+            table: 'attestations_v2',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM attestations_v2',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.proposers',
+            database: 'beacon_api',
+            table: 'proposers',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM proposers',
+            depends_on: ['beacon_api.blocks', ['beacon_api.attestations_v1', 'beacon_api.attestations_v2']],
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+        ],
+        total: 4,
+      },
+      coverage: {
+        coverage: [
+          { id: 'beacon_api.blocks', ranges: [{ position: 10000000, interval: 1000000 }] },
+          { id: 'beacon_api.attestations_v1', ranges: [{ position: 10100000, interval: 800000 }] },
+          { id: 'beacon_api.attestations_v2', ranges: [{ position: 10050000, interval: 850000 }] },
+          { id: 'beacon_api.proposers', ranges: [{ position: 10200000, interval: 600000 }] },
+        ],
+        total: 4,
+      },
+      externalModels: { models: [], total: 0 },
+      bounds: { bounds: [], total: 0 },
+      intervalTypes: mockIntervalTypes,
+    },
+    docs: {
+      description: {
+        story:
+          'Mixed dependencies: proposers requires blocks (AND) plus either attestations_v1 OR attestations_v2 (OR group). Hover to see the relationship.',
+      },
+    },
+  },
+};
+
+export const OrGroupNested: Story = {
+  args: {
+    zoomRanges: {},
+    onZoomChange: fn(),
+    onResetZoom: fn(),
+  },
+  parameters: {
+    mockData: {
+      transformations: {
+        models: [
+          {
+            id: 'beacon_api.chain_a',
+            database: 'beacon_api',
+            table: 'chain_a',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM chain_a',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.chain_b',
+            database: 'beacon_api',
+            table: 'chain_b',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM chain_b',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.bridge',
+            database: 'beacon_api',
+            table: 'bridge',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM bridge',
+            depends_on: [['beacon_api.chain_a', 'beacon_api.chain_b']],
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.validator_source_a',
+            database: 'beacon_api',
+            table: 'validator_source_a',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM validator_source_a',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.validator_source_b',
+            database: 'beacon_api',
+            table: 'validator_source_b',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM validator_source_b',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.aggregator',
+            database: 'beacon_api',
+            table: 'aggregator',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM aggregator',
+            depends_on: ['beacon_api.bridge', ['beacon_api.validator_source_a', 'beacon_api.validator_source_b']],
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+        ],
+        total: 6,
+      },
+      coverage: {
+        coverage: [
+          { id: 'beacon_api.chain_a', ranges: [{ position: 10000000, interval: 950000 }] },
+          { id: 'beacon_api.chain_b', ranges: [{ position: 10050000, interval: 900000 }] },
+          { id: 'beacon_api.bridge', ranges: [{ position: 10100000, interval: 800000 }] },
+          { id: 'beacon_api.validator_source_a', ranges: [{ position: 10000000, interval: 950000 }] },
+          { id: 'beacon_api.validator_source_b', ranges: [{ position: 10050000, interval: 900000 }] },
+          { id: 'beacon_api.aggregator', ranges: [{ position: 10150000, interval: 700000 }] },
+        ],
+        total: 6,
+      },
+      externalModels: { models: [], total: 0 },
+      bounds: { bounds: [], total: 0 },
+      intervalTypes: mockIntervalTypes,
+    },
+    docs: {
+      description: {
+        story:
+          'Nested OR groups: aggregator depends on bridge (which itself has OR dependencies) and another OR group. Demonstrates transitive OR group tracking.',
+      },
+    },
+  },
+};
+
+export const OrGroupMultiple: Story = {
+  args: {
+    zoomRanges: {},
+    onZoomChange: fn(),
+    onResetZoom: fn(),
+  },
+  parameters: {
+    mockData: {
+      transformations: {
+        models: [
+          {
+            id: 'beacon_api.source_a1',
+            database: 'beacon_api',
+            table: 'source_a1',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM source_a1',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.source_a2',
+            database: 'beacon_api',
+            table: 'source_a2',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM source_a2',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.source_b1',
+            database: 'beacon_api',
+            table: 'source_b1',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM source_b1',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.source_b2',
+            database: 'beacon_api',
+            table: 'source_b2',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM source_b2',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.multi_or_consumer',
+            database: 'beacon_api',
+            table: 'multi_or_consumer',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM multi_or_consumer',
+            depends_on: [
+              ['beacon_api.source_a1', 'beacon_api.source_a2'],
+              ['beacon_api.source_b1', 'beacon_api.source_b2'],
+            ],
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+        ],
+        total: 5,
+      },
+      coverage: {
+        coverage: [
+          { id: 'beacon_api.source_a1', ranges: [{ position: 10000000, interval: 900000 }] },
+          { id: 'beacon_api.source_a2', ranges: [{ position: 10050000, interval: 850000 }] },
+          { id: 'beacon_api.source_b1', ranges: [{ position: 10100000, interval: 800000 }] },
+          { id: 'beacon_api.source_b2', ranges: [{ position: 10150000, interval: 750000 }] },
+          { id: 'beacon_api.multi_or_consumer', ranges: [{ position: 10200000, interval: 650000 }] },
+        ],
+        total: 5,
+      },
+      externalModels: { models: [], total: 0 },
+      bounds: { bounds: [], total: 0 },
+      intervalTypes: mockIntervalTypes,
+    },
+    docs: {
+      description: {
+        story:
+          'Multiple OR groups: consumer requires (source_a1 OR source_a2) AND (source_b1 OR source_b2). Hover to see OR #1 and OR #2 badges on different models.',
+      },
+    },
+  },
+};
+
+export const OrGroupSharedDependency: Story = {
+  args: {
+    zoomRanges: {},
+    onZoomChange: fn(),
+    onResetZoom: fn(),
+  },
+  parameters: {
+    mockData: {
+      transformations: {
+        models: [
+          {
+            id: 'beacon_api.model_c',
+            database: 'beacon_api',
+            table: 'model_c',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM model_c',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.model_d',
+            database: 'beacon_api',
+            table: 'model_d',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM model_d',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.model_e',
+            database: 'beacon_api',
+            table: 'model_e',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM model_e',
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.model_b',
+            database: 'beacon_api',
+            table: 'model_b',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM model_b',
+            depends_on: ['beacon_api.model_d', ['beacon_api.model_c', 'beacon_api.model_e']],
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+          {
+            id: 'beacon_api.model_a',
+            database: 'beacon_api',
+            table: 'model_a',
+            type: 'incremental',
+            content_type: 'sql',
+            content: 'SELECT * FROM model_a',
+            depends_on: [['beacon_api.model_b', 'beacon_api.model_c'], 'beacon_api.model_d'],
+            interval: { type: 'slot_number', min: 1, max: 7200 },
+          },
+        ],
+        total: 5,
+      },
+      coverage: {
+        coverage: [
+          { id: 'beacon_api.model_c', ranges: [{ position: 10250000, interval: 650000 }] },
+          { id: 'beacon_api.model_d', ranges: [{ position: 10000000, interval: 900000 }] },
+          { id: 'beacon_api.model_e', ranges: [{ position: 10050000, interval: 850000 }] },
+          { id: 'beacon_api.model_b', ranges: [{ position: 10200000, interval: 700000 }] },
+          { id: 'beacon_api.model_a', ranges: [{ position: 10400000, interval: 500000 }] },
+        ],
+        total: 5,
+      },
+      externalModels: { models: [], total: 0 },
+      bounds: { bounds: [], total: 0 },
+      intervalTypes: mockIntervalTypes,
+    },
+    docs: {
+      description: {
+        story:
+          "Model with dependencies appearing in multiple OR groups: Model A depends on [(B OR C) AND D]. Model B depends on [D AND (C OR E)]. Hover over Model A to see: Model C shows OR #1 badge (from A's direct OR group), Model D shows no badge (direct AND dep). When you inspect closely, Model C and Model D each participate in multiple dependency chains with different OR group contexts. This demonstrates how a single model can have multiple OR badges when it participates in different OR groups across the dependency tree.",
+      },
+    },
+  },
+};

@@ -1,4 +1,4 @@
-import { type JSX, useState, useRef } from 'react';
+import { type JSX, useState, useRef, useMemo, useEffect } from 'react';
 import type { UseQueryResult } from '@tanstack/react-query';
 import type {
   IntervalTypeTransformation,
@@ -8,6 +8,8 @@ import type {
   ListTransformationsResponse,
   GetIntervalTypesResponse,
 } from '@api/types.gen';
+import { ReactFlowProvider } from '@xyflow/react';
+import { ArrowsPointingOutIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { ModelInfoCard, type InfoField } from './ModelInfoCard';
 import { DependencyRow } from './DependencyRow';
 import { CoverageBar } from './CoverageBar';
@@ -15,9 +17,10 @@ import { ZoomControls } from './ZoomControls';
 import { CoverageTooltip } from './CoverageTooltip';
 import { SQLCodeBlock } from './SQLCodeBlock';
 import { TransformationSelector } from './shared/TransformationSelector';
-import { useDependencyTree } from '@/hooks/useDependencyTree';
+import { DagGraph, type DagData } from './DagGraph';
 import type { IncrementalModelItem } from '@/types';
 import { transformValue, formatValue } from '@/utils/interval-transform';
+import { getOrderedDependencies } from '@/utils/dependency-resolver';
 
 export interface ModelDetailViewProps {
   decodedId: string;
@@ -41,26 +44,121 @@ export function ModelDetailView({
     null
   );
   const [zoomRange, setZoomRange] = useState<{ start: number; end: number } | null>(null);
+  const [hoveredOrGroup, setHoveredOrGroup] = useState<number | null>(null);
+  const [fullscreenSection, setFullscreenSection] = useState<'dag' | 'coverage' | null>(null);
+  const [fitViewTrigger, setFitViewTrigger] = useState(0);
   const sectionRef = useRef<HTMLDivElement>(null);
+
+  // Handle escape key to exit fullscreen
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && fullscreenSection) {
+        setFullscreenSection(null);
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [fullscreenSection]);
+
+  // Trigger fitView when entering or exiting fullscreen for DAG
+  useEffect(() => {
+    // Increment trigger counter whenever fullscreen state changes (entering or exiting)
+    setFitViewTrigger(prev => prev + 1);
+  }, [fullscreenSection]);
 
   const modelCoverage = coverage.data?.coverage.find(c => c.id === decodedId);
 
-  // Build dependency map
-  const dependencyMap = new Map<string, string[]>();
-  if (transformation?.depends_on) {
-    dependencyMap.set(decodedId, transformation.depends_on);
-  }
-
-  // Get all dependencies using the custom hook
-  const { allDependenciesArray: allDeps, getAllDependencies } = useDependencyTree(decodedId, dependencyMap);
-
-  // Add dependencies to the map for nested resolution
-  allDeps.forEach(depId => {
-    const depModel = allTransformations.data?.models.find(m => m.id === depId);
-    if (depModel?.depends_on) {
-      dependencyMap.set(depId, depModel.depends_on);
+  // Build dependency map with OR group support
+  const dependencyMap = useMemo(() => {
+    const map = new Map<string, Array<string | string[]>>();
+    if (transformation?.depends_on) {
+      map.set(decodedId, transformation.depends_on);
     }
-  });
+
+    // Add all transformations to dependency map for recursive resolution
+    allTransformations.data?.models.forEach(model => {
+      if (model.depends_on) {
+        map.set(model.id, model.depends_on);
+      }
+    });
+
+    return map;
+  }, [decodedId, transformation?.depends_on, allTransformations.data?.models]);
+
+  // Get ordered dependencies with OR group tracking
+  const { dependencies: orderedDeps, orGroupMembers } = useMemo(
+    () => getOrderedDependencies(decodedId, dependencyMap),
+    [decodedId, dependencyMap]
+  );
+
+  // Create a map of all dependency IDs for quick lookup (used by CoverageTooltip)
+  const getAllDependencyIds = useMemo(() => {
+    const buildDependencySet = (modelId: string, visited = new Set<string>()): Set<string> => {
+      if (visited.has(modelId)) return new Set();
+      visited.add(modelId);
+
+      const deps = new Set<string>();
+      const directDeps = dependencyMap.get(modelId) || [];
+
+      // Flatten OR groups
+      directDeps.forEach(dep => {
+        if (typeof dep === 'string') {
+          deps.add(dep);
+        } else {
+          dep.forEach(orDep => deps.add(orDep));
+        }
+      });
+
+      // Recursively get transitive dependencies
+      deps.forEach(dep => {
+        const transDeps = buildDependencySet(dep, new Set(visited));
+        transDeps.forEach(d => deps.add(d));
+      });
+
+      return deps;
+    };
+
+    return (modelId: string) => buildDependencySet(modelId);
+  }, [dependencyMap]);
+
+  // Build DAG data for visualization (only if this is an incremental model)
+  const dagData = useMemo<DagData | null>(() => {
+    if (transformation?.type !== 'incremental') return null;
+
+    const externalModels: DagData['externalModels'] = [];
+    const incrementalModels: DagData['incrementalModels'] = [];
+
+    // Add the current model
+    incrementalModels.push(transformation);
+
+    // Add all dependencies
+    orderedDeps.forEach(dep => {
+      const depModel = allTransformations.data?.models.find(m => m.id === dep.id);
+      const depBounds = allBounds.data?.bounds.find(b => b.id === dep.id);
+
+      if (depModel && depModel.type === 'incremental') {
+        incrementalModels.push(depModel);
+      } else if (depModel && depModel.type === 'external') {
+        externalModels.push(depModel);
+      } else if (depBounds) {
+        // External model with bounds but not in transformations list
+        externalModels.push({
+          id: dep.id,
+          database: dep.id.split('.')[0],
+          table: dep.id.split('.').slice(1).join('.'),
+        });
+      }
+    });
+
+    return {
+      externalModels,
+      incrementalModels,
+      scheduledModels: [],
+      bounds: allBounds.data?.bounds,
+      coverage: coverage.data?.coverage,
+      intervalTypes: intervalTypes.data?.interval_types,
+    };
+  }, [transformation, orderedDeps, allTransformations.data, allBounds.data, coverage.data, intervalTypes.data]);
 
   // Build all models array for CoverageTooltip
   const allModelsForTooltip: IncrementalModelItem[] = [];
@@ -76,14 +174,14 @@ export function ModelDetailView({
     });
   }
 
-  allDeps.forEach(depId => {
-    const depCoverage = coverage.data?.coverage.find(c => c.id === depId);
-    const depBounds = allBounds.data?.bounds.find(b => b.id === depId);
-    const depModel = allTransformations.data?.models.find(m => m.id === depId);
+  orderedDeps.forEach(dep => {
+    const depCoverage = coverage.data?.coverage.find(c => c.id === dep.id);
+    const depBounds = allBounds.data?.bounds.find(b => b.id === dep.id);
+    const depModel = allTransformations.data?.models.find(m => m.id === dep.id);
 
     if (depCoverage) {
       allModelsForTooltip.push({
-        id: depId,
+        id: dep.id,
         type: 'transformation',
         intervalType: depModel?.interval?.type || 'unknown',
         depends_on: depModel?.depends_on,
@@ -93,7 +191,7 @@ export function ModelDetailView({
       });
     } else if (depBounds) {
       allModelsForTooltip.push({
-        id: depId,
+        id: dep.id,
         type: 'external',
         intervalType: 'unknown',
         data: {
@@ -107,9 +205,9 @@ export function ModelDetailView({
   let globalMin = Infinity;
   let globalMax = -Infinity;
 
-  allDeps.forEach(depId => {
-    const depCoverage = coverage.data?.coverage.find(c => c.id === depId);
-    const depBounds = allBounds.data?.bounds.find(b => b.id === depId);
+  orderedDeps.forEach(dep => {
+    const depCoverage = coverage.data?.coverage.find(c => c.id === dep.id);
+    const depBounds = allBounds.data?.bounds.find(b => b.id === dep.id);
 
     depCoverage?.ranges.forEach(range => {
       globalMin = Math.min(globalMin, range.position);
@@ -185,6 +283,35 @@ export function ModelDetailView({
     <div className="space-y-6">
       <ModelInfoCard title="Model Information" fields={infoFields} borderColor="border-indigo-500/30" columns={4} />
 
+      {/* DAG Visualization - only for incremental models with dependencies */}
+      {dagData && orderedDeps.length > 0 && (
+        <div
+          className={`rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-4 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm sm:p-6 ${
+            fullscreenSection === 'dag' ? 'fixed inset-0 z-50 m-0 rounded-none' : ''
+          }`}
+        >
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-base font-bold text-slate-100 sm:text-lg">Dependency Graph</h2>
+            <button
+              onClick={() => setFullscreenSection(fullscreenSection === 'dag' ? null : 'dag')}
+              className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-700/60 hover:text-slate-200"
+              title={fullscreenSection === 'dag' ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+            >
+              {fullscreenSection === 'dag' ? (
+                <XMarkIcon className="size-5" />
+              ) : (
+                <ArrowsPointingOutIcon className="size-5" />
+              )}
+            </button>
+          </div>
+          <ReactFlowProvider>
+            <div className={fullscreenSection === 'dag' ? 'h-[calc(100vh-120px)] w-full' : 'h-[500px] w-full'}>
+              <DagGraph data={dagData} className="h-full" triggerFitView={fitViewTrigger} />
+            </div>
+          </ReactFlowProvider>
+        </div>
+      )}
+
       <div
         ref={sectionRef}
         className="rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-4 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm sm:p-6"
@@ -237,25 +364,28 @@ export function ModelDetailView({
         </div>
 
         {/* Dependencies */}
-        {allDeps.length > 0 && (
+        {orderedDeps.length > 0 && (
           <div className="mt-8 border-t border-slate-700/50 pt-6">
             <h3 className="mb-4 text-base font-bold text-slate-100">
               Dependencies{' '}
               <span className="ml-2 rounded-full bg-slate-700 px-2 py-0.5 text-xs font-bold text-slate-300">
-                {allDeps.length}
+                {orderedDeps.length}
               </span>
             </h3>
             <div className="space-y-3">
-              {allDeps.map(depId => {
-                const depCoverage = coverage.data?.coverage.find(c => c.id === depId);
-                const depBounds = allBounds.data?.bounds.find(b => b.id === depId);
+              {orderedDeps.map(dep => {
+                const depCoverage = coverage.data?.coverage.find(c => c.id === dep.id);
+                const depBounds = allBounds.data?.bounds.find(b => b.id === dep.id);
                 const isExternalDep = !depCoverage && depBounds;
                 const isScheduledDep = !depCoverage && !depBounds;
 
                 return (
                   <DependencyRow
-                    key={depId}
-                    dependencyId={depId}
+                    key={dep.id}
+                    dependencyId={dep.id}
+                    orGroups={dep.orGroups}
+                    orGroupMembers={orGroupMembers}
+                    orGroupParent={decodedId}
                     type={isScheduledDep ? 'scheduled' : isExternalDep ? 'external' : 'transformation'}
                     ranges={depCoverage?.ranges}
                     bounds={depBounds ? { min: depBounds.min, max: depBounds.max } : undefined}
@@ -264,6 +394,8 @@ export function ModelDetailView({
                     transformation={currentTransformation}
                     onCoverageHover={(modelId, position, mouseX) => setHoveredCoverage({ modelId, position, mouseX })}
                     onCoverageLeave={() => setHoveredCoverage(null)}
+                    hoveredOrGroup={hoveredOrGroup}
+                    onOrGroupHover={setHoveredOrGroup}
                   />
                 );
               })}
@@ -309,7 +441,7 @@ export function ModelDetailView({
           hoveredModelId={hoveredCoverage.modelId}
           mouseX={hoveredCoverage.mouseX}
           allModels={allModelsForTooltip}
-          dependencyIds={getAllDependencies(hoveredCoverage.modelId)}
+          dependencyIds={getAllDependencyIds(hoveredCoverage.modelId)}
           transformation={currentTransformation}
           zoomStart={currentZoom.start}
           zoomEnd={currentZoom.end}

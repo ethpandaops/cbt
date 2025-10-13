@@ -52,7 +52,7 @@ export const zTransformationModelBase = z.object({
   content_type: z.enum(['sql', 'exec']),
   content: z.string(),
   tags: z.optional(z.array(z.string())),
-  depends_on: z.optional(z.array(z.string())),
+  depends_on: z.optional(z.array(z.union([z.string(), z.array(z.string())]))),
   metadata: z.optional(
     z.readonly(
       z.object({
@@ -199,7 +199,7 @@ export const zTransformationModelBaseWritable = z.object({
   content_type: z.enum(['sql', 'exec']),
   content: z.string(),
   tags: z.optional(z.array(z.string())),
-  depends_on: z.optional(z.array(z.string())),
+  depends_on: z.optional(z.array(z.union([z.string(), z.array(z.string())]))),
 });
 
 export const zListAllModelsData = z.object({
