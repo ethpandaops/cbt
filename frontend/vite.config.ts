@@ -7,6 +7,11 @@ import path from 'path';
 
 // https://vite.dev/config/
 export default defineConfig({
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './vitest.setup.ts',
+  },
   plugins: [
     tanstackRouter({
       routesDirectory: './src/routes',
