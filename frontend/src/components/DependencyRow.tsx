@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { CoverageBar } from './CoverageBar';
 import { TypeBadge } from './shared/TypeBadge';
 import type { IntervalTypeTransformation } from '@api/types.gen';
-import { getOrGroupColor } from '@/utils/or-group-colors';
+import { getOrGroupColor } from '@utils/or-group-colors';
 
 export interface DependencyRowProps {
   dependencyId: string;

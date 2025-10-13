@@ -53,6 +53,7 @@ function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps):
   const [layoutDirection, setLayoutDirection] = useState<'TB' | 'LR' | 'RL'>('TB');
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
 
   // Build nodes and edges from the data with Dagre auto-layout
   const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
@@ -285,6 +286,21 @@ function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps):
     }
   }, [triggerFitView, fitView]);
 
+  // Fit view to filtered nodes when searching (only if search is focused)
+  useEffect(() => {
+    if (searchQuery && filteredNodes.length > 0 && isSearchFocused) {
+      // Fit view to only the filtered nodes
+      const timer = setTimeout(() => {
+        fitView({
+          nodes: filteredNodes.map(n => ({ id: n.id })),
+          duration: 400,
+          padding: 0.2, // More padding to see context
+        });
+      }, 100); // Slight delay for smooth UX
+      return () => clearTimeout(timer);
+    }
+  }, [searchQuery, filteredNodes, fitView, isSearchFocused]);
+
   // Get all ancestor nodes (nodes that this node depends on)
   const getAncestors = useCallback(
     (nodeId: string, visited = new Set<string>()): Set<string> => {
@@ -365,6 +381,13 @@ function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps):
     [navigate]
   );
 
+  const onPaneMouseEnter = useCallback(() => {
+    // Blur search input when entering the graph area
+    if (document.activeElement instanceof HTMLInputElement) {
+      document.activeElement.blur();
+    }
+  }, []);
+
   return (
     <div className={`flex flex-col gap-4 ${className}`}>
       {/* Search and Controls */}
@@ -376,6 +399,8 @@ function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps):
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
+            onFocus={() => setIsSearchFocused(true)}
+            onBlur={() => setIsSearchFocused(false)}
             placeholder="Search models..."
             className="w-full rounded-lg border border-slate-700/50 bg-slate-800/60 py-2.5 pl-10 pr-10 text-sm text-slate-200 placeholder-slate-400 transition-all focus:border-indigo-500 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50"
           />
@@ -453,6 +478,7 @@ function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps):
           onNodeClick={onNodeClick}
           onNodeMouseEnter={onNodeMouseEnter}
           onNodeMouseLeave={onNodeMouseLeave}
+          onPaneMouseEnter={onPaneMouseEnter}
           nodeTypes={dagNodeTypes}
           colorMode="dark"
           fitView

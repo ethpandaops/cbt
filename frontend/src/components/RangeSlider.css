@@ -1,0 +1,43 @@
+/* Range Slider Styles - Match app theme */
+.range-slider {
+  height: 3px !important;
+  background: rgba(51, 65, 85, 0.5) !important;
+  border-radius: 2px !important;
+}
+
+.range-slider__range {
+  background: #6366f1 !important;
+  height: 3px !important;
+}
+
+.range-slider__thumb {
+  width: 18px !important;
+  height: 18px !important;
+  background: #6366f1 !important;
+  border: 2px solid #1e293b !important;
+  border-radius: 50% !important;
+  cursor: grab !important;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.range-slider__thumb:hover {
+  transform: translate(-50%, -50%) scale(1.15) !important;
+  background: #818cf8 !important;
+}
+
+.range-slider__thumb[data-active] {
+  background: #818cf8 !important;
+  cursor: grabbing !important;
+  transform: translate(-50%, -50%) scale(1.2) !important;
+}
+
+.range-slider__thumb[data-lower]:hover,
+.range-slider__thumb[data-upper]:hover {
+  transform: translate(-50%, -50%) scale(1.15) !important;
+  background: #818cf8 !important;
+}
+
+.range-slider__thumb[data-lower][data-active],
+.range-slider__thumb[data-upper][data-active] {
+  transform: translate(-50%, -50%) scale(1.2) !important;
+}

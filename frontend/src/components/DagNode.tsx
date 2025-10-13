@@ -4,8 +4,8 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { ArrowLeftIcon, CodeBracketIcon, CommandLineIcon, ClockIcon } from '@heroicons/react/24/outline';
 import { MODEL_TYPE_CONFIG, type ModelType } from '@/types';
 import type { ExternalModel, TransformationModel, IntervalTypeTransformation } from '@api/types.gen';
-import { transformValue, formatValue } from '@/utils/interval-transform';
-import { getNextRunDescription } from '@/utils/schedule-parser';
+import { transformValue, formatValue } from '@utils/interval-transform';
+import { getNextRunDescription } from '@utils/schedule-parser';
 
 interface DagNodeData {
   isHighlighted: boolean;

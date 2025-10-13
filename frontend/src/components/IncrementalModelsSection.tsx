@@ -16,9 +16,9 @@ import { CoverageTooltip } from './CoverageTooltip';
 import { LoadingState } from './shared/LoadingState';
 import { ErrorState } from './shared/ErrorState';
 import { TransformationSelector } from './shared/TransformationSelector';
-import { transformValue, formatValue } from '@/utils/interval-transform';
-import { getOrderedDependencies } from '@/utils/dependency-resolver';
-import type { DependencyWithOrGroups } from '@/utils/dependency-resolver';
+import { transformValue, formatValue } from '@utils/interval-transform';
+import { getOrderedDependencies } from '@utils/dependency-resolver';
+import type { DependencyWithOrGroups } from '@utils/dependency-resolver';
 
 interface IncrementalModelsSectionProps {
   zoomRanges: ZoomRanges;
@@ -189,8 +189,15 @@ export function IncrementalModelsSection({
   return (
     <div className="space-y-6">
       {sortedGroups.map(([intervalType, models]) => {
-        // Sort models by ID within each group
-        const sortedModels = [...models].sort((a, b) => a.id.localeCompare(b.id));
+        // Sort models: transformations first (alphabetically), then external models (alphabetically)
+        const sortedModels = [...models].sort((a, b) => {
+          // If types differ, external models go last
+          if (a.type !== b.type) {
+            return a.type === 'external' ? 1 : -1;
+          }
+          // Same type: sort alphabetically by ID
+          return a.id.localeCompare(b.id);
+        });
 
         // Get available transformations for this interval type
         const transformations = intervalTypes.data?.interval_types?.[intervalType] || [];
@@ -218,17 +225,29 @@ export function IncrementalModelsSection({
           }
           if (model.data.bounds) {
             // External model - only affects globalMin/globalMax and transformationMax
-            globalMin = Math.min(globalMin, model.data.bounds.min);
-            globalMax = Math.max(globalMax, model.data.bounds.max);
-            transformationMax = Math.max(transformationMax, model.data.bounds.max);
+            // Skip uninitialized models (min == max == 0)
+            if (!(model.data.bounds.min === 0 && model.data.bounds.max === 0)) {
+              globalMin = Math.min(globalMin, model.data.bounds.min);
+              globalMax = Math.max(globalMax, model.data.bounds.max);
+              transformationMax = Math.max(transformationMax, model.data.bounds.max);
+            }
           }
         });
 
         // If no data, set reasonable defaults
-        if (globalMin === Infinity) globalMin = 0;
-        if (globalMax === -Infinity) globalMax = 100;
-        if (transformationMin === Infinity) transformationMin = globalMin;
-        if (transformationMax === -Infinity) transformationMax = globalMax;
+        if (!isFinite(globalMin)) globalMin = 0;
+        if (!isFinite(globalMax)) globalMax = 100;
+        if (!isFinite(transformationMin)) transformationMin = globalMin;
+        if (!isFinite(transformationMax)) transformationMax = globalMax;
+
+        // Additional safety: ensure min <= max
+        if (globalMin > globalMax) {
+          [globalMin, globalMax] = [0, 100];
+        }
+        if (transformationMin > transformationMax) {
+          transformationMin = globalMin;
+          transformationMax = globalMax;
+        }
 
         // Get or initialize zoom state for this interval type
         // Default zoom: min from transformations only, max from transformations + external
@@ -271,7 +290,7 @@ export function IncrementalModelsSection({
                     : `${zoomStart.toLocaleString()} - ${zoomEnd.toLocaleString()}`}
                 </div>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {sortedModels.map(model => {
                   const isHighlighted = highlightedModels.has(model.id);
                   const isDimmed = (hoveredModel !== null || hoveredCoverage !== null) && !isHighlighted;

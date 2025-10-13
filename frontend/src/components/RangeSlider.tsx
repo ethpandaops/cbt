@@ -1,6 +1,7 @@
 import { type JSX } from 'react';
 import RangeSliderInput from 'react-range-slider-input';
 import 'react-range-slider-input/dist/style.css';
+import './RangeSlider.css';
 
 interface RangeSliderProps {
   globalMin: number;

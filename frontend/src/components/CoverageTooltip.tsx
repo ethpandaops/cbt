@@ -2,8 +2,8 @@ import { type JSX, useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { IncrementalModelItem } from '@/types';
 import type { IntervalTypeTransformation } from '@api/types.gen';
-import { findCoverageAtPosition, findGapAtPosition, mergeRanges } from '@/utils/coverage-helpers';
-import { transformValue, formatValue } from '@/utils/interval-transform';
+import { findCoverageAtPosition, findGapAtPosition, mergeRanges } from '@utils/coverage-helpers';
+import { transformValue, formatValue } from '@utils/interval-transform';
 
 interface TooltipData {
   modelId: string;
@@ -211,7 +211,7 @@ export function CoverageTooltip({
             ref={el => {
               if (el) tooltipRefs.current.set(tooltip.modelId, el);
             }}
-            className={`fixed whitespace-nowrap rounded px-2 py-1 text-xs text-white opacity-100 shadow-lg ring-1 ${
+            className={`fixed whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] text-white opacity-100 shadow-lg ring-1 ${
               tooltip.isMissing ? 'bg-red-900/90 ring-red-500/30' : 'bg-gray-900 ring-white/10'
             }`}
             style={{
@@ -220,10 +220,7 @@ export function CoverageTooltip({
               transform: `${transform} translateY(-50%)`,
             }}
           >
-            <div className={`font-semibold ${tooltip.isMissing ? 'text-red-300' : 'text-indigo-300'}`}>
-              {tooltip.modelId}
-            </div>
-            <div>{tooltip.content}</div>
+            {tooltip.content}
           </div>
         );
       })}

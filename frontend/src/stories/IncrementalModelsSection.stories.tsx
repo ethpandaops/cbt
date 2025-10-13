@@ -31,7 +31,7 @@ const meta = {
     },
   },
   decorators: [
-    (Story, context) => {
+    (_Story, context) => {
       const queryClient = new QueryClient({
         defaultOptions: {
           queries: {
@@ -85,7 +85,6 @@ const meta = {
 } satisfies Meta<typeof IncrementalModelsSection>;
 
 export default meta;
-type Story = StoryObj<typeof meta>;
 
 const mockTransformations: ListTransformationsResponse = {
   models: [
@@ -196,7 +195,7 @@ const mockIntervalTypes: GetIntervalTypesResponse = {
   },
 };
 
-export const Default: Story = {
+export const Default: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
@@ -213,7 +212,7 @@ export const Default: Story = {
   },
 };
 
-export const WithZoom: Story = {
+export const WithZoom: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {
       slot_number: { start: 10200000, end: 10800000 },
@@ -232,7 +231,7 @@ export const WithZoom: Story = {
   },
 };
 
-export const MultipleIntervalTypes: Story = {
+export const MultipleIntervalTypes: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
@@ -308,7 +307,7 @@ export const MultipleIntervalTypes: Story = {
   },
 };
 
-export const ManyModels: Story = {
+export const ManyModels: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
@@ -437,7 +436,7 @@ export const ManyModels: Story = {
   },
 };
 
-export const SparseCoverage: Story = {
+export const SparseCoverage: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
@@ -484,7 +483,7 @@ export const SparseCoverage: Story = {
   },
 };
 
-export const NoExternalModels: Story = {
+export const NoExternalModels: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
@@ -501,7 +500,7 @@ export const NoExternalModels: Story = {
   },
 };
 
-export const OnlyExternalModels: Story = {
+export const OnlyExternalModels: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
@@ -537,7 +536,7 @@ export const OnlyExternalModels: Story = {
   },
 };
 
-export const ComplexDependencies: Story = {
+export const ComplexDependencies: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
@@ -605,7 +604,7 @@ export const ComplexDependencies: Story = {
   },
 };
 
-export const WithMultipleTransformations: Story = {
+export const WithMultipleTransformations: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
@@ -637,7 +636,7 @@ export const WithMultipleTransformations: Story = {
   },
 };
 
-export const OrGroupSimple: Story = {
+export const OrGroupSimple: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
@@ -699,7 +698,7 @@ export const OrGroupSimple: Story = {
   },
 };
 
-export const OrGroupComplex: Story = {
+export const OrGroupComplex: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
@@ -771,7 +770,7 @@ export const OrGroupComplex: Story = {
   },
 };
 
-export const OrGroupNested: Story = {
+export const OrGroupNested: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
@@ -864,7 +863,7 @@ export const OrGroupNested: Story = {
   },
 };
 
-export const OrGroupMultiple: Story = {
+export const OrGroupMultiple: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),
@@ -949,7 +948,7 @@ export const OrGroupMultiple: Story = {
   },
 };
 
-export const OrGroupSharedDependency: Story = {
+export const OrGroupSharedDependency: StoryObj<typeof meta> = {
   args: {
     zoomRanges: {},
     onZoomChange: fn(),

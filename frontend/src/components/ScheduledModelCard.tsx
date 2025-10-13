@@ -1,7 +1,7 @@
 import { type JSX } from 'react';
 import { Link } from '@tanstack/react-router';
-import { timeAgo } from '@/utils/time';
-import { getNextRunDescription } from '@/utils/schedule-parser';
+import { timeAgo } from '@utils/time';
+import { getNextRunDescription } from '@utils/schedule-parser';
 
 export interface ScheduledModelCardProps {
   id: string;

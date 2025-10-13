@@ -3,18 +3,18 @@
  * Used across DependencyRow and ModelCoverageRow components
  */
 
-// Color palette for OR groups (cycles every 10) - subtle colors that blend with dark theme
+// Color palette for OR groups (cycles every 10) - bright indigo/purple theme colors
 export const OR_GROUP_COLORS = [
-  { bg: 'bg-slate-600/30', text: 'text-slate-400', ring: 'ring-slate-600/40', hex: 'rgb(71, 85, 105)' }, // #1
-  { bg: 'bg-emerald-600/25', text: 'text-emerald-400', ring: 'ring-emerald-600/30', hex: 'rgb(5, 150, 105)' }, // #2
-  { bg: 'bg-sky-600/25', text: 'text-sky-400', ring: 'ring-sky-600/30', hex: 'rgb(2, 132, 199)' }, // #3
-  { bg: 'bg-violet-600/25', text: 'text-violet-400', ring: 'ring-violet-600/30', hex: 'rgb(124, 58, 237)' }, // #4
-  { bg: 'bg-rose-600/25', text: 'text-rose-400', ring: 'ring-rose-600/30', hex: 'rgb(225, 29, 72)' }, // #5
-  { bg: 'bg-cyan-600/25', text: 'text-cyan-400', ring: 'ring-cyan-600/30', hex: 'rgb(8, 145, 178)' }, // #6
-  { bg: 'bg-orange-600/25', text: 'text-orange-400', ring: 'ring-orange-600/30', hex: 'rgb(234, 88, 12)' }, // #7
-  { bg: 'bg-lime-600/25', text: 'text-lime-400', ring: 'ring-lime-600/30', hex: 'rgb(101, 163, 13)' }, // #8
-  { bg: 'bg-pink-600/25', text: 'text-pink-400', ring: 'ring-pink-600/30', hex: 'rgb(219, 39, 119)' }, // #9
-  { bg: 'bg-teal-600/25', text: 'text-teal-400', ring: 'ring-teal-600/30', hex: 'rgb(13, 148, 136)' }, // #10
+  { bg: 'bg-fuchsia-500/40', text: 'text-fuchsia-200', ring: 'ring-fuchsia-500/60', hex: 'rgb(217, 70, 239)' }, // #1
+  { bg: 'bg-purple-500/40', text: 'text-purple-200', ring: 'ring-purple-500/60', hex: 'rgb(168, 85, 247)' }, // #2
+  { bg: 'bg-indigo-500/40', text: 'text-indigo-200', ring: 'ring-indigo-500/60', hex: 'rgb(99, 102, 241)' }, // #3
+  { bg: 'bg-violet-500/40', text: 'text-violet-200', ring: 'ring-violet-500/60', hex: 'rgb(139, 92, 246)' }, // #4
+  { bg: 'bg-pink-500/40', text: 'text-pink-200', ring: 'ring-pink-500/60', hex: 'rgb(236, 72, 153)' }, // #5
+  { bg: 'bg-rose-500/40', text: 'text-rose-200', ring: 'ring-rose-500/60', hex: 'rgb(244, 63, 94)' }, // #6
+  { bg: 'bg-sky-500/40', text: 'text-sky-200', ring: 'ring-sky-500/60', hex: 'rgb(14, 165, 233)' }, // #7
+  { bg: 'bg-cyan-500/40', text: 'text-cyan-200', ring: 'ring-cyan-500/60', hex: 'rgb(6, 182, 212)' }, // #8
+  { bg: 'bg-blue-500/40', text: 'text-blue-200', ring: 'ring-blue-500/60', hex: 'rgb(59, 130, 246)' }, // #9
+  { bg: 'bg-emerald-500/40', text: 'text-emerald-200', ring: 'ring-emerald-500/60', hex: 'rgb(16, 185, 129)' }, // #10
 ] as const;
 
 /**
