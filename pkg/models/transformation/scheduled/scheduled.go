@@ -138,7 +138,8 @@ func (h *Handler) applyScheduleOverride(v reflect.Value) {
 		return
 	}
 
-	h.config.Schedule = scheduleField.Elem().String()
+	newSchedule := scheduleField.Elem().String()
+	h.config.Schedule = newSchedule
 }
 
 func (h *Handler) applyTagsOverride(v reflect.Value) {

@@ -57,8 +57,6 @@ export const TransformationDefault: Story = {
     model: transformationModel,
     zoomStart: 0,
     zoomEnd: 1000,
-    globalMin: 0,
-    globalMax: 1000,
   },
 };
 
@@ -67,8 +65,6 @@ export const TransformationHighlighted: Story = {
     model: transformationModel,
     zoomStart: 0,
     zoomEnd: 1000,
-    globalMin: 0,
-    globalMax: 1000,
     isHighlighted: true,
   },
 };
@@ -78,8 +74,6 @@ export const TransformationDimmed: Story = {
     model: transformationModel,
     zoomStart: 0,
     zoomEnd: 1000,
-    globalMin: 0,
-    globalMax: 1000,
     isDimmed: true,
   },
 };
@@ -89,8 +83,6 @@ export const ExternalDefault: Story = {
     model: externalModel,
     zoomStart: 0,
     zoomEnd: 1000,
-    globalMin: 0,
-    globalMax: 1000,
   },
 };
 
@@ -99,8 +91,6 @@ export const Scheduled: Story = {
     model: scheduledModel,
     zoomStart: 0,
     zoomEnd: 1000,
-    globalMin: 0,
-    globalMax: 1000,
   },
 };
 
@@ -109,8 +99,6 @@ export const WithoutLink: Story = {
     model: transformationModel,
     zoomStart: 0,
     zoomEnd: 1000,
-    globalMin: 0,
-    globalMax: 1000,
   },
 };
 
@@ -119,9 +107,6 @@ export const CustomNameWidth: Story = {
     model: transformationModel,
     zoomStart: 0,
     zoomEnd: 1000,
-    globalMin: 0,
-    globalMax: 1000,
-    nameWidth: 'w-96',
   },
 };
 
@@ -130,7 +115,5 @@ export const ZoomedIn: Story = {
     model: transformationModel,
     zoomStart: 350,
     zoomEnd: 600,
-    globalMin: 0,
-    globalMax: 1000,
   },
 };

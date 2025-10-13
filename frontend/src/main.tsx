@@ -6,8 +6,14 @@ import './index.css';
 // Import the generated route tree
 import { routeTree } from './routeTree.gen';
 
-// Create a new router instance
-const router = createRouter({ routeTree });
+// Import custom error component
+import { CustomErrorComponent } from './components/CustomErrorComponent';
+
+// Create a new router instance with custom error component
+const router = createRouter({
+  routeTree,
+  defaultErrorComponent: CustomErrorComponent,
+});
 
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {

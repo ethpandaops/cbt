@@ -21,8 +21,6 @@ type Handler struct {
 func NewHandler(data []byte, adminTable transformation.AdminTable) (*Handler, error) {
 	var config Config
 
-	fmt.Println("data", string(data))
-
 	// Use strict unmarshaling to detect invalid fields
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
