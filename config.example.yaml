@@ -93,18 +93,13 @@ worker:
 #       API_KEY: "your_api_key_here"
 #       ENVIRONMENT: "production"
 
-# API service configuration
-api:
-  # Enable or disable the API service
-  enabled: true
-  # Address to serve the API on
-  addr: ":8888"
-
-# Frontend service configuration
+# Frontend service configuration (includes API)
+# The frontend serves both the web UI and API endpoints on the same port
+# API endpoints are available at /api/v1/*
 frontend:
-  # Enable or disable the frontend service
+  # Enable or disable the frontend and API service
   enabled: true
-  # Address to serve the frontend on
+  # Address to serve the frontend and API on
   addr: ":8080"
 
 # Interval type transformations (optional)
@@ -140,24 +135,3 @@ frontend:
 #
 #     - name: date_only
 #       format: date
-#
-# Configuration reference:
-#   - name: (required) Display name for this transformation
-#   - expression: (optional) CEL expression to transform the value
-#   - format: (optional) Display format hint: datetime, date, time, duration, relative
-#
-# CEL expression features:
-#   - Use 'value' as the input variable
-#   - Math functions: math.floor(), math.ceil(), math.round(), math.abs(), math.sqrt()
-#   - Min/max: math.least(), math.greatest()
-#   - Arithmetic: +, -, *, /, %
-#   - Comparisons: ==, !=, <, >, <=, >=
-#   - Conditionals: value > 1000 ? value * 1000 : value
-#   - Backend uses cel-go, frontend uses cel-js for safe execution
-#
-# Format types (optional, omit for raw number display):
-#   - datetime: Full date and time (e.g., "2024-01-15 14:30:00")
-#   - date: Date only (e.g., "2024-01-15")
-#   - time: Time only (e.g., "14:30:00")
-#   - duration: Human-readable duration (e.g., "2h 30m")
-#   - relative: Relative time (e.g., "2 hours ago")
