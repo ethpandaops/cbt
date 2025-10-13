@@ -1,5 +1,5 @@
 import { type JSX } from 'react';
-import { MODEL_TYPE_CONFIG, type ModelType } from '@/types';
+import { MODEL_TYPE_CONFIG, type ModelType } from '@types';
 
 export interface TypeBadgeProps {
   type: ModelType;
@@ -13,7 +13,7 @@ export function TypeBadge({ type, compact = false }: TypeBadgeProps): JSX.Elemen
     // Short label for compact display
     const compactLabel = type === 'external' ? 'EXT' : type === 'scheduled' ? 'SCHEDULED' : 'INC';
     return (
-      <span className={`rounded-full ${config.badgeBg} px-2 py-0.5 text-xs font-bold ${config.badgeText}`}>
+      <span className={`rounded-full ${config.badgeBg} px-1.5 py-0 text-xs font-bold ${config.badgeText}`}>
         {compactLabel}
       </span>
     );

@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { listAllModelsOptions } from '@api/@tanstack/react-query.gen';
 import type { ModelSummary } from '@api/types.gen';
 import { TypeBadge } from './shared/TypeBadge';
-import type { ModelType } from '@/types';
+import type { ModelType } from '@types';
 
 export interface ModelSearchComboboxProps {
   /**

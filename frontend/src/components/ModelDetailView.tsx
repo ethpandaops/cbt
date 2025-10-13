@@ -18,9 +18,9 @@ import { CoverageTooltip } from './CoverageTooltip';
 import { SQLCodeBlock } from './SQLCodeBlock';
 import { TransformationSelector } from './shared/TransformationSelector';
 import { DagGraph, type DagData } from './DagGraph';
-import type { IncrementalModelItem } from '@/types';
-import { transformValue, formatValue } from '@/utils/interval-transform';
-import { getOrderedDependencies } from '@/utils/dependency-resolver';
+import type { IncrementalModelItem } from '@types';
+import { transformValue, formatValue } from '@utils/interval-transform';
+import { getOrderedDependencies } from '@utils/dependency-resolver';
 
 export interface ModelDetailViewProps {
   decodedId: string;
@@ -215,13 +215,21 @@ export function ModelDetailView({
     });
 
     if (depBounds) {
-      globalMin = Math.min(globalMin, depBounds.min);
-      globalMax = Math.max(globalMax, depBounds.max);
+      // Skip uninitialized models (min == max == 0)
+      if (!(depBounds.min === 0 && depBounds.max === 0)) {
+        globalMin = Math.min(globalMin, depBounds.min);
+        globalMax = Math.max(globalMax, depBounds.max);
+      }
     }
   });
 
-  if (globalMin === Infinity) globalMin = 0;
-  if (globalMax === -Infinity) globalMax = 100;
+  if (!isFinite(globalMin)) globalMin = 0;
+  if (!isFinite(globalMax)) globalMax = 100;
+
+  // Additional safety: ensure min <= max
+  if (globalMin > globalMax) {
+    [globalMin, globalMax] = [0, 100];
+  }
 
   const currentZoom = zoomRange || { start: globalMin, end: globalMax };
 
@@ -373,32 +381,52 @@ export function ModelDetailView({
               </span>
             </h3>
             <div className="space-y-3">
-              {orderedDeps.map(dep => {
-                const depCoverage = coverage.data?.coverage.find(c => c.id === dep.id);
-                const depBounds = allBounds.data?.bounds.find(b => b.id === dep.id);
-                const isExternalDep = !depCoverage && depBounds;
-                const isScheduledDep = !depCoverage && !depBounds;
+              {(() => {
+                // Sort dependencies: transformations/scheduled first (alphabetically), then external last (alphabetically)
+                const sortedDeps = [...orderedDeps].sort((a, b) => {
+                  const aCoverage = coverage.data?.coverage.find(c => c.id === a.id);
+                  const aBounds = allBounds.data?.bounds.find(bd => bd.id === a.id);
+                  const aIsExternal = !aCoverage && aBounds;
 
-                return (
-                  <DependencyRow
-                    key={dep.id}
-                    dependencyId={dep.id}
-                    orGroups={dep.orGroups}
-                    orGroupMembers={orGroupMembers}
-                    orGroupParent={decodedId}
-                    type={isScheduledDep ? 'scheduled' : isExternalDep ? 'external' : 'transformation'}
-                    ranges={depCoverage?.ranges}
-                    bounds={depBounds ? { min: depBounds.min, max: depBounds.max } : undefined}
-                    zoomStart={currentZoom.start}
-                    zoomEnd={currentZoom.end}
-                    transformation={currentTransformation}
-                    onCoverageHover={(modelId, position, mouseX) => setHoveredCoverage({ modelId, position, mouseX })}
-                    onCoverageLeave={() => setHoveredCoverage(null)}
-                    hoveredOrGroup={hoveredOrGroup}
-                    onOrGroupHover={setHoveredOrGroup}
-                  />
-                );
-              })}
+                  const bCoverage = coverage.data?.coverage.find(c => c.id === b.id);
+                  const bBounds = allBounds.data?.bounds.find(bd => bd.id === b.id);
+                  const bIsExternal = !bCoverage && bBounds;
+
+                  // If types differ, external models go last
+                  if (aIsExternal !== bIsExternal) {
+                    return aIsExternal ? 1 : -1;
+                  }
+                  // Same type: sort alphabetically by ID
+                  return a.id.localeCompare(b.id);
+                });
+
+                return sortedDeps.map(dep => {
+                  const depCoverage = coverage.data?.coverage.find(c => c.id === dep.id);
+                  const depBounds = allBounds.data?.bounds.find(b => b.id === dep.id);
+                  const isExternalDep = !depCoverage && depBounds;
+                  const isScheduledDep = !depCoverage && !depBounds;
+
+                  return (
+                    <DependencyRow
+                      key={dep.id}
+                      dependencyId={dep.id}
+                      orGroups={dep.orGroups}
+                      orGroupMembers={orGroupMembers}
+                      orGroupParent={decodedId}
+                      type={isScheduledDep ? 'scheduled' : isExternalDep ? 'external' : 'transformation'}
+                      ranges={depCoverage?.ranges}
+                      bounds={depBounds ? { min: depBounds.min, max: depBounds.max } : undefined}
+                      zoomStart={currentZoom.start}
+                      zoomEnd={currentZoom.end}
+                      transformation={currentTransformation}
+                      onCoverageHover={(modelId, position, mouseX) => setHoveredCoverage({ modelId, position, mouseX })}
+                      onCoverageLeave={() => setHoveredCoverage(null)}
+                      hoveredOrGroup={hoveredOrGroup}
+                      onOrGroupHover={setHoveredOrGroup}
+                    />
+                  );
+                });
+              })()}
             </div>
           </div>
         )}

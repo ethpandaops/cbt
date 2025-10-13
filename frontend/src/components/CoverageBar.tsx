@@ -13,6 +13,7 @@ export interface CoverageBarProps {
   className?: string;
   onCoverageHover?: (position: number, mouseX: number) => void;
   onCoverageLeave?: () => void;
+  children?: React.ReactNode;
 }
 
 export function CoverageBar({
@@ -21,12 +22,12 @@ export function CoverageBar({
   zoomStart,
   zoomEnd,
   type,
-  height = 24,
+  height = 16,
   transformation: _transformation,
   className = '',
-
   onCoverageHover,
   onCoverageLeave,
+  children,
 }: CoverageBarProps): JSX.Element {
   const range = zoomEnd - zoomStart || 1;
 
@@ -50,7 +51,7 @@ export function CoverageBar({
   if (type === 'scheduled') {
     return (
       <div
-        className={`relative overflow-hidden rounded-lg bg-slate-800/50 ring-1 ring-slate-700/30 ${className}`}
+        className={`relative overflow-hidden bg-slate-800/50 ring-1 ring-slate-700/30 ${className}`}
         style={{ height: `${height}px` }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
@@ -58,6 +59,7 @@ export function CoverageBar({
         <div className="flex h-full items-center justify-center">
           <span className="text-xs font-medium italic text-slate-500">Always available</span>
         </div>
+        {children && <div className="pointer-events-none absolute inset-0 flex items-center">{children}</div>}
       </div>
     );
   }
@@ -87,7 +89,7 @@ export function CoverageBar({
 
     return (
       <div
-        className={`relative overflow-hidden rounded-lg bg-slate-700 ring-1 ring-slate-600/50 ${className}`}
+        className={`relative overflow-hidden bg-slate-700 ring-1 ring-slate-600/50 ${className}`}
         style={{ height: `${height}px` }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
@@ -122,6 +124,7 @@ export function CoverageBar({
             }}
           />
         )}
+        {children && <div className="pointer-events-none absolute inset-0 flex items-center">{children}</div>}
       </div>
     );
   }
@@ -190,7 +193,7 @@ export function CoverageBar({
 
     return (
       <div
-        className={`relative overflow-hidden rounded-lg bg-slate-700 ring-1 ring-slate-600/50 ${className}`}
+        className={`relative overflow-hidden bg-slate-700 ring-1 ring-slate-600/50 ${className}`}
         style={{ height: `${height}px` }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
@@ -234,6 +237,7 @@ export function CoverageBar({
             />
           );
         })}
+        {children && <div className="pointer-events-none absolute inset-0 flex items-center">{children}</div>}
       </div>
     );
   }
@@ -241,10 +245,12 @@ export function CoverageBar({
   // Fallback - empty bar
   return (
     <div
-      className={`relative overflow-hidden rounded-lg bg-slate-700 ring-1 ring-slate-600/50 ${className}`}
+      className={`relative overflow-hidden bg-slate-700 ring-1 ring-slate-600/50 ${className}`}
       style={{ height: `${height}px` }}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
-    />
+    >
+      {children && <div className="pointer-events-none absolute inset-0 flex items-center">{children}</div>}
+    </div>
   );
 }

@@ -1,10 +1,10 @@
 import { type JSX } from 'react';
 import { Link } from '@tanstack/react-router';
-import type { IncrementalModelItem } from '@/types';
+import type { IncrementalModelItem } from '@types';
 import type { IntervalTypeTransformation } from '@api/types.gen';
 import { CoverageBar } from './CoverageBar';
 import { TypeBadge } from './shared/TypeBadge';
-import { getOrGroupColor } from '@/utils/or-group-colors';
+import { getOrGroupColor } from '@utils/or-group-colors';
 
 export interface ModelCoverageRowProps {
   model: IncrementalModelItem;
@@ -39,7 +39,7 @@ export function ModelCoverageRow({
   onZoomChange,
   onCoverageHover,
   onCoverageLeave,
-  nameWidth = 'w-72',
+  nameWidth: _nameWidth = 'w-72',
 }: ModelCoverageRowProps): JSX.Element {
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>): void => {
     if (!onZoomChange) return;
@@ -85,52 +85,18 @@ export function ModelCoverageRow({
   };
 
   // Determine badge type
-  const isExternal = model.type === 'external';
   const isScheduled = model.type === 'transformation' && !model.data.coverage && !model.data.bounds;
 
   return (
-    <div
-      className={`group/row flex flex-col gap-2 rounded-lg p-2 transition-all sm:flex-row sm:items-center sm:gap-3 ${
-        isHighlighted
-          ? 'bg-indigo-500/20 ring-2 ring-indigo-500/50'
-          : isDimmed
-            ? 'bg-slate-900/20 opacity-40'
-            : 'bg-slate-900/40 hover:bg-slate-900/60'
-      }`}
+    <Link
+      to="/model/$id"
+      params={{ id: encodeURIComponent(model.id) }}
+      className={`group/row block transition-all ${isHighlighted ? 'brightness-125' : isDimmed ? 'opacity-40' : ''}`}
       data-model-id={model.id}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <div className={`flex shrink-0 items-center gap-2 ${nameWidth}`}>
-        <Link
-          to="/model/$id"
-          params={{ id: encodeURIComponent(model.id) }}
-          className={`truncate font-mono text-xs font-semibold transition-colors ${
-            isHighlighted ? 'text-indigo-300' : isDimmed ? 'text-slate-500' : 'text-slate-300 hover:text-indigo-400'
-          }`}
-          title={model.id}
-        >
-          {model.id}
-        </Link>
-        {orGroups && orGroups.length > 0 && (
-          <div className="flex items-center gap-1">
-            {orGroups.map(groupId => {
-              const colors = getOrGroupColor(groupId);
-              return (
-                <span
-                  key={groupId}
-                  className={`rounded px-1.5 py-0.5 text-xs font-semibold ring-1 ${colors.bg} ${colors.text} ${colors.ring}`}
-                >
-                  OR #{groupId}
-                </span>
-              );
-            })}
-          </div>
-        )}
-        {isExternal && <TypeBadge type="external" compact />}
-        {isScheduled && <TypeBadge type="scheduled" compact />}
-      </div>
-      <div className="flex-1" onWheel={handleWheel}>
+      <div className="relative" onWheel={handleWheel}>
         <CoverageBar
           ranges={model.data.coverage}
           bounds={model.data.bounds}
@@ -142,8 +108,39 @@ export function ModelCoverageRow({
             onCoverageHover ? (position, mouseX) => onCoverageHover(model.id, position, mouseX) : undefined
           }
           onCoverageLeave={onCoverageLeave}
-        />
+        >
+          <div className="flex items-center gap-1.5 px-2">
+            <span
+              className={`truncate font-mono text-xs font-semibold transition-colors [text-shadow:_0_0_1px_rgb(0_0_0)] ${
+                isHighlighted
+                  ? 'text-white [text-shadow:_0_0_1px_rgb(0_0_0)]'
+                  : isDimmed
+                    ? 'text-slate-500'
+                    : 'text-slate-300 group-hover/row:text-indigo-400'
+              }`}
+              title={model.id}
+            >
+              {model.id}
+            </span>
+            {orGroups && orGroups.length > 0 && (
+              <div className="flex items-center gap-1">
+                {orGroups.map(groupId => {
+                  const colors = getOrGroupColor(groupId);
+                  return (
+                    <span
+                      key={groupId}
+                      className={`rounded px-1 py-0 text-[9px] font-semibold ring-1 leading-tight ${colors.bg} ${colors.text} ${colors.ring}`}
+                    >
+                      OR #{groupId}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            {isScheduled && <TypeBadge type="scheduled" compact />}
+          </div>
+        </CoverageBar>
       </div>
-    </div>
+    </Link>
   );
 }

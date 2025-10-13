@@ -8,7 +8,7 @@ describe('or-group-colors', () => {
     });
 
     it('should have correct structure for each color', () => {
-      OR_GROUP_COLORS.forEach((color, index) => {
+      OR_GROUP_COLORS.forEach(color => {
         expect(color).toHaveProperty('bg');
         expect(color).toHaveProperty('text');
         expect(color).toHaveProperty('ring');
