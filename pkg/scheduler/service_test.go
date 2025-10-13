@@ -458,6 +458,10 @@ func (m *mockDAGReader) GetDependents(_ string) []string {
 	return []string{}
 }
 
+func (m *mockDAGReader) GetStructuredDependencies(_ string) []transformation.Dependency {
+	return nil
+}
+
 func (m *mockDAGReader) GetAllDependencies(_ string) []string {
 	return []string{}
 }

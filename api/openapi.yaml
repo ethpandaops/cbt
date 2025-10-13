@@ -582,9 +582,21 @@ components:
         depends_on:
           type: array
           items:
-            type: string
-          description: Upstream model dependencies
-          example: [ethereum.beacon_blocks, ethereum.validator_entity]
+            oneOf:
+              - type: string
+                description: Single required dependency (AND logic)
+              - type: array
+                description: OR group - at least one dependency required
+                items:
+                  type: string
+          description: |
+            Upstream model dependencies preserving AND/OR semantics.
+            - String elements represent required dependencies (AND logic)
+            - Array elements represent OR groups (at least one required)
+          example:
+            - ethereum.beacon_blocks
+            - ["source1.data", "source2.data"]
+            - analytics.hourly_stats
         metadata:
           type: object
           readOnly: true

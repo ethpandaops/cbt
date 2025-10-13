@@ -16,7 +16,7 @@ export interface IncrementalModelItem {
   id: string;
   type: 'transformation' | 'external';
   intervalType: string;
-  depends_on?: string[];
+  depends_on?: Array<string | string[]>;
   data: {
     coverage?: Array<Range>;
     bounds?: { min: number; max: number };
