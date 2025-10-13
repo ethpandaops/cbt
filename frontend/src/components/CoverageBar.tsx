@@ -11,6 +11,7 @@ export interface CoverageBarProps {
   height?: number;
   transformation?: IntervalTypeTransformation;
   className?: string;
+  isHighlighted?: boolean;
   onCoverageHover?: (position: number, mouseX: number) => void;
   onCoverageLeave?: () => void;
   children?: React.ReactNode;
@@ -25,6 +26,7 @@ export function CoverageBar({
   height = 16,
   transformation: _transformation,
   className = '',
+  isHighlighted = false,
   onCoverageHover,
   onCoverageLeave,
   children,
@@ -51,7 +53,7 @@ export function CoverageBar({
   if (type === 'scheduled') {
     return (
       <div
-        className={`relative overflow-hidden rounded-sm bg-slate-800/50 ring-1 ring-slate-700/30 ${className}`}
+        className={`relative overflow-hidden rounded-sm bg-slate-800/50 ring-1 transition-all ${isHighlighted ? 'ring-indigo-400/60 ring-2' : 'ring-slate-700/30'} ${className}`}
         style={{ height: `${height}px` }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
@@ -89,7 +91,7 @@ export function CoverageBar({
 
     return (
       <div
-        className={`relative overflow-hidden rounded-sm bg-slate-700 ring-1 ring-slate-600/50 ${className}`}
+        className={`relative overflow-hidden rounded-sm bg-slate-700 ring-1 transition-all ${isHighlighted ? 'ring-green-500/50 ring-2' : 'ring-slate-600/50'} ${className}`}
         style={{ height: `${height}px` }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
@@ -117,7 +119,7 @@ export function CoverageBar({
         {/* Render covered range */}
         {isVisible && (
           <div
-            className="absolute h-full bg-green-600 transition-colors hover:bg-green-500"
+            className="absolute h-full bg-emerald-700 transition-colors hover:bg-emerald-600"
             style={{
               left: `${Math.max(0, ((bounds.min - zoomStart) / range) * 100)}%`,
               width: `${Math.min(100, ((Math.min(bounds.max, zoomEnd) - Math.max(bounds.min, zoomStart)) / range) * 100)}%`,
@@ -193,7 +195,7 @@ export function CoverageBar({
 
     return (
       <div
-        className={`relative overflow-hidden rounded-sm bg-slate-700 ring-1 ring-slate-600/50 ${className}`}
+        className={`relative overflow-hidden rounded-sm bg-slate-700 ring-1 transition-all ${isHighlighted ? 'ring-indigo-400/60 ring-2' : 'ring-slate-600/50'} ${className}`}
         style={{ height: `${height}px` }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
@@ -245,7 +247,7 @@ export function CoverageBar({
   // Fallback - empty bar
   return (
     <div
-      className={`relative overflow-hidden rounded-md bg-slate-700 ring-1 ring-slate-600/50 ${className}`}
+      className={`relative overflow-hidden rounded-md bg-slate-700 ring-1 transition-all ${isHighlighted ? 'ring-indigo-400/60 ring-2' : 'ring-slate-600/50'} ${className}`}
       style={{ height: `${height}px` }}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}

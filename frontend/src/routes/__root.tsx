@@ -43,13 +43,13 @@ function BackgroundPoller(): null {
 
   useQuery({
     ...listExternalBoundsOptions(),
-    refetchInterval: 60000,
+    refetchInterval: 10000,
     staleTime: 55000,
   });
 
   useQuery({
     ...listTransformationCoverageOptions(),
-    refetchInterval: 60000,
+    refetchInterval: 10000,
     staleTime: 55000,
   });
 
@@ -61,7 +61,7 @@ function BackgroundPoller(): null {
 
   useQuery({
     ...listScheduledRunsOptions(),
-    refetchInterval: 60000,
+    refetchInterval: 5000,
     staleTime: 55000,
   });
 

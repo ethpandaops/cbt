@@ -25,13 +25,13 @@ function IndexComponent(): JSX.Element {
 
   return (
     <div className="space-y-12">
-      {/* Section 1: Incremental Models (Transformations & External) */}
+      {/* Section 1: Incremental Transformations (Transformations & External) */}
       <section>
         <div className="mb-8 flex items-center gap-6">
           <div className="relative">
             <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/30 to-purple-500/30 blur-xl" />
             <h2 className="relative bg-gradient-to-r from-indigo-400 via-purple-400 to-indigo-400 bg-clip-text text-4xl font-black tracking-tight text-transparent">
-              Incremental Models
+              Incremental Transformations
             </h2>
           </div>
           <div className="h-px flex-1 bg-gradient-to-r from-indigo-500/40 via-purple-500/40 to-transparent" />
