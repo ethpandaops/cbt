@@ -28,62 +28,19 @@ export function ModelCoverageRow({
   model,
   zoomStart,
   zoomEnd,
-  globalMin,
-  globalMax,
+  globalMin: _globalMin,
+  globalMax: _globalMax,
   isHighlighted = false,
   isDimmed = false,
   transformation,
   orGroups,
   onMouseEnter,
   onMouseLeave,
-  onZoomChange,
+  onZoomChange: _onZoomChange,
   onCoverageHover,
   onCoverageLeave,
   nameWidth: _nameWidth = 'w-72',
 }: ModelCoverageRowProps): JSX.Element {
-  const handleWheel = (e: React.WheelEvent<HTMLDivElement>): void => {
-    if (!onZoomChange) return;
-
-    e.preventDefault();
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const position = mouseX / rect.width; // 0 to 1
-
-    const delta = e.deltaY;
-    const currentRange = zoomEnd - zoomStart;
-    const zoomFactor = delta > 0 ? 1.1 : 0.9; // Zoom out or in
-    const rangeChange = currentRange * (zoomFactor - 1);
-
-    let newStart = zoomStart;
-    let newEnd = zoomEnd;
-
-    if (position < 0.33) {
-      // Left third: only adjust max (right edge), unless at bound then adjust min
-      newEnd = Math.min(globalMax, Math.max(zoomStart + 1, zoomEnd + rangeChange));
-      // If we hit the max bound, adjust min instead
-      if (newEnd === globalMax && zoomEnd === globalMax) {
-        newStart = Math.max(globalMin, Math.min(zoomEnd - 1, zoomStart - rangeChange));
-        newEnd = zoomEnd;
-      }
-    } else if (position < 0.67) {
-      // Middle third: adjust both
-      const center = (zoomStart + zoomEnd) / 2;
-      const newRange = currentRange * zoomFactor;
-      newStart = Math.max(globalMin, center - newRange / 2);
-      newEnd = Math.min(globalMax, center + newRange / 2);
-    } else {
-      // Right third: only adjust min (left edge), unless at bound then adjust max
-      newStart = Math.max(globalMin, Math.min(zoomEnd - 1, zoomStart - rangeChange));
-      // If we hit the min bound, adjust max instead
-      if (newStart === globalMin && zoomStart === globalMin) {
-        newEnd = Math.min(globalMax, Math.max(zoomStart + 1, zoomEnd + rangeChange));
-        newStart = zoomStart;
-      }
-    }
-
-    onZoomChange(newStart, newEnd);
-  };
-
   // Determine badge type
   const isScheduled = model.type === 'transformation' && !model.data.coverage && !model.data.bounds;
 
@@ -96,7 +53,7 @@ export function ModelCoverageRow({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <div className="relative" onWheel={handleWheel}>
+      <div className="relative">
         <CoverageBar
           ranges={model.data.coverage}
           bounds={model.data.bounds}
