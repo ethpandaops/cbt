@@ -177,9 +177,17 @@ func (s *service) substitutePlaceholders(model Transformation) {
 }
 
 func (s *service) applyOverrides() {
+	s.log.WithField("override_count", len(s.config.Overrides)).Debug("Applying overrides")
 	if len(s.config.Overrides) == 0 {
 		return
 	}
+
+	// Debug: log all override keys
+	overrideKeys := make([]string, 0, len(s.config.Overrides))
+	for key := range s.config.Overrides {
+		overrideKeys = append(overrideKeys, key)
+	}
+	s.log.WithField("override_keys", overrideKeys).Debug("Found override keys")
 
 	modelTypes := s.buildModelTypeMapping()
 	s.resolveAllOverrides(modelTypes)
@@ -206,18 +214,34 @@ func (s *service) buildModelTypeMapping() map[string]ModelType {
 
 // resolveAllOverrides resolves the config for all overrides based on model type lookup
 func (s *service) resolveAllOverrides(modelTypes map[string]ModelType) {
-	for modelID, override := range s.config.Overrides {
-		if modelType, exists := modelTypes[modelID]; exists {
-			if err := override.ResolveConfig(modelType); err != nil {
-				s.log.WithField("model", modelID).WithError(err).Warn("Failed to resolve override config")
-			}
-		} else {
-			// Try table-only lookup with default databases
-			if resolveErr := s.resolveOverrideWithDefaults(modelID, override, modelTypes); resolveErr != nil {
-				s.log.WithField("model", modelID).Debug("Could not resolve override (will check during model iteration)")
-			}
+	for modelID := range s.config.Overrides {
+		override := s.config.Overrides[modelID]
+		modelType, exists := modelTypes[modelID]
+
+		if exists {
+			s.resolveOverrideByType(modelID, override, modelType)
+			continue
 		}
+
+		// Try table-only lookup with default databases
+		s.resolveOverrideWithDefaultDB(modelID, override, modelTypes)
 	}
+}
+
+func (s *service) resolveOverrideByType(modelID string, override *ModelOverride, modelType ModelType) {
+	if err := override.ResolveConfig(modelType); err != nil {
+		s.log.WithField("model", modelID).WithError(err).Warn("Failed to resolve override config")
+		return
+	}
+	s.log.WithField("model", modelID).Debug("Resolved override configuration")
+}
+
+func (s *service) resolveOverrideWithDefaultDB(modelID string, override *ModelOverride, modelTypes map[string]ModelType) {
+	if err := s.resolveOverrideWithDefaults(modelID, override, modelTypes); err != nil {
+		s.log.WithField("model", modelID).Debug("Could not resolve override (will check during model iteration)")
+		return
+	}
+	s.log.WithField("model", modelID).Debug("Resolved override configuration using defaults")
 }
 
 // applyOverridesToModels applies overrides to both external and transformation models

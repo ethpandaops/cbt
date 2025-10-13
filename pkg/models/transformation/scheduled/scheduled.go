@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"reflect"
 	"time"
 
@@ -138,7 +139,9 @@ func (h *Handler) applyScheduleOverride(v reflect.Value) {
 		return
 	}
 
-	h.config.Schedule = scheduleField.Elem().String()
+	newSchedule := scheduleField.Elem().String()
+	log.Printf("Applying schedule override for %s: %s -> %s", h.GetID(), h.config.Schedule, newSchedule)
+	h.config.Schedule = newSchedule
 }
 
 func (h *Handler) applyTagsOverride(v reflect.Value) {

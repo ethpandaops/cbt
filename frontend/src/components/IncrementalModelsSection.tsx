@@ -313,15 +313,12 @@ export function IncrementalModelsSection({
                       model={model}
                       zoomStart={zoomStart}
                       zoomEnd={zoomEnd}
-                      globalMin={globalMin}
-                      globalMax={globalMax}
                       isHighlighted={isHighlighted}
                       isDimmed={isDimmed}
                       transformation={currentTransformation}
                       orGroups={orGroupsForDep}
                       onMouseEnter={() => setHoveredModel(model.id)}
                       onMouseLeave={() => setHoveredModel(null)}
-                      onZoomChange={(start, end) => onZoomChange(intervalType, start, end)}
                       onCoverageHover={(modelId, position, mouseX) =>
                         handleCoverageHover(modelId, position, mouseX, intervalType)
                       }
