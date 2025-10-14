@@ -31,16 +31,25 @@ export function ZoomControls({
     <div
       className={`rounded-lg border border-slate-700/40 bg-slate-900/30 px-3 py-2 backdrop-blur-sm ${isDisabled ? 'opacity-50' : ''}`}
     >
-      <div className="mb-1 flex items-center justify-between gap-3">
+      <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
           {transformationName || transformation?.name || 'Range'}
         </span>
-        <div className="rounded-lg bg-slate-900/60 px-3 py-1.5 font-mono text-xs font-semibold text-slate-300 ring-1 ring-slate-700/50">
-          {isDisabled
-            ? 'min: N/A max: N/A'
-            : transformation
-              ? `min: ${formatValue(transformValue(globalMin, transformation), transformation.format)} max: ${formatValue(transformValue(globalMax, transformation), transformation.format)}`
-              : `min: ${globalMin.toLocaleString()} max: ${globalMax.toLocaleString()}`}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="rounded-lg bg-slate-900/60 px-2.5 py-1 font-mono text-[10px] font-semibold text-slate-300 ring-1 ring-slate-700/50 sm:px-3 sm:py-1.5 sm:text-xs">
+            {isDisabled
+              ? 'min: N/A max: N/A'
+              : transformation
+                ? `min: ${formatValue(transformValue(globalMin, transformation), transformation.format)} max: ${formatValue(transformValue(globalMax, transformation), transformation.format)}`
+                : `min: ${globalMin.toLocaleString()} max: ${globalMax.toLocaleString()}`}
+          </div>
+          <div className="rounded-lg bg-slate-900/60 px-2.5 py-1 font-mono text-[10px] font-semibold text-indigo-300 ring-1 ring-indigo-500/30 sm:px-3 sm:py-1.5 sm:text-xs">
+            {isDisabled
+              ? 'N/A - N/A'
+              : transformation
+                ? `${formatValue(transformValue(zoomStart, transformation), transformation.format)} - ${formatValue(transformValue(zoomEnd, transformation), transformation.format)}`
+                : `${zoomStart.toLocaleString()} - ${zoomEnd.toLocaleString()}`}
+          </div>
         </div>
       </div>
       <div className={isDisabled ? 'pointer-events-none' : ''}>

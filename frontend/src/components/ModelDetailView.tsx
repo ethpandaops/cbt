@@ -17,10 +17,11 @@ import { ZoomControls } from './ZoomControls';
 import { CoverageTooltip } from './CoverageTooltip';
 import { SQLCodeBlock } from './SQLCodeBlock';
 import { TransformationSelector } from './shared/TransformationSelector';
+import { ZoomPresets } from './ZoomPresets';
 import { DagGraph, type DagData } from './DagGraph';
 import type { IncrementalModelItem } from '@/types';
-import { transformValue, formatValue } from '@utils/interval-transform';
 import { getOrderedDependencies } from '@utils/dependency-resolver';
+import { calculateDefaultZoomRange } from '@utils/zoom-helpers';
 
 export interface ModelDetailViewProps {
   decodedId: string;
@@ -258,8 +259,8 @@ export function ModelDetailView({
     transformationMax = globalMax;
   }
 
-  // Default zoom: min from transformations only, max from transformations + external
-  const currentZoom = zoomRange || { start: transformationMin, end: transformationMax };
+  // Get or initialize zoom state
+  const currentZoom = zoomRange || calculateDefaultZoomRange(transformationMin, transformationMax);
 
   // Check if data is available (same logic as ZoomControls and IncrementalModelsSection)
   const hasData = !((globalMin === 0 && globalMax === 0) || (globalMin === 0 && globalMax === 100));
@@ -355,13 +356,46 @@ export function ModelDetailView({
         ref={sectionRef}
         className="rounded-2xl border border-indigo-500/30 bg-slate-800/80 p-4 shadow-sm ring-1 ring-slate-700/50 backdrop-blur-sm sm:p-6"
       >
-        <div className="mb-4 flex flex-col gap-4 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-            <h2 className="text-base font-bold text-slate-100 sm:text-lg">Coverage Analysis</h2>
-            <TransformationSelector
-              transformations={transformations}
-              selectedIndex={selectedTransformationIndex}
-              onSelect={setSelectedTransformationIndex}
+        <div className="mb-4 flex flex-col gap-4 sm:mb-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+              <h2 className="text-base font-bold text-slate-100 sm:text-lg">Coverage Analysis</h2>
+              <TransformationSelector
+                transformations={transformations}
+                selectedIndex={selectedTransformationIndex}
+                onSelect={setSelectedTransformationIndex}
+              />
+            </div>
+            <ZoomPresets
+              onPresetClick={presetId => {
+                let newStart: number;
+                let newEnd: number;
+
+                switch (presetId) {
+                  case 'all': {
+                    // Full zoom to 100% bounds (globalMin → globalMax)
+                    newStart = globalMin;
+                    newEnd = globalMax;
+                    break;
+                  }
+                  case 'fit': {
+                    // Fit to incremental models (transformationMin → transformationMax)
+                    newStart = transformationMin;
+                    newEnd = transformationMax;
+                    break;
+                  }
+                  case 'recent': {
+                    // Recent window (using default calculation)
+                    const recentRange = calculateDefaultZoomRange(transformationMin, transformationMax);
+                    newStart = recentRange.start;
+                    newEnd = recentRange.end;
+                    break;
+                  }
+                }
+
+                setZoomRange({ start: newStart, end: newEnd });
+              }}
+              disabled={!hasData}
             />
           </div>
           <div className="flex flex-wrap items-center gap-3 text-xs sm:gap-4">
@@ -382,15 +416,8 @@ export function ModelDetailView({
 
         {/* Main model coverage */}
         <div className="mb-6" data-model-id={decodedId}>
-          <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-2">
             <span className="truncate font-mono text-xs font-bold text-slate-200 sm:text-sm">{decodedId}</span>
-            <span className="w-fit rounded-lg bg-slate-900/60 px-2.5 py-1 font-mono text-xs font-semibold text-slate-300 sm:px-3">
-              {!hasData
-                ? 'N/A - N/A'
-                : currentTransformation
-                  ? `${formatValue(transformValue(currentZoom.start, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(currentZoom.end, currentTransformation), currentTransformation.format)}`
-                  : `${currentZoom.start.toLocaleString()} - ${currentZoom.end.toLocaleString()}`}
-            </span>
           </div>
           <CoverageBar
             ranges={modelCoverage?.ranges}

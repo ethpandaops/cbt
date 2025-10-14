@@ -80,9 +80,14 @@ export function ModelInfoCard({
       <h2 className="mb-3 text-base font-bold text-slate-100 sm:mb-4 sm:text-lg">{title}</h2>
       <dl className={`grid ${gridCols} gap-x-4 gap-y-3 text-sm sm:gap-x-6 sm:gap-y-4`}>
         {fields.map((field, index) => (
-          <div key={index} className={getFieldClassName(field)}>
+          <div key={index} className={`${getFieldClassName(field)} min-w-0`}>
             <dt className={getLabelClassName(field)}>{field.label}</dt>
-            <dd className={getValueClassName(field)}>{field.value}</dd>
+            <dd
+              className={`${getValueClassName(field)} truncate`}
+              title={typeof field.value === 'string' ? field.value : undefined}
+            >
+              {field.value}
+            </dd>
           </div>
         ))}
       </dl>

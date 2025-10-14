@@ -24,16 +24,17 @@ export function ScheduledTransformationRow({
   onMouseEnter,
   onMouseLeave,
 }: ScheduledTransformationRowProps): JSX.Element {
-  const nextRunText = getNextRunDescription(model.schedule, lastRun);
-  const nextRunFormatted = formatNextRun(model.schedule, lastRun);
-  const isOverdue = nextRunText?.startsWith('OVERDUE');
-
   // Get status from metadata
   const status = model.metadata?.last_run_status;
   const lastRunAt = model.metadata?.last_run_at || lastRun;
 
   // Check if lastRunAt is valid (not 1970 epoch and not missing)
   const isValidLastRun = lastRunAt && new Date(lastRunAt).getFullYear() !== 1970;
+
+  // Only calculate next run if we have a valid last run
+  const nextRunText = isValidLastRun ? getNextRunDescription(model.schedule, lastRunAt) : null;
+  const nextRunFormatted = isValidLastRun ? formatNextRun(model.schedule, lastRunAt) : null;
+  const isOverdue = nextRunText?.startsWith('OVERDUE');
 
   // Status indicator colors
   const statusColors = {
@@ -55,9 +56,7 @@ export function ScheduledTransformationRow({
       onMouseLeave={onMouseLeave}
     >
       <div className="relative p-4">
-        <div
-          className={`grid grid-cols-1 gap-3 ${isValidLastRun ? 'lg:grid-cols-[2fr_1fr_1fr_1fr]' : 'lg:grid-cols-[2fr_1fr_1fr]'} lg:items-start`}
-        >
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[2fr_1fr_1fr_1fr] lg:items-start">
           {/* Model ID and Dependencies */}
           <div className="flex min-w-0 flex-col gap-1.5">
             <div className="flex items-center gap-2">
@@ -114,29 +113,31 @@ export function ScheduledTransformationRow({
             </span>
           </div>
 
-          {/* Last Run - only show if valid */}
-          {isValidLastRun && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Last Run</span>
-              <span className="text-xs font-semibold text-slate-300" title={lastRunAt}>
-                {timeAgo(lastRunAt)}
-              </span>
-            </div>
-          )}
+          {/* Last Run */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Last Run</span>
+            <span className="text-xs font-semibold text-slate-300" title={lastRunAt || 'N/A'}>
+              {isValidLastRun ? timeAgo(lastRunAt) : 'N/A'}
+            </span>
+          </div>
 
           {/* Next Run */}
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Next Run</span>
             <div className="flex flex-col gap-0.5">
-              {nextRunText && (
-                <span className={`text-xs font-bold ${isOverdue ? 'text-red-300' : 'text-emerald-300'}`}>
-                  {nextRunText}
-                </span>
-              )}
-              {nextRunFormatted && (
-                <span className="text-[10px] text-slate-400" title={nextRunFormatted}>
-                  {isOverdue ? `Was due: ${nextRunFormatted}` : nextRunFormatted}
-                </span>
+              {nextRunText ? (
+                <>
+                  <span className={`text-xs font-bold ${isOverdue ? 'text-red-300' : 'text-emerald-300'}`}>
+                    {nextRunText}
+                  </span>
+                  {nextRunFormatted && (
+                    <span className="text-[10px] text-slate-400" title={nextRunFormatted}>
+                      {isOverdue ? `Was due: ${nextRunFormatted}` : nextRunFormatted}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="text-xs font-semibold text-slate-300">N/A</span>
               )}
             </div>
           </div>
