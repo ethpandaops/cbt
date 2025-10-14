@@ -16,9 +16,10 @@ import { CoverageTooltip } from './CoverageTooltip';
 import { LoadingState } from './shared/LoadingState';
 import { ErrorState } from './shared/ErrorState';
 import { TransformationSelector } from './shared/TransformationSelector';
-import { transformValue, formatValue } from '@utils/interval-transform';
+import { ZoomPresets } from './ZoomPresets';
 import { getOrderedDependencies } from '@utils/dependency-resolver';
 import type { DependencyWithOrGroups } from '@utils/dependency-resolver';
+import { calculateDefaultZoomRange } from '@utils/zoom-helpers';
 
 interface IncrementalModelsSectionProps {
   zoomRanges: ZoomRanges;
@@ -247,11 +248,7 @@ export function IncrementalModelsSection({ zoomRanges, onZoomChange }: Increment
         }
 
         // Get or initialize zoom state for this interval type
-        // Default zoom: min from transformations only, max from transformations + external
-        const currentZoom = zoomRanges[intervalType] || {
-          start: transformationMin,
-          end: transformationMax,
-        };
+        const currentZoom = zoomRanges[intervalType] || calculateDefaultZoomRange(transformationMin, transformationMax);
         const zoomStart = currentZoom.start;
         let zoomEnd = currentZoom.end;
 
@@ -282,28 +279,54 @@ export function IncrementalModelsSection({ zoomRanges, onZoomChange }: Increment
           >
             <div className="absolute inset-0 bg-linear-to-br from-indigo-500/10 via-transparent to-purple-500/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
             <div className="relative">
-              <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <h3 className="bg-linear-to-r from-indigo-400 to-purple-400 bg-clip-text text-lg font-black tracking-tight text-transparent sm:text-xl">
-                    {intervalType}
-                  </h3>
-                  <TransformationSelector
-                    transformations={transformations}
-                    selectedIndex={selectedTransformationIndex}
-                    onSelect={index =>
-                      setSelectedTransformations(prev => ({
-                        ...prev,
-                        [intervalType]: index,
-                      }))
-                    }
+              <div className="mb-4 flex flex-col gap-3 sm:mb-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <h3 className="bg-linear-to-r from-indigo-400 to-purple-400 bg-clip-text text-lg font-black tracking-tight text-transparent sm:text-xl">
+                      {intervalType}
+                    </h3>
+                    <TransformationSelector
+                      transformations={transformations}
+                      selectedIndex={selectedTransformationIndex}
+                      onSelect={index =>
+                        setSelectedTransformations(prev => ({
+                          ...prev,
+                          [intervalType]: index,
+                        }))
+                      }
+                    />
+                  </div>
+                  <ZoomPresets
+                    onPresetClick={presetId => {
+                      let newStart: number;
+                      let newEnd: number;
+
+                      switch (presetId) {
+                        case 'all': {
+                          // Full zoom to 100% bounds (globalMin → globalMax)
+                          newStart = globalMin;
+                          newEnd = globalMax;
+                          break;
+                        }
+                        case 'fit': {
+                          // Fit to incremental models (transformationMin → transformationMax)
+                          newStart = transformationMin;
+                          newEnd = transformationMax;
+                          break;
+                        }
+                        case 'recent': {
+                          // Recent window (using default calculation)
+                          const recentRange = calculateDefaultZoomRange(transformationMin, transformationMax);
+                          newStart = recentRange.start;
+                          newEnd = recentRange.end;
+                          break;
+                        }
+                      }
+
+                      onZoomChange(intervalType, newStart, newEnd);
+                    }}
+                    disabled={!hasData}
                   />
-                </div>
-                <div className="w-fit rounded-lg bg-slate-900/60 px-3 py-1.5 font-mono text-xs font-semibold text-slate-300 ring-1 ring-slate-700/50 sm:px-4 sm:py-2">
-                  {!hasData
-                    ? 'N/A - N/A'
-                    : currentTransformation
-                      ? `${formatValue(transformValue(zoomStart, currentTransformation), currentTransformation.format)} - ${formatValue(transformValue(zoomEnd, currentTransformation), currentTransformation.format)}`
-                      : `${zoomStart.toLocaleString()} - ${zoomEnd.toLocaleString()}`}
                 </div>
               </div>
               <div className="space-y-1.5">

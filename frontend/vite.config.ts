@@ -29,7 +29,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://sepolia-xatu-cbt.analytics.staging.platform.ethpandaops.io',
+        target: 'https://cbt.mainnet.ethpandaops.io',
         changeOrigin: true,
         secure: true,
       },
