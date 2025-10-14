@@ -311,28 +311,112 @@ func TestGetFirstPosition(t *testing.T) {
 
 // Test FindGaps
 func TestFindGaps(t *testing.T) {
-	mockClient := &mockClickhouseClient{
-		gaps: []GapInfo{
-			{StartPos: 200, EndPos: 300},
-			{StartPos: 500, EndPos: 600},
+	tests := []struct {
+		name         string
+		modelID      string
+		minPos       uint64
+		maxPos       uint64
+		interval     uint64
+		mockGaps     []GapInfo
+		expectedGaps int
+		wantErr      bool
+	}{
+		{
+			name:     "finds large gaps",
+			modelID:  "database.table",
+			minPos:   0,
+			maxPos:   1000,
+			interval: 384,
+			mockGaps: []GapInfo{
+				{StartPos: 200, EndPos: 300},
+				{StartPos: 500, EndPos: 600},
+			},
+			expectedGaps: 2,
+			wantErr:      false,
+		},
+		{
+			name:     "finds micro-gaps (12s)",
+			modelID:  "database.table",
+			minPos:   0,
+			maxPos:   1000,
+			interval: 384,
+			mockGaps: []GapInfo{
+				{StartPos: 100, EndPos: 112}, // 12s gap
+				{StartPos: 200, EndPos: 224}, // 24s gap
+				{StartPos: 300, EndPos: 336}, // 36s gap
+			},
+			expectedGaps: 3,
+			wantErr:      false,
+		},
+		{
+			name:     "finds all gap sizes",
+			modelID:  "database.table",
+			minPos:   0,
+			maxPos:   2000,
+			interval: 384,
+			mockGaps: []GapInfo{
+				{StartPos: 100, EndPos: 112},   // 12s
+				{StartPos: 200, EndPos: 224},   // 24s
+				{StartPos: 300, EndPos: 360},   // 60s
+				{StartPos: 400, EndPos: 520},   // 120s
+				{StartPos: 1000, EndPos: 1384}, // 384s (full interval)
+			},
+			expectedGaps: 5,
+			wantErr:      false,
+		},
+		{
+			name:         "no gaps found",
+			modelID:      "database.table",
+			minPos:       0,
+			maxPos:       1000,
+			interval:     384,
+			mockGaps:     []GapInfo{},
+			expectedGaps: 0,
+			wantErr:      false,
+		},
+		{
+			name:         "invalid model ID",
+			modelID:      "invalid",
+			minPos:       0,
+			maxPos:       1000,
+			interval:     384,
+			mockGaps:     []GapInfo{},
+			expectedGaps: 0,
+			wantErr:      true,
 		},
 	}
-	log := logrus.New()
-	log.SetLevel(logrus.WarnLevel)
-	config := TableConfig{
-		IncrementalDatabase: "admin",
-		IncrementalTable:    "tracking",
-		ScheduledDatabase:   "admin",
-		ScheduledTable:      "cbt_scheduled",
-	}
-	svc := NewService(log, mockClient, "", "", config, nil)
 
-	ctx := context.Background()
-	gaps, err := svc.FindGaps(ctx, "database.table", 0, 1000, 100)
-	require.NoError(t, err)
-	assert.Len(t, gaps, 2)
-	assert.Equal(t, uint64(200), gaps[0].StartPos)
-	assert.Equal(t, uint64(300), gaps[0].EndPos)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &mockClickhouseClient{
+				gaps: tt.mockGaps,
+			}
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+			config := TableConfig{
+				IncrementalDatabase: "admin",
+				IncrementalTable:    "tracking",
+				ScheduledDatabase:   "admin",
+				ScheduledTable:      "cbt_scheduled",
+			}
+			svc := NewService(log, mockClient, "", "", config, nil)
+
+			ctx := context.Background()
+			gaps, err := svc.FindGaps(ctx, tt.modelID, tt.minPos, tt.maxPos, tt.interval)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Len(t, gaps, tt.expectedGaps)
+				if tt.expectedGaps > 0 {
+					// Verify first gap matches expected
+					assert.Equal(t, tt.mockGaps[0].StartPos, gaps[0].StartPos)
+					assert.Equal(t, tt.mockGaps[0].EndPos, gaps[0].EndPos)
+				}
+			}
+		})
+	}
 }
 
 // Test GetCoverage

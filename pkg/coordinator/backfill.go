@@ -36,12 +36,17 @@ func (s *service) processBack(trans models.Transformation) {
 
 // checkBackfillOpportunities scans for and processes gaps in transformation data
 func (s *service) checkBackfillOpportunities(ctx context.Context, trans models.Transformation) {
+	handler := trans.GetHandler()
+	if handler == nil {
+		return
+	}
+
 	// Get max interval from handler
 	type intervalProvider interface {
 		GetMaxInterval() uint64
 	}
 	var maxInterval uint64
-	if provider, ok := trans.GetHandler().(intervalProvider); ok {
+	if provider, ok := handler.(intervalProvider); ok {
 		maxInterval = provider.GetMaxInterval()
 	}
 
@@ -49,6 +54,25 @@ func (s *service) checkBackfillOpportunities(ctx context.Context, trans models.T
 	lastPos, lastEndPos, hasData := s.getBackfillBounds(ctx, trans.GetID())
 	if !hasData {
 		return
+	}
+
+	// If no data exists yet and forward fill is enabled, let forward fill handle initial population
+	if lastEndPos == 0 {
+		type scheduleProvider interface {
+			IsForwardFillEnabled() bool
+		}
+		if provider, ok := handler.(scheduleProvider); ok && provider.IsForwardFillEnabled() {
+			s.log.WithFields(logrus.Fields{
+				"model_id": trans.GetID(),
+				"reason":   "forward fill enabled, waiting for initial forward fill to populate data",
+			}).Debug("Skipping backfill - no data yet and forward fill is enabled")
+			return
+		}
+		// If forward fill is not enabled, backfill can take the lead
+		s.log.WithFields(logrus.Fields{
+			"model_id": trans.GetID(),
+			"reason":   "forward fill not enabled, backfill will handle initial population",
+		}).Debug("No data yet but forward fill disabled - backfill will populate from earliest position")
 	}
 
 	// Log the last processed range
@@ -59,16 +83,11 @@ func (s *service) checkBackfillOpportunities(ctx context.Context, trans models.T
 			"last_processed_end":   lastEndPos,
 			"backfill_interval":    maxInterval,
 		}).Debug("Starting gap scan - found existing processed data")
-	} else {
-		s.log.WithFields(logrus.Fields{
-			"model_id":          trans.GetID(),
-			"backfill_interval": maxInterval,
-		}).Debug("Starting gap scan - no existing data")
 	}
 
 	// Check if we have enough data to scan
 	if lastEndPos < maxInterval {
-		s.log.WithField("model_id", trans.GetID()).Debug("No data yet, skipping gap scan")
+		s.log.WithField("model_id", trans.GetID()).Debug("Not enough data to scan for gaps yet")
 		return
 	}
 
@@ -248,18 +267,35 @@ func (s *service) applyMaximumLimit(modelID string, handler transformation.Handl
 func (s *service) processSingleGap(ctx context.Context, trans models.Transformation, gap admin.GapInfo, gapIndex int) bool {
 	gapSize := gap.EndPos - gap.StartPos
 
-	// Get max interval from handler
+	// Get max and min intervals from handler
 	type intervalProvider interface {
 		GetMaxInterval() uint64
+		GetMinInterval() uint64
 	}
-	var maxInterval uint64
+	var maxInterval, minInterval uint64
 	if provider, ok := trans.GetHandler().(intervalProvider); ok {
 		maxInterval = provider.GetMaxInterval()
+		minInterval = provider.GetMinInterval()
 	}
-	intervalToUse := maxInterval
 
-	// Adjust interval for small gaps
-	if gapSize < maxInterval {
+	// Determine interval to use
+	var intervalToUse uint64
+	switch {
+	case minInterval == 0:
+		// If min interval is 0, use the exact gap size
+		intervalToUse = gapSize
+	case gapSize < minInterval:
+		// If gap is smaller than min interval, use min interval (may overlap)
+		intervalToUse = minInterval
+		s.log.WithFields(logrus.Fields{
+			"model_id":          trans.GetID(),
+			"gap_index":         gapIndex,
+			"gap_size":          gapSize,
+			"min_interval":      minInterval,
+			"adjusted_interval": intervalToUse,
+		}).Debug("Using min interval for small gap (may overlap with existing data)")
+	case gapSize < maxInterval:
+		// If gap is between min and max, use the gap size
 		intervalToUse = gapSize
 		s.log.WithFields(logrus.Fields{
 			"model_id":          trans.GetID(),
@@ -268,9 +304,13 @@ func (s *service) processSingleGap(ctx context.Context, trans models.Transformat
 			"model_interval":    maxInterval,
 			"adjusted_interval": intervalToUse,
 		}).Debug("Adjusted interval for small gap")
+	default:
+		// Use max interval for large gaps
+		intervalToUse = maxInterval
 	}
 
-	// Calculate position (work backwards from gap end)
+	// Calculate position - work backwards from gap end to meet forward fill
+	// This fills recent data first (closer to current time) rather than oldest data first
 	pos := gap.EndPos - intervalToUse
 
 	s.log.WithFields(logrus.Fields{
@@ -321,7 +361,7 @@ func (s *service) processSingleGap(ctx context.Context, trans models.Transformat
 		"interval":       intervalToUse,
 		"model_interval": maxInterval,
 		"gap_size":       gapSize,
-	}).Info("Enqueueing backfill task for gap (processing from end backward)")
+	}).Info("Enqueueing backfill task for gap")
 
 	s.checkAndEnqueuePositionWithTrigger(ctx, trans, pos, intervalToUse)
 	return true

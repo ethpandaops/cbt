@@ -9,7 +9,7 @@ interval:
   type: slot
 schedules:
   forwardfill: "@every 30s"
-  backfill: "@every 5s"
+  backfill: "@every 2s"
 tags:
   - aggregation
   - entity

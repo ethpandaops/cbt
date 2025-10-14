@@ -29,9 +29,9 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://cbt.mainnet.ethpandaops.io',
+        target: 'http://localhost:8080',
         changeOrigin: true,
-        secure: true,
+        secure: false,
       },
     },
   },

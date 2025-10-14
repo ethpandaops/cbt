@@ -347,7 +347,7 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 				rn,
 				max_end_so_far,
 				-- Get the max_end_so_far from the previous row
-				if(rn > 1, 
+				if(rn > 1,
 				   any(max_end_so_far) OVER (ORDER BY position ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING),
 				   0) as prev_max_end
 			FROM with_max
@@ -357,17 +357,16 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 				prev_max_end as gap_start,
 				position as gap_end
 			FROM with_lag
-			WHERE rn > 1 
+			WHERE rn > 1
 			  AND prev_max_end IS NOT NULL
 			  AND position > prev_max_end
-			  AND position - prev_max_end >= %d
 		)
-		SELECT 
+		SELECT
 			gap_start,
 			gap_end
 		FROM gaps
 		ORDER BY gap_start DESC
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1], minPos, maxPos, interval)
+	`, a.adminDatabase, a.adminTable, parts[0], parts[1], minPos, maxPos)
 
 	var gapResults []struct {
 		GapStart uint64 `json:"gap_start,string"`
