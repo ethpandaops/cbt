@@ -20,7 +20,9 @@ export function ZoomPresets({ activePreset, onPresetClick, disabled = false }: Z
             onClick={() => onPresetClick(preset.id)}
             disabled={disabled}
             title={preset.description}
-            className={`group relative flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all sm:px-3 sm:py-2 ${
+            className={`group relative flex items-center justify-center rounded-lg text-xs font-semibold transition-all ${
+              preset.label ? 'gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2' : 'size-8 sm:size-9'
+            } ${
               disabled
                 ? 'cursor-not-allowed opacity-40'
                 : isActive
@@ -29,8 +31,12 @@ export function ZoomPresets({ activePreset, onPresetClick, disabled = false }: Z
             }`}
           >
             <Icon className="size-3.5 sm:size-4" />
-            <span className="hidden sm:inline">{preset.label}</span>
-            <span className="sm:hidden">{preset.label}</span>
+            {preset.label && (
+              <>
+                <span className="hidden sm:inline">{preset.label}</span>
+                <span className="sm:hidden">{preset.label}</span>
+              </>
+            )}
           </button>
         );
       })}

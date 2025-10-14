@@ -4,6 +4,7 @@ import { queryOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
 import {
+  debugCoverageAtPosition,
   getExternalBounds,
   getExternalModel,
   getIntervalTypes,
@@ -19,6 +20,7 @@ import {
   type Options,
 } from '../sdk.gen';
 import type {
+  DebugCoverageAtPositionData,
   GetExternalBoundsData,
   GetExternalModelData,
   GetIntervalTypesData,
@@ -76,6 +78,7 @@ export const listAllModelsQueryKey = (options?: Options<ListAllModelsData>) => c
 
 /**
  * List all models (lightweight)
+ *
  * Returns a lightweight list of all models across all types.
  * Use this for navigation, search, or building dependency graphs.
  * For full model details, use type-specific endpoints.
@@ -185,6 +188,7 @@ export const listExternalBoundsQueryKey = (options?: Options<ListExternalBoundsD
 
 /**
  * List external model bounds
+ *
  * Returns min/max positions from Redis cache for all external models
  */
 export const listExternalBoundsOptions = (options?: Options<ListExternalBoundsData>) => {
@@ -207,6 +211,7 @@ export const getExternalBoundsQueryKey = (options: Options<GetExternalBoundsData
 
 /**
  * Get external model bounds by ID
+ *
  * Returns min/max positions and scan metadata from Redis cache
  */
 export const getExternalBoundsOptions = (options: Options<GetExternalBoundsData>) => {
@@ -229,6 +234,7 @@ export const listTransformationCoverageQueryKey = (options?: Options<ListTransfo
 
 /**
  * List transformation coverage
+ *
  * Returns processed ranges from admin_incremental table for all incremental transformations
  */
 export const listTransformationCoverageOptions = (options?: Options<ListTransformationCoverageData>) => {
@@ -251,6 +257,7 @@ export const getTransformationCoverageQueryKey = (options: Options<GetTransforma
 
 /**
  * Get transformation coverage by ID
+ *
  * Returns all processed ranges from admin_incremental table
  */
 export const getTransformationCoverageOptions = (options: Options<GetTransformationCoverageData>) => {
@@ -268,11 +275,46 @@ export const getTransformationCoverageOptions = (options: Options<GetTransformat
   });
 };
 
+export const debugCoverageAtPositionQueryKey = (options: Options<DebugCoverageAtPositionData>) =>
+  createQueryKey('debugCoverageAtPosition', options);
+
+/**
+ * Debug coverage and dependency status for a specific position
+ *
+ * Comprehensive debugging endpoint that returns detailed coverage and dependency information
+ * for a specific position. This uses the same validation logic as backfill gap detection
+ * and dependency checking, providing a single source of truth for debugging why a position
+ * cannot be processed.
+ *
+ * Returns:
+ * - Model's own coverage status for the position
+ * - Dependency tree with coverage/bounds for each dependency
+ * - Gap detection results
+ * - Validation results (can process / cannot process + reasons)
+ * - Recursive dependency analysis all the way down
+ *
+ */
+export const debugCoverageAtPositionOptions = (options: Options<DebugCoverageAtPositionData>) => {
+  return queryOptions({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await debugCoverageAtPosition({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true,
+      });
+      return data;
+    },
+    queryKey: debugCoverageAtPositionQueryKey(options),
+  });
+};
+
 export const getIntervalTypesQueryKey = (options?: Options<GetIntervalTypesData>) =>
   createQueryKey('getIntervalTypes', options);
 
 /**
  * Get interval type transformations
+ *
  * Returns the configured interval type transformations.
  * Each interval type defines how values can be represented and transformed.
  * For example, 'slot' might transform to 'timestamp' via CEL expression.
@@ -298,6 +340,7 @@ export const listScheduledRunsQueryKey = (options?: Options<ListScheduledRunsDat
 
 /**
  * List scheduled transformation runs
+ *
  * Returns last run timestamps from admin_scheduled table for all scheduled transformations
  */
 export const listScheduledRunsOptions = (options?: Options<ListScheduledRunsData>) => {
@@ -320,6 +363,7 @@ export const getScheduledRunQueryKey = (options: Options<GetScheduledRunData>) =
 
 /**
  * Get scheduled transformation run by ID
+ *
  * Returns last run timestamp from admin_scheduled table
  */
 export const getScheduledRunOptions = (options: Options<GetScheduledRunData>) => {

@@ -158,6 +158,107 @@ export const zScheduledRun = z.object({
 });
 
 /**
+ * Information about a gap in coverage
+ */
+export const zGapInfo = z.object({
+  start: z.int(),
+  end: z.int(),
+  size: z.int(),
+  overlaps_request: z.optional(z.boolean()),
+});
+
+/**
+ * Coverage information for the target model itself
+ */
+export const zModelCoverageInfo = z.object({
+  has_data: z.boolean(),
+  first_position: z.int(),
+  last_end_position: z.int(),
+  ranges_in_window: z.optional(z.array(zRange)),
+  gaps_in_window: z.optional(z.array(zGapInfo)),
+});
+
+/**
+ * Position bounds for a model
+ */
+export const zBoundsInfo = z.object({
+  min: z.int(),
+  max: z.int(),
+  has_data: z.boolean(),
+  lag_applied: z.optional(z.int()),
+});
+
+/**
+ * Debug information for a single dependency
+ */
+export const zDependencyDebugInfo = z.object({
+  id: z.string(),
+  type: z.enum(['required', 'or_group']),
+  node_type: z.enum(['external', 'transformation']),
+  is_incremental: z.optional(z.boolean()),
+  bounds: zBoundsInfo,
+  gaps: z.optional(z.array(zGapInfo)),
+  coverage_status: z.optional(z.enum(['full_coverage', 'has_gaps', 'no_data', 'not_initialized'])),
+  blocking: z.optional(z.boolean()),
+  get or_group_members(): z.ZodMiniOptional {
+    return z.optional(
+      z.array(
+        z.lazy((): any => {
+          return zDependencyDebugInfo;
+        })
+      )
+    );
+  },
+  get child_dependencies(): z.ZodMiniOptional {
+    return z.optional(
+      z.array(
+        z.lazy((): any => {
+          return zDependencyDebugInfo;
+        })
+      )
+    );
+  },
+});
+
+/**
+ * Validation results using the same logic as backfill/dependency checking
+ */
+export const zValidationDebugInfo = z.object({
+  in_bounds: z.boolean(),
+  valid_range: z.optional(
+    z.object({
+      min: z.int(),
+      max: z.int(),
+    })
+  ),
+  has_dependency_gaps: z.boolean(),
+  blocking_gaps: z.optional(
+    z.array(
+      z.object({
+        dependency_id: z.string(),
+        gap: zGapInfo,
+      })
+    )
+  ),
+  next_valid_position: z.optional(z.int()),
+  reasons: z.optional(z.array(z.string())),
+});
+
+/**
+ * Comprehensive debug information for coverage and dependencies at a specific position
+ */
+export const zCoverageDebug = z.object({
+  model_id: z.string(),
+  position: z.int(),
+  interval: z.int(),
+  end_position: z.optional(z.int()),
+  can_process: z.boolean(),
+  model_coverage: zModelCoverageInfo,
+  dependencies: z.array(zDependencyDebugInfo),
+  validation: zValidationDebugInfo,
+});
+
+/**
  * A single transformation step for an interval type
  */
 export const zIntervalTypeTransformation = z.object({
@@ -343,6 +444,20 @@ export const zGetTransformationCoverageData = z.object({
  * Transformation coverage details
  */
 export const zGetTransformationCoverageResponse = zCoverageDetail;
+
+export const zDebugCoverageAtPositionData = z.object({
+  body: z.optional(z.never()),
+  path: z.object({
+    id: z.string(),
+    position: z.int(),
+  }),
+  query: z.optional(z.never()),
+});
+
+/**
+ * Detailed coverage debug information
+ */
+export const zDebugCoverageAtPositionResponse = zCoverageDebug;
 
 export const zGetIntervalTypesData = z.object({
   body: z.optional(z.never()),

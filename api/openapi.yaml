@@ -359,12 +359,6 @@ paths:
           schema:
             type: integer
           example: 1760414678
-        - name: interval
-          in: query
-          description: Interval size to check (defaults to model's max interval)
-          schema:
-            type: integer
-          example: 60
       responses:
         '200':
           description: Detailed coverage debug information

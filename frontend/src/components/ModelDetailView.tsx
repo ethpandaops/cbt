@@ -15,6 +15,7 @@ import { DependencyRow } from './DependencyRow';
 import { CoverageBar } from './CoverageBar';
 import { ZoomControls } from './ZoomControls';
 import { CoverageTooltip } from './CoverageTooltip';
+import { CoverageDebugDialog } from './CoverageDebugDialog';
 import { SQLCodeBlock } from './SQLCodeBlock';
 import { TransformationSelector } from './shared/TransformationSelector';
 import { ZoomPresets } from './ZoomPresets';
@@ -53,6 +54,7 @@ export function ModelDetailView({
   const [hoveredOrGroup, setHoveredOrGroup] = useState<number | null>(null);
   const [fullscreenSection, setFullscreenSection] = useState<'dag' | 'coverage' | null>(null);
   const [fitViewTrigger, setFitViewTrigger] = useState(0);
+  const [debugPosition, setDebugPosition] = useState<{ modelId: string; position: number } | null>(null);
   const sectionRef = useRef<HTMLDivElement>(null);
 
   // Handle escape key to exit fullscreen
@@ -444,6 +446,7 @@ export function ModelDetailView({
             transformation={currentTransformation}
             onCoverageHover={(position, mouseX) => setHoveredCoverage({ modelId: decodedId, position, mouseX })}
             onCoverageLeave={() => setHoveredCoverage(null)}
+            onCoverageClick={position => setDebugPosition({ modelId: decodedId, position })}
           />
         </div>
 
@@ -549,6 +552,16 @@ export function ModelDetailView({
           zoomStart={currentZoom.start}
           zoomEnd={currentZoom.end}
           containerRef={sectionRef}
+        />
+      )}
+
+      {/* Coverage Debug Dialog */}
+      {debugPosition && (
+        <CoverageDebugDialog
+          isOpen={!!debugPosition}
+          onClose={() => setDebugPosition(null)}
+          modelId={debugPosition.modelId}
+          position={debugPosition.position}
         />
       )}
     </div>
