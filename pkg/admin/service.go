@@ -319,6 +319,8 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 	// This properly handles overlapping and contiguous ranges
 	// Note: ClickHouse doesn't allow window functions in WHERE clauses,
 	// so we calculate prev_max_end in a CTE first
+	// IMPORTANT: Include intervals that start before minPos but extend into the range
+	// to avoid false positive gaps
 	query := fmt.Sprintf(`
 		WITH ordered_rows AS (
 			SELECT
@@ -328,7 +330,8 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 				row_number() OVER (ORDER BY position) as rn
 			FROM `+"`%s`.`%s`"+` FINAL
 			WHERE database = '%s' AND table = '%s'
-			  AND position >= %d AND position < %d
+			  AND position + interval > %d
+			  AND position < %d
 			ORDER BY position
 		),
 		with_max AS (

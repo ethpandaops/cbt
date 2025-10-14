@@ -325,6 +325,64 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /models/transformations/{id}/coverage/{position}:
+    get:
+      summary: Debug coverage and dependency status for a specific position
+      operationId: debugCoverageAtPosition
+      tags:
+        - Transformations
+        - Debug
+      description: |
+        Comprehensive debugging endpoint that returns detailed coverage and dependency information
+        for a specific position. This uses the same validation logic as backfill gap detection
+        and dependency checking, providing a single source of truth for debugging why a position
+        cannot be processed.
+
+        Returns:
+        - Model's own coverage status for the position
+        - Dependency tree with coverage/bounds for each dependency
+        - Gap detection results
+        - Validation results (can process / cannot process + reasons)
+        - Recursive dependency analysis all the way down
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Fully qualified model ID (database.table)
+          schema:
+            type: string
+          example: analytics.entity_network_effects_or_test
+        - name: position
+          in: path
+          required: true
+          description: Position to debug
+          schema:
+            type: integer
+          example: 1760414678
+        - name: interval
+          in: query
+          description: Interval size to check (defaults to model's max interval)
+          schema:
+            type: integer
+          example: 60
+      responses:
+        '200':
+          description: Detailed coverage debug information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoverageDebug'
+        '400':
+          description: Model is not incremental type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   # ============================================
   # INTERVAL TYPES
   # ============================================
@@ -835,6 +893,206 @@ components:
           type: string
           format: date-time
           description: Timestamp of last execution
+
+    # ============================================
+    # COVERAGE DEBUG SCHEMAS
+    # ============================================
+    CoverageDebug:
+      type: object
+      required: [model_id, position, interval, can_process, model_coverage, dependencies, validation]
+      description: Comprehensive debug information for coverage and dependencies at a specific position
+      properties:
+        model_id:
+          type: string
+          description: The model being debugged
+          example: analytics.entity_network_effects_or_test
+        position:
+          type: integer
+          description: Position being checked
+          example: 1760414678
+        interval:
+          type: integer
+          description: Interval size checked
+          example: 60
+        end_position:
+          type: integer
+          description: End position (position + interval)
+          example: 1760414738
+        can_process:
+          type: boolean
+          description: Whether this position can be processed
+          example: false
+        model_coverage:
+          $ref: '#/components/schemas/ModelCoverageInfo'
+        dependencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/DependencyDebugInfo'
+          description: Recursive dependency analysis
+        validation:
+          $ref: '#/components/schemas/ValidationDebugInfo'
+
+    ModelCoverageInfo:
+      type: object
+      required: [has_data, first_position, last_end_position]
+      description: Coverage information for the target model itself
+      properties:
+        has_data:
+          type: boolean
+          description: Whether model has any processed data
+          example: true
+        first_position:
+          type: integer
+          description: First processed position
+          example: 1760399556
+        last_end_position:
+          type: integer
+          description: Last processed end position (max(position + interval))
+          example: 1760415038
+        ranges_in_window:
+          type: array
+          items:
+            $ref: '#/components/schemas/Range'
+          description: Processed ranges overlapping the requested position window
+        gaps_in_window:
+          type: array
+          items:
+            $ref: '#/components/schemas/GapInfo'
+          description: Gaps detected in the requested position window
+
+    DependencyDebugInfo:
+      type: object
+      required: [id, type, node_type, bounds]
+      description: Debug information for a single dependency
+      properties:
+        id:
+          type: string
+          description: Dependency model ID
+          example: analytics.block_propagation
+        type:
+          type: string
+          enum: [required, or_group]
+          description: Dependency type (AND or OR group)
+        node_type:
+          type: string
+          enum: [external, transformation]
+          description: Type of dependency model
+        is_incremental:
+          type: boolean
+          description: Whether this is an incremental transformation (can have gaps)
+        bounds:
+          $ref: '#/components/schemas/BoundsInfo'
+        gaps:
+          type: array
+          items:
+            $ref: '#/components/schemas/GapInfo'
+          description: Gaps found in this dependency for the requested range
+        coverage_status:
+          type: string
+          enum: [full_coverage, has_gaps, no_data, not_initialized]
+          description: Coverage status for the requested position
+        blocking:
+          type: boolean
+          description: Whether this dependency is blocking processing
+        or_group_members:
+          type: array
+          items:
+            $ref: '#/components/schemas/DependencyDebugInfo'
+          description: For OR groups, debug info for each member
+        child_dependencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/DependencyDebugInfo'
+          description: Recursive dependencies of this dependency
+
+    BoundsInfo:
+      type: object
+      required: [min, max, has_data]
+      description: Position bounds for a model
+      properties:
+        min:
+          type: integer
+          description: Minimum available position
+          example: 1760398632
+        max:
+          type: integer
+          description: Maximum available position (for external) or last processed end (for transformation)
+          example: 1760415134
+        has_data:
+          type: boolean
+          description: Whether the model has any data
+        lag_applied:
+          type: integer
+          description: Lag applied to external model (if applicable)
+          example: 10
+
+    GapInfo:
+      type: object
+      required: [start, end, size]
+      description: Information about a gap in coverage
+      properties:
+        start:
+          type: integer
+          description: Gap start position
+          example: 1760414678
+        end:
+          type: integer
+          description: Gap end position
+          example: 1760414690
+        size:
+          type: integer
+          description: Gap size in interval units
+          example: 12
+        overlaps_request:
+          type: boolean
+          description: Whether this gap overlaps with the requested position range
+
+    ValidationDebugInfo:
+      type: object
+      required: [in_bounds, has_dependency_gaps]
+      description: Validation results using the same logic as backfill/dependency checking
+      properties:
+        in_bounds:
+          type: boolean
+          description: Whether position is within valid bounds of all dependencies
+        valid_range:
+          type: object
+          description: Valid position range calculated from dependencies
+          required: [min, max]
+          properties:
+            min:
+              type: integer
+              example: 1760398632
+            max:
+              type: integer
+              example: 1760415134
+        has_dependency_gaps:
+          type: boolean
+          description: Whether any dependencies have gaps in the requested range
+        blocking_gaps:
+          type: array
+          items:
+            type: object
+            required: [dependency_id, gap]
+            properties:
+              dependency_id:
+                type: string
+                example: analytics.block_propagation
+              gap:
+                $ref: '#/components/schemas/GapInfo'
+          description: List of gaps blocking processing
+        next_valid_position:
+          type: integer
+          description: Next position where dependencies are available (if blocked)
+          example: 1760414690
+        reasons:
+          type: array
+          items:
+            type: string
+          description: Human-readable reasons why position cannot be processed
+          example:
+            - "Dependency analytics.block_propagation has gap from 1760414678 to 1760414690"
+            - "Position is beyond current forward fill boundary"
 
     # ============================================
     # INTERVAL TYPE SCHEMAS

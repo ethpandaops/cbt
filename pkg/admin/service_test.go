@@ -384,6 +384,20 @@ func TestFindGaps(t *testing.T) {
 			expectedGaps: 0,
 			wantErr:      true,
 		},
+		{
+			name:     "no false positive when scanning range overlapping with existing interval",
+			modelID:  "database.table",
+			minPos:   1760414678,
+			maxPos:   1760414690,
+			interval: 60,
+			mockGaps: []GapInfo{
+				// Existing interval: position=1760414666, interval=24, end=1760414690
+				// This covers the scan range [1760414678, 1760414690]
+				// Should NOT report a false positive gap
+			},
+			expectedGaps: 0,
+			wantErr:      false,
+		},
 	}
 
 	for _, tt := range tests {
