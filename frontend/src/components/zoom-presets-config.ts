@@ -1,7 +1,12 @@
-import { ArrowsPointingOutIcon, ArrowsRightLeftIcon, ClockIcon } from '@heroicons/react/24/outline';
+import {
+  ArrowsPointingOutIcon,
+  ArrowsRightLeftIcon,
+  MagnifyingGlassMinusIcon,
+  MagnifyingGlassPlusIcon,
+} from '@heroicons/react/24/outline';
 
 export interface ZoomPreset {
-  id: 'all' | 'fit' | 'recent';
+  id: 'all' | 'fit' | 'zoom-out' | 'zoom-in';
   label: string;
   icon: typeof ArrowsPointingOutIcon;
   description: string;
@@ -21,9 +26,15 @@ export const ZOOM_PRESETS: ZoomPreset[] = [
     description: 'Fit to incremental models',
   },
   {
-    id: 'recent',
-    label: 'Recent',
-    icon: ClockIcon,
-    description: 'Show recent window',
+    id: 'zoom-out',
+    label: '',
+    icon: MagnifyingGlassMinusIcon,
+    description: 'Zoom out (larger window)',
+  },
+  {
+    id: 'zoom-in',
+    label: '',
+    icon: MagnifyingGlassPlusIcon,
+    description: 'Zoom in (smaller window)',
   },
 ];

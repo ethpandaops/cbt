@@ -2,8 +2,8 @@ import { type JSX } from 'react';
 import { ZOOM_PRESETS } from './zoom-presets-config';
 
 export interface ZoomPresetsProps {
-  activePreset?: 'all' | 'fit' | 'recent' | null;
-  onPresetClick: (presetId: 'all' | 'fit' | 'recent') => void;
+  activePreset?: 'all' | 'fit' | 'zoom-out' | 'zoom-in' | null;
+  onPresetClick: (presetId: 'all' | 'fit' | 'zoom-out' | 'zoom-in') => void;
   disabled?: boolean;
 }
 
