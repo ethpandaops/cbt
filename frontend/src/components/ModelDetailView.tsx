@@ -21,7 +21,12 @@ import { ZoomPresets } from './ZoomPresets';
 import { DagGraph, type DagData } from './DagGraph';
 import type { IncrementalModelItem } from '@/types';
 import { getOrderedDependencies } from '@utils/dependency-resolver';
-import { calculateDefaultZoomRange } from '@utils/zoom-helpers';
+import {
+  calculateDefaultZoomRange,
+  calculateZoomRangeForWindow,
+  getZoomInScale,
+  getZoomOutScale,
+} from '@utils/zoom-helpers';
 
 export interface ModelDetailViewProps {
   decodedId: string;
@@ -384,11 +389,22 @@ export function ModelDetailView({
                     newEnd = transformationMax;
                     break;
                   }
-                  case 'recent': {
-                    // Recent window (using default calculation)
-                    const recentRange = calculateDefaultZoomRange(transformationMin, transformationMax);
-                    newStart = recentRange.start;
-                    newEnd = recentRange.end;
+                  case 'zoom-out': {
+                    // Dynamic zoom out (larger window)
+                    const currentWindow = currentZoom.end - currentZoom.start;
+                    const newWindow = getZoomOutScale(currentWindow);
+                    const range = calculateZoomRangeForWindow(newWindow, transformationMin, transformationMax);
+                    newStart = range.start;
+                    newEnd = range.end;
+                    break;
+                  }
+                  case 'zoom-in': {
+                    // Dynamic zoom in (smaller window)
+                    const currentWindow = currentZoom.end - currentZoom.start;
+                    const newWindow = getZoomInScale(currentWindow);
+                    const range = calculateZoomRangeForWindow(newWindow, transformationMin, transformationMax);
+                    newStart = range.start;
+                    newEnd = range.end;
                     break;
                   }
                 }

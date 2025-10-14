@@ -19,7 +19,12 @@ import { TransformationSelector } from './shared/TransformationSelector';
 import { ZoomPresets } from './ZoomPresets';
 import { getOrderedDependencies } from '@utils/dependency-resolver';
 import type { DependencyWithOrGroups } from '@utils/dependency-resolver';
-import { calculateDefaultZoomRange } from '@utils/zoom-helpers';
+import {
+  calculateDefaultZoomRange,
+  calculateZoomRangeForWindow,
+  getZoomInScale,
+  getZoomOutScale,
+} from '@utils/zoom-helpers';
 
 interface IncrementalModelsSectionProps {
   zoomRanges: ZoomRanges;
@@ -314,11 +319,22 @@ export function IncrementalModelsSection({ zoomRanges, onZoomChange }: Increment
                           newEnd = transformationMax;
                           break;
                         }
-                        case 'recent': {
-                          // Recent window (using default calculation)
-                          const recentRange = calculateDefaultZoomRange(transformationMin, transformationMax);
-                          newStart = recentRange.start;
-                          newEnd = recentRange.end;
+                        case 'zoom-out': {
+                          // Dynamic zoom out (larger window)
+                          const currentWindow = zoomEnd - zoomStart;
+                          const newWindow = getZoomOutScale(currentWindow);
+                          const range = calculateZoomRangeForWindow(newWindow, transformationMin, transformationMax);
+                          newStart = range.start;
+                          newEnd = range.end;
+                          break;
+                        }
+                        case 'zoom-in': {
+                          // Dynamic zoom in (smaller window)
+                          const currentWindow = zoomEnd - zoomStart;
+                          const newWindow = getZoomInScale(currentWindow);
+                          const range = calculateZoomRangeForWindow(newWindow, transformationMin, transformationMax);
+                          newStart = range.start;
+                          newEnd = range.end;
                           break;
                         }
                       }
