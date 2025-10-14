@@ -2,12 +2,14 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { ModelDetailView } from '@/components/ModelDetailView';
+import { debugCoverageAtPositionQueryKey } from '@api/@tanstack/react-query.gen';
 import type {
   TransformationModel,
   ListTransformationCoverageResponse,
   ListExternalBoundsResponse,
   ListTransformationsResponse,
   GetIntervalTypesResponse,
+  CoverageDebug,
 } from '@api/types.gen';
 
 // Story args type that omits the query result props
@@ -40,10 +42,27 @@ const meta = {
           bounds?: ListExternalBoundsResponse;
           transformations?: ListTransformationsResponse;
           intervalTypes?: GetIntervalTypesResponse;
+          coverageDebug?: Record<string, CoverageDebug>; // Position -> Debug data
         };
       };
 
       const mockData = storyParams.mockData || {};
+
+      // Set mock coverage debug data if provided
+      if (mockData.coverageDebug) {
+        Object.entries(mockData.coverageDebug).forEach(([positionKey, debugData]) => {
+          const [modelId, position] = positionKey.split(':');
+          queryClient.setQueryData(
+            debugCoverageAtPositionQueryKey({
+              path: {
+                id: modelId,
+                position: parseInt(position, 10),
+              },
+            }),
+            debugData
+          );
+        });
+      }
 
       // Simple mock that satisfies UseQueryResult interface
       const asMockQuery = <T,>(data: T | undefined): UseQueryResult<T, Error> =>
@@ -466,10 +485,105 @@ export const SparseCoverage: Story = {
       bounds: mockBoundsData,
       transformations: mockTransformationsData,
       intervalTypes: mockIntervalTypesData,
+      coverageDebug: {
+        // Mock debug data for clicking on position 10250000 (in a gap)
+        'beacon_api.slot_coverage:10250000': {
+          model_id: 'beacon_api.slot_coverage',
+          position: 10250000,
+          interval: 50000,
+          end_position: 10300000,
+          can_process: false,
+          model_coverage: {
+            has_data: true,
+            first_position: 10000000,
+            last_end_position: 10650000,
+            ranges_in_window: [],
+            gaps_in_window: [{ start: 10250000, end: 10400000, size: 150000, overlaps_request: true }],
+          },
+          dependencies: [
+            {
+              id: 'beacon_api.blocks',
+              type: 'required',
+              node_type: 'transformation',
+              is_incremental: true,
+              bounds: {
+                has_data: true,
+                min: 9950000,
+                max: 10550000,
+              },
+              gaps: [{ start: 10250000, end: 10450000, size: 200000, overlaps_request: true }],
+              coverage_status: 'has_gaps',
+              blocking: true,
+            },
+          ],
+          validation: {
+            in_bounds: true,
+            has_dependency_gaps: true,
+            valid_range: {
+              min: 9950000,
+              max: 10550000,
+            },
+            blocking_gaps: [
+              {
+                dependency_id: 'beacon_api.blocks',
+                gap: {
+                  start: 10250000,
+                  end: 10450000,
+                  size: 200000,
+                },
+              },
+            ],
+            next_valid_position: 10450000,
+            reasons: [
+              'Dependency beacon_api.blocks has gap from 10250000 to 10450000',
+              'Model has no coverage for position 10250000',
+            ],
+          },
+        },
+        // Mock debug data for clicking on position 10100000 (covered area)
+        'beacon_api.slot_coverage:10100000': {
+          model_id: 'beacon_api.slot_coverage',
+          position: 10100000,
+          interval: 50000,
+          end_position: 10150000,
+          can_process: true,
+          model_coverage: {
+            has_data: true,
+            first_position: 10000000,
+            last_end_position: 10650000,
+            ranges_in_window: [{ position: 10100000, interval: 50000 }],
+          },
+          dependencies: [
+            {
+              id: 'beacon_api.blocks',
+              type: 'required',
+              node_type: 'transformation',
+              is_incremental: true,
+              bounds: {
+                has_data: true,
+                min: 9950000,
+                max: 10550000,
+              },
+              coverage_status: 'full_coverage',
+              blocking: false,
+            },
+          ],
+          validation: {
+            in_bounds: true,
+            has_dependency_gaps: false,
+            valid_range: {
+              min: 9950000,
+              max: 10550000,
+            },
+            reasons: [],
+          },
+        },
+      },
     },
     docs: {
       description: {
-        story: 'Model with sparse coverage showing multiple gaps',
+        story:
+          'Model with sparse coverage showing multiple gaps. Click on coverage bars to see debug information - try clicking on gaps vs covered areas!',
       },
     },
   },

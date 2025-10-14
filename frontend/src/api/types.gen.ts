@@ -306,6 +306,187 @@ export type ScheduledRun = {
 };
 
 /**
+ * Comprehensive debug information for coverage and dependencies at a specific position
+ */
+export type CoverageDebug = {
+  /**
+   * The model being debugged
+   */
+  model_id: string;
+  /**
+   * Position being checked
+   */
+  position: number;
+  /**
+   * Interval size checked
+   */
+  interval: number;
+  /**
+   * End position (position + interval)
+   */
+  end_position?: number;
+  /**
+   * Whether this position can be processed
+   */
+  can_process: boolean;
+  model_coverage: ModelCoverageInfo;
+  /**
+   * Recursive dependency analysis
+   */
+  dependencies: Array<DependencyDebugInfo>;
+  validation: ValidationDebugInfo;
+};
+
+/**
+ * Coverage information for the target model itself
+ */
+export type ModelCoverageInfo = {
+  /**
+   * Whether model has any processed data
+   */
+  has_data: boolean;
+  /**
+   * First processed position
+   */
+  first_position: number;
+  /**
+   * Last processed end position (max(position + interval))
+   */
+  last_end_position: number;
+  /**
+   * Processed ranges overlapping the requested position window
+   */
+  ranges_in_window?: Array<Range>;
+  /**
+   * Gaps detected in the requested position window
+   */
+  gaps_in_window?: Array<GapInfo>;
+};
+
+/**
+ * Debug information for a single dependency
+ */
+export type DependencyDebugInfo = {
+  /**
+   * Dependency model ID
+   */
+  id: string;
+  /**
+   * Dependency type (AND or OR group)
+   */
+  type: 'required' | 'or_group';
+  /**
+   * Type of dependency model
+   */
+  node_type: 'external' | 'transformation';
+  /**
+   * Whether this is an incremental transformation (can have gaps)
+   */
+  is_incremental?: boolean;
+  bounds: BoundsInfo;
+  /**
+   * Gaps found in this dependency for the requested range
+   */
+  gaps?: Array<GapInfo>;
+  /**
+   * Coverage status for the requested position
+   */
+  coverage_status?: 'full_coverage' | 'has_gaps' | 'no_data' | 'not_initialized';
+  /**
+   * Whether this dependency is blocking processing
+   */
+  blocking?: boolean;
+  /**
+   * For OR groups, debug info for each member
+   */
+  or_group_members?: Array<DependencyDebugInfo>;
+  /**
+   * Recursive dependencies of this dependency
+   */
+  child_dependencies?: Array<DependencyDebugInfo>;
+};
+
+/**
+ * Position bounds for a model
+ */
+export type BoundsInfo = {
+  /**
+   * Minimum available position
+   */
+  min: number;
+  /**
+   * Maximum available position (for external) or last processed end (for transformation)
+   */
+  max: number;
+  /**
+   * Whether the model has any data
+   */
+  has_data: boolean;
+  /**
+   * Lag applied to external model (if applicable)
+   */
+  lag_applied?: number;
+};
+
+/**
+ * Information about a gap in coverage
+ */
+export type GapInfo = {
+  /**
+   * Gap start position
+   */
+  start: number;
+  /**
+   * Gap end position
+   */
+  end: number;
+  /**
+   * Gap size in interval units
+   */
+  size: number;
+  /**
+   * Whether this gap overlaps with the requested position range
+   */
+  overlaps_request?: boolean;
+};
+
+/**
+ * Validation results using the same logic as backfill/dependency checking
+ */
+export type ValidationDebugInfo = {
+  /**
+   * Whether position is within valid bounds of all dependencies
+   */
+  in_bounds: boolean;
+  /**
+   * Valid position range calculated from dependencies
+   */
+  valid_range?: {
+    min: number;
+    max: number;
+  };
+  /**
+   * Whether any dependencies have gaps in the requested range
+   */
+  has_dependency_gaps: boolean;
+  /**
+   * List of gaps blocking processing
+   */
+  blocking_gaps?: Array<{
+    dependency_id: string;
+    gap: GapInfo;
+  }>;
+  /**
+   * Next position where dependencies are available (if blocked)
+   */
+  next_valid_position?: number;
+  /**
+   * Human-readable reasons why position cannot be processed
+   */
+  reasons?: Array<string>;
+};
+
+/**
  * A single transformation step for an interval type
  */
 export type IntervalTypeTransformation = {
@@ -731,6 +912,48 @@ export type GetTransformationCoverageResponses = {
 
 export type GetTransformationCoverageResponse =
   GetTransformationCoverageResponses[keyof GetTransformationCoverageResponses];
+
+export type DebugCoverageAtPositionData = {
+  body?: never;
+  path: {
+    /**
+     * Fully qualified model ID (database.table)
+     */
+    id: string;
+    /**
+     * Position to debug
+     */
+    position: number;
+  };
+  query?: never;
+  url: '/models/transformations/{id}/coverage/{position}';
+};
+
+export type DebugCoverageAtPositionErrors = {
+  /**
+   * Model is not incremental type
+   */
+  400: _Error;
+  /**
+   * Resource not found
+   */
+  404: _Error;
+  /**
+   * Internal server error
+   */
+  500: _Error;
+};
+
+export type DebugCoverageAtPositionError = DebugCoverageAtPositionErrors[keyof DebugCoverageAtPositionErrors];
+
+export type DebugCoverageAtPositionResponses = {
+  /**
+   * Detailed coverage debug information
+   */
+  200: CoverageDebug;
+};
+
+export type DebugCoverageAtPositionResponse = DebugCoverageAtPositionResponses[keyof DebugCoverageAtPositionResponses];
 
 export type GetIntervalTypesData = {
   body?: never;

@@ -116,6 +116,24 @@ var (
 		},
 		[]string{"model", "bound_type"}, // bound_type: min, max
 	)
+
+	// BackfillGapsAnalyzed tracks gaps found and analyzed during backfill scans
+	BackfillGapsAnalyzed = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "cbt_backfill_gaps_analyzed_total",
+			Help: "Total number of gaps analyzed during backfill scans",
+		},
+		[]string{"model", "result"}, // result: fillable, blocked, error
+	)
+
+	// BackfillGapCheckLimit tracks when gap check limit is reached
+	BackfillGapCheckLimit = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "cbt_backfill_gap_check_limit_reached_total",
+			Help: "Total number of times the gap check limit was reached",
+		},
+		[]string{"model"},
+	)
 )
 
 // RecordTaskStart records the start of a task
@@ -165,4 +183,14 @@ func RecordScheduledTaskExecution(model, operation, status string) {
 func RecordModelBounds(model string, minBound, maxBound uint64) {
 	ModelBounds.WithLabelValues(model, "min").Set(float64(minBound))
 	ModelBounds.WithLabelValues(model, "max").Set(float64(maxBound))
+}
+
+// RecordBackfillGapAnalysis records gap analysis results during backfill
+func RecordBackfillGapAnalysis(model, result string) {
+	BackfillGapsAnalyzed.WithLabelValues(model, result).Inc()
+}
+
+// RecordBackfillGapCheckLimitReached records when gap check limit is reached
+func RecordBackfillGapCheckLimitReached(model string) {
+	BackfillGapCheckLimit.WithLabelValues(model).Inc()
 }

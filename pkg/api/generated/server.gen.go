@@ -19,6 +19,26 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for DependencyDebugInfoCoverageStatus.
+const (
+	FullCoverage   DependencyDebugInfoCoverageStatus = "full_coverage"
+	HasGaps        DependencyDebugInfoCoverageStatus = "has_gaps"
+	NoData         DependencyDebugInfoCoverageStatus = "no_data"
+	NotInitialized DependencyDebugInfoCoverageStatus = "not_initialized"
+)
+
+// Defines values for DependencyDebugInfoNodeType.
+const (
+	DependencyDebugInfoNodeTypeExternal       DependencyDebugInfoNodeType = "external"
+	DependencyDebugInfoNodeTypeTransformation DependencyDebugInfoNodeType = "transformation"
+)
+
+// Defines values for DependencyDebugInfoType.
+const (
+	OrGroup  DependencyDebugInfoType = "or_group"
+	Required DependencyDebugInfoType = "required"
+)
+
 // Defines values for IntervalTypeTransformationFormat.
 const (
 	Date     IntervalTypeTransformationFormat = "date"
@@ -76,8 +96,8 @@ const (
 
 // Defines values for ListAllModelsParamsType.
 const (
-	ListAllModelsParamsTypeExternal       ListAllModelsParamsType = "external"
-	ListAllModelsParamsTypeTransformation ListAllModelsParamsType = "transformation"
+	External       ListAllModelsParamsType = "external"
+	Transformation ListAllModelsParamsType = "transformation"
 )
 
 // Defines values for ListTransformationsParamsType.
@@ -93,6 +113,48 @@ const (
 	Running ListTransformationsParamsStatus = "running"
 	Success ListTransformationsParamsStatus = "success"
 )
+
+// BoundsInfo Position bounds for a model
+type BoundsInfo struct {
+	// HasData Whether the model has any data
+	HasData bool `json:"has_data"`
+
+	// LagApplied Lag applied to external model (if applicable)
+	LagApplied *int `json:"lag_applied,omitempty"`
+
+	// Max Maximum available position (for external) or last processed end (for transformation)
+	Max int `json:"max"`
+
+	// Min Minimum available position
+	Min int `json:"min"`
+}
+
+// CoverageDebug Comprehensive debug information for coverage and dependencies at a specific position
+type CoverageDebug struct {
+	// CanProcess Whether this position can be processed
+	CanProcess bool `json:"can_process"`
+
+	// Dependencies Recursive dependency analysis
+	Dependencies []DependencyDebugInfo `json:"dependencies"`
+
+	// EndPosition End position (position + interval)
+	EndPosition *int `json:"end_position,omitempty"`
+
+	// Interval Interval size checked
+	Interval int `json:"interval"`
+
+	// ModelCoverage Coverage information for the target model itself
+	ModelCoverage ModelCoverageInfo `json:"model_coverage"`
+
+	// ModelId The model being debugged
+	ModelId string `json:"model_id"`
+
+	// Position Position being checked
+	Position int `json:"position"`
+
+	// Validation Validation results using the same logic as backfill/dependency checking
+	Validation ValidationDebugInfo `json:"validation"`
+}
 
 // CoverageDetail defines model for CoverageDetail.
 type CoverageDetail struct {
@@ -111,6 +173,48 @@ type CoverageSummary struct {
 	// Ranges Processed ranges from admin_incremental table
 	Ranges []Range `json:"ranges"`
 }
+
+// DependencyDebugInfo Debug information for a single dependency
+type DependencyDebugInfo struct {
+	// Blocking Whether this dependency is blocking processing
+	Blocking *bool `json:"blocking,omitempty"`
+
+	// Bounds Position bounds for a model
+	Bounds BoundsInfo `json:"bounds"`
+
+	// ChildDependencies Recursive dependencies of this dependency
+	ChildDependencies *[]DependencyDebugInfo `json:"child_dependencies,omitempty"`
+
+	// CoverageStatus Coverage status for the requested position
+	CoverageStatus *DependencyDebugInfoCoverageStatus `json:"coverage_status,omitempty"`
+
+	// Gaps Gaps found in this dependency for the requested range
+	Gaps *[]GapInfo `json:"gaps,omitempty"`
+
+	// Id Dependency model ID
+	Id string `json:"id"`
+
+	// IsIncremental Whether this is an incremental transformation (can have gaps)
+	IsIncremental *bool `json:"is_incremental,omitempty"`
+
+	// NodeType Type of dependency model
+	NodeType DependencyDebugInfoNodeType `json:"node_type"`
+
+	// OrGroupMembers For OR groups, debug info for each member
+	OrGroupMembers *[]DependencyDebugInfo `json:"or_group_members,omitempty"`
+
+	// Type Dependency type (AND or OR group)
+	Type DependencyDebugInfoType `json:"type"`
+}
+
+// DependencyDebugInfoCoverageStatus Coverage status for the requested position
+type DependencyDebugInfoCoverageStatus string
+
+// DependencyDebugInfoNodeType Type of dependency model
+type DependencyDebugInfoNodeType string
+
+// DependencyDebugInfoType Dependency type (AND or OR group)
+type DependencyDebugInfoType string
 
 // Error defines model for Error.
 type Error struct {
@@ -191,6 +295,21 @@ type ExternalModel struct {
 	Table string `json:"table"`
 }
 
+// GapInfo Information about a gap in coverage
+type GapInfo struct {
+	// End Gap end position
+	End int `json:"end"`
+
+	// OverlapsRequest Whether this gap overlaps with the requested position range
+	OverlapsRequest *bool `json:"overlaps_request,omitempty"`
+
+	// Size Gap size in interval units
+	Size int `json:"size"`
+
+	// Start Gap start position
+	Start int `json:"start"`
+}
+
 // IntervalTypeTransformation A single transformation step for an interval type
 type IntervalTypeTransformation struct {
 	// Expression Optional CEL (Common Expression Language) expression to transform the value.
@@ -220,6 +339,24 @@ type IntervalTypeTransformation struct {
 // - relative: Format as relative time (e.g., "2 hours ago")
 // If omitted, value is displayed as a raw number.
 type IntervalTypeTransformationFormat string
+
+// ModelCoverageInfo Coverage information for the target model itself
+type ModelCoverageInfo struct {
+	// FirstPosition First processed position
+	FirstPosition int `json:"first_position"`
+
+	// GapsInWindow Gaps detected in the requested position window
+	GapsInWindow *[]GapInfo `json:"gaps_in_window,omitempty"`
+
+	// HasData Whether model has any processed data
+	HasData bool `json:"has_data"`
+
+	// LastEndPosition Last processed end position (max(position + interval))
+	LastEndPosition int `json:"last_end_position"`
+
+	// RangesInWindow Processed ranges overlapping the requested position window
+	RangesInWindow *[]Range `json:"ranges_in_window,omitempty"`
+}
 
 // ModelSummary Lightweight model representation for listings
 type ModelSummary struct {
@@ -399,6 +536,35 @@ type TransformationModelBaseMetadataLastRunStatus string
 
 // TransformationModelBaseType Transformation type (scheduled or incremental)
 type TransformationModelBaseType string
+
+// ValidationDebugInfo Validation results using the same logic as backfill/dependency checking
+type ValidationDebugInfo struct {
+	// BlockingGaps List of gaps blocking processing
+	BlockingGaps *[]struct {
+		DependencyId string `json:"dependency_id"`
+
+		// Gap Information about a gap in coverage
+		Gap GapInfo `json:"gap"`
+	} `json:"blocking_gaps,omitempty"`
+
+	// HasDependencyGaps Whether any dependencies have gaps in the requested range
+	HasDependencyGaps bool `json:"has_dependency_gaps"`
+
+	// InBounds Whether position is within valid bounds of all dependencies
+	InBounds bool `json:"in_bounds"`
+
+	// NextValidPosition Next position where dependencies are available (if blocked)
+	NextValidPosition *int `json:"next_valid_position,omitempty"`
+
+	// Reasons Human-readable reasons why position cannot be processed
+	Reasons *[]string `json:"reasons,omitempty"`
+
+	// ValidRange Valid position range calculated from dependencies
+	ValidRange *struct {
+		Max int `json:"max"`
+		Min int `json:"min"`
+	} `json:"valid_range,omitempty"`
+}
 
 // InternalError defines model for InternalError.
 type InternalError = Error
@@ -616,6 +782,9 @@ type ServerInterface interface {
 	// Get transformation coverage by ID
 	// (GET /models/transformations/{id}/coverage)
 	GetTransformationCoverage(c fiber.Ctx, id string) error
+	// Debug coverage and dependency status for a specific position
+	// (GET /models/transformations/{id}/coverage/{position})
+	DebugCoverageAtPosition(c fiber.Ctx, id string, position int) error
 	// Get scheduled transformation run by ID
 	// (GET /models/transformations/{id}/runs)
 	GetScheduledRun(c fiber.Ctx, id string) error
@@ -852,6 +1021,30 @@ func (siw *ServerInterfaceWrapper) GetTransformationCoverage(c fiber.Ctx) error 
 	return siw.Handler.GetTransformationCoverage(c, id)
 }
 
+// DebugCoverageAtPosition operation middleware
+func (siw *ServerInterfaceWrapper) DebugCoverageAtPosition(c fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Params("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter id: %w", err).Error())
+	}
+
+	// ------------- Path parameter "position" -------------
+	var position int
+
+	err = runtime.BindStyledParameterWithOptions("simple", "position", c.Params("position"), &position, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter position: %w", err).Error())
+	}
+
+	return siw.Handler.DebugCoverageAtPosition(c, id, position)
+}
+
 // GetScheduledRun operation middleware
 func (siw *ServerInterfaceWrapper) GetScheduledRun(c fiber.Ctx) error {
 
@@ -911,6 +1104,8 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 
 	router.Get(options.BaseURL+"/models/transformations/:id/coverage", wrapper.GetTransformationCoverage)
 
+	router.Get(options.BaseURL+"/models/transformations/:id/coverage/:position", wrapper.DebugCoverageAtPosition)
+
 	router.Get(options.BaseURL+"/models/transformations/:id/runs", wrapper.GetScheduledRun)
 
 }
@@ -918,66 +1113,90 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"JFdmAqVIAAA=",
+	"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",
+	"AA==",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

@@ -3,6 +3,9 @@
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
 import type {
+  DebugCoverageAtPositionData,
+  DebugCoverageAtPositionErrors,
+  DebugCoverageAtPositionResponses,
   GetExternalBoundsData,
   GetExternalBoundsErrors,
   GetExternalBoundsResponses,
@@ -41,6 +44,8 @@ import type {
   ListTransformationsResponses,
 } from './types.gen';
 import {
+  zDebugCoverageAtPositionData,
+  zDebugCoverageAtPositionResponse,
   zGetExternalBoundsData,
   zGetExternalBoundsResponse,
   zGetExternalModelData,
@@ -86,6 +91,7 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 
 /**
  * List all models (lightweight)
+ *
  * Returns a lightweight list of all models across all types.
  * Use this for navigation, search, or building dependency graphs.
  * For full model details, use type-specific endpoints.
@@ -180,6 +186,7 @@ export const getTransformation = <ThrowOnError extends boolean = false>(
 
 /**
  * List external model bounds
+ *
  * Returns min/max positions from Redis cache for all external models
  */
 export const listExternalBounds = <ThrowOnError extends boolean = false>(
@@ -199,6 +206,7 @@ export const listExternalBounds = <ThrowOnError extends boolean = false>(
 
 /**
  * Get external model bounds by ID
+ *
  * Returns min/max positions and scan metadata from Redis cache
  */
 export const getExternalBounds = <ThrowOnError extends boolean = false>(
@@ -218,6 +226,7 @@ export const getExternalBounds = <ThrowOnError extends boolean = false>(
 
 /**
  * List transformation coverage
+ *
  * Returns processed ranges from admin_incremental table for all incremental transformations
  */
 export const listTransformationCoverage = <ThrowOnError extends boolean = false>(
@@ -241,6 +250,7 @@ export const listTransformationCoverage = <ThrowOnError extends boolean = false>
 
 /**
  * Get transformation coverage by ID
+ *
  * Returns all processed ranges from admin_incremental table
  */
 export const getTransformationCoverage = <ThrowOnError extends boolean = false>(
@@ -263,7 +273,39 @@ export const getTransformationCoverage = <ThrowOnError extends boolean = false>(
 };
 
 /**
+ * Debug coverage and dependency status for a specific position
+ *
+ * Comprehensive debugging endpoint that returns detailed coverage and dependency information
+ * for a specific position. This uses the same validation logic as backfill gap detection
+ * and dependency checking, providing a single source of truth for debugging why a position
+ * cannot be processed.
+ *
+ * Returns:
+ * - Model's own coverage status for the position
+ * - Dependency tree with coverage/bounds for each dependency
+ * - Gap detection results
+ * - Validation results (can process / cannot process + reasons)
+ * - Recursive dependency analysis all the way down
+ *
+ */
+export const debugCoverageAtPosition = <ThrowOnError extends boolean = false>(
+  options: Options<DebugCoverageAtPositionData, ThrowOnError>
+) => {
+  return (options.client ?? client).get<DebugCoverageAtPositionResponses, DebugCoverageAtPositionErrors, ThrowOnError>({
+    requestValidator: async data => {
+      return await zDebugCoverageAtPositionData.parseAsync(data);
+    },
+    responseValidator: async data => {
+      return await zDebugCoverageAtPositionResponse.parseAsync(data);
+    },
+    url: '/models/transformations/{id}/coverage/{position}',
+    ...options,
+  });
+};
+
+/**
  * Get interval type transformations
+ *
  * Returns the configured interval type transformations.
  * Each interval type defines how values can be represented and transformed.
  * For example, 'slot' might transform to 'timestamp' via CEL expression.
@@ -286,6 +328,7 @@ export const getIntervalTypes = <ThrowOnError extends boolean = false>(
 
 /**
  * List scheduled transformation runs
+ *
  * Returns last run timestamps from admin_scheduled table for all scheduled transformations
  */
 export const listScheduledRuns = <ThrowOnError extends boolean = false>(
@@ -305,6 +348,7 @@ export const listScheduledRuns = <ThrowOnError extends boolean = false>(
 
 /**
  * Get scheduled transformation run by ID
+ *
  * Returns last run timestamp from admin_scheduled table
  */
 export const getScheduledRun = <ThrowOnError extends boolean = false>(

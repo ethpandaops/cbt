@@ -98,5 +98,6 @@ interval_types:
   - name: Datetime
     format: datetime
     expression: "value * 1000"
+  - name: Timestamp
   block:
   - name: Block number

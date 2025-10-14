@@ -14,6 +14,7 @@ export interface CoverageBarProps {
   isHighlighted?: boolean;
   onCoverageHover?: (position: number, mouseX: number) => void;
   onCoverageLeave?: () => void;
+  onCoverageClick?: (position: number) => void;
   children?: React.ReactNode;
 }
 
@@ -29,6 +30,7 @@ export function CoverageBar({
   isHighlighted = false,
   onCoverageHover,
   onCoverageLeave,
+  onCoverageClick,
   children,
 }: CoverageBarProps): JSX.Element {
   const range = zoomEnd - zoomStart || 1;
@@ -49,14 +51,27 @@ export function CoverageBar({
     onCoverageLeave?.();
   };
 
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if (!onCoverageClick) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percentX = (x / rect.width) * 100;
+
+    // Convert percent to data position
+    const dataPosition = zoomStart + (percentX / 100) * range;
+    onCoverageClick(Math.floor(dataPosition)); // Pass floor of position for precise API call
+  };
+
   // Scheduled transformations - always available
   if (type === 'scheduled') {
     return (
       <div
-        className={`relative overflow-hidden rounded-sm bg-slate-800/50 ring-1 transition-all ${isHighlighted ? 'ring-indigo-400/60 ring-2' : 'ring-slate-700/30'} ${className}`}
+        className={`relative overflow-hidden rounded-sm bg-slate-800/50 ring-1 transition-all ${isHighlighted ? 'ring-indigo-400/60 ring-2' : 'ring-slate-700/30'} ${className} ${onCoverageClick ? 'cursor-pointer' : ''}`}
         style={{ height: `${height}px` }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       >
         <div className="flex h-full items-center justify-center">
           <span className="text-xs font-medium italic text-slate-500">Always available</span>
@@ -91,10 +106,11 @@ export function CoverageBar({
 
     return (
       <div
-        className={`relative overflow-hidden rounded-sm bg-slate-700 ring-1 transition-all ${isHighlighted ? 'ring-green-500/50 ring-2' : 'ring-slate-600/50'} ${className}`}
+        className={`relative overflow-hidden rounded-sm bg-slate-700 ring-1 transition-all ${isHighlighted ? 'ring-green-500/50 ring-2' : 'ring-slate-600/50'} ${className} ${onCoverageClick ? 'cursor-pointer' : ''}`}
         style={{ height: `${height}px` }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       >
         {/* Render gaps (missing ranges) */}
         {gaps.map((gap, idx) => {
@@ -195,10 +211,11 @@ export function CoverageBar({
 
     return (
       <div
-        className={`relative overflow-hidden rounded-sm bg-slate-700 ring-1 transition-all ${isHighlighted ? 'ring-indigo-400/60 ring-2' : 'ring-slate-600/50'} ${className}`}
+        className={`relative overflow-hidden rounded-sm bg-slate-700 ring-1 transition-all ${isHighlighted ? 'ring-indigo-400/60 ring-2' : 'ring-slate-600/50'} ${className} ${onCoverageClick ? 'cursor-pointer' : ''}`}
         style={{ height: `${height}px` }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       >
         {/* Render gaps (missing ranges) */}
         {gaps.map((gap, idx) => {
@@ -247,10 +264,11 @@ export function CoverageBar({
   // Fallback - empty bar
   return (
     <div
-      className={`relative overflow-hidden rounded-md bg-slate-700 ring-1 transition-all ${isHighlighted ? 'ring-indigo-400/60 ring-2' : 'ring-slate-600/50'} ${className}`}
+      className={`relative overflow-hidden rounded-md bg-slate-700 ring-1 transition-all ${isHighlighted ? 'ring-indigo-400/60 ring-2' : 'ring-slate-600/50'} ${className} ${onCoverageClick ? 'cursor-pointer' : ''}`}
       style={{ height: `${height}px` }}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
     >
       {children && <div className="pointer-events-none absolute inset-0 flex items-center">{children}</div>}
     </div>

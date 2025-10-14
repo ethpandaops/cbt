@@ -149,6 +149,7 @@ func (v *dependencyValidator) ValidateDependencies(
 // 2. For each dependency, it queries for gaps in the requested range [position, position+interval]
 // 3. It collects all gap ends and returns the MAXIMUM (furthest) gap end
 // 4. This ensures we skip to a position where ALL dependencies have data
+// 5. For OR groups, a gap only blocks if ALL members of the OR group have gaps
 //
 // Example with multiple dependencies:
 //
@@ -158,7 +159,16 @@ func (v *dependencyValidator) ValidateDependencies(
 //	- TableB has gap [105-120], next valid = 121
 //	Result: Returns nextValidPos=121 (MAX of 110 and 121)
 //
-// This ensures TableC only processes when both TableA AND TableB have data available.
+// Example with OR group:
+//
+//	TableD depends on TableA and [TableB OR TableC]
+//	At position 100 with interval 50 (checking range [100-150]):
+//	- TableA is OK (no gaps)
+//	- TableB has gap [101-120], next valid = 121
+//	- TableC is OK (no gaps)
+//	Result: Returns nextValidPos=0, hasGaps=false (OR group satisfied by TableC)
+//
+// This ensures processing only when ALL AND dependencies and at least ONE member of each OR group have data.
 func (v *dependencyValidator) checkIncrementalDependencyGaps(
 	ctx context.Context,
 	modelID string,
@@ -180,7 +190,54 @@ func (v *dependencyValidator) checkIncrementalDependencyGaps(
 		return 0, false, nil
 	}
 
-	// Get dependencies from handler
+	// Try to get structured dependencies (with OR group support)
+	type dependencyProvider interface {
+		GetDependencies() []transformation.Dependency
+	}
+
+	depProvider, ok := handler.(dependencyProvider)
+	if !ok {
+		// Fallback to flattened dependencies for backward compatibility
+		return v.checkIncrementalDependencyGapsFlattened(ctx, handler, position, interval)
+	}
+
+	var (
+		endPos     = position + interval
+		maxGapEnd  = uint64(0)
+		hasAnyGaps = false
+	)
+
+	// Iterate through dependencies respecting OR groups
+	dependencies := depProvider.GetDependencies()
+	for _, dep := range dependencies {
+		nextValid, depHasGaps := v.checkDependencyForGaps(ctx, dep, position, endPos)
+		if depHasGaps {
+			hasAnyGaps = true
+			if nextValid > maxGapEnd {
+				maxGapEnd = nextValid
+			}
+		}
+	}
+
+	return maxGapEnd, hasAnyGaps, nil
+}
+
+// checkDependencyForGaps checks a dependency (single or OR group) for gaps
+func (v *dependencyValidator) checkDependencyForGaps(ctx context.Context, dep transformation.Dependency, position, endPos uint64) (uint64, bool) {
+	if dep.IsGroup {
+		// OR group - check if ALL members have gaps
+		return v.checkORGroupGaps(ctx, dep.GroupDeps, position, endPos)
+	}
+	// Single AND dependency - check for gaps
+	return v.checkSingleDependencyGaps(ctx, dep.SingleDep, position, endPos)
+}
+
+// checkIncrementalDependencyGapsFlattened is the fallback method for handlers without structured dependency support
+func (v *dependencyValidator) checkIncrementalDependencyGapsFlattened(
+	ctx context.Context,
+	handler transformation.Handler,
+	position, interval uint64,
+) (nextValidPos uint64, hasGaps bool, err error) {
 	type depProvider interface{ GetFlattenedDependencies() []string }
 	provider, ok := handler.(depProvider)
 	if !ok {
@@ -194,30 +251,10 @@ func (v *dependencyValidator) checkIncrementalDependencyGaps(
 	)
 
 	// Iterate through ALL dependencies to find gaps
-	// We must check every dependency because we need data from all of them
 	for _, depID := range provider.GetFlattenedDependencies() {
-		// Only incremental transformations can have gaps
-		// Scheduled transformations run on time-based schedules and don't have position-based gaps
-		// External models are assumed to have continuous data (gaps handled differently)
-		if !v.isIncrementalTransformation(depID) {
-			continue
-		}
-
-		// Query the admin service for gaps in this dependency's data
-		// FindGaps returns ranges where data is missing between position and endPos
-		gaps, err := v.admin.FindGaps(ctx, depID, position, endPos, 1000)
-		if err != nil {
-			v.log.WithError(err).WithField("dependency_id", depID).Debug("Failed to find gaps in dependency")
-			continue
-		}
-
-		// Process the gaps found for this dependency
-		// processGapsForRange finds the furthest gap end that affects our range
-		nextValid, depHasGaps := v.processGapsForRange(gaps, position, endPos)
+		nextValid, depHasGaps := v.checkSingleDependencyGaps(ctx, depID, position, endPos)
 		if depHasGaps {
 			hasAnyGaps = true
-			// Track the MAXIMUM gap end across ALL dependencies
-			// This ensures we skip to a position where ALL deps have data
 			if nextValid > maxGapEnd {
 				maxGapEnd = nextValid
 			}
@@ -225,6 +262,80 @@ func (v *dependencyValidator) checkIncrementalDependencyGaps(
 	}
 
 	return maxGapEnd, hasAnyGaps, nil
+}
+
+// checkORGroupGaps checks if an OR group has gaps.
+// An OR group only blocks if ALL members have gaps or are unavailable.
+// If ANY member has data, the OR group is satisfied.
+func (v *dependencyValidator) checkORGroupGaps(
+	ctx context.Context,
+	groupDeps []string,
+	position, endPos uint64,
+) (nextValidPos uint64, hasGaps bool) {
+	var (
+		allMembersHaveGaps = true
+		minNextValid       = uint64(0)
+	)
+
+	// Check each member of the OR group
+	for _, depID := range groupDeps {
+		nextValid, depHasGaps := v.checkSingleDependencyGaps(ctx, depID, position, endPos)
+
+		if !depHasGaps {
+			// Found at least one member without gaps - OR group is satisfied
+			return 0, false
+		}
+
+		// This member has gaps, track the earliest next valid position
+		allMembersHaveGaps = true
+		if minNextValid == 0 || nextValid < minNextValid {
+			minNextValid = nextValid
+		}
+	}
+
+	// If all members have gaps, the OR group blocks processing
+	if allMembersHaveGaps {
+		return minNextValid, true
+	}
+
+	return 0, false
+}
+
+// checkSingleDependencyGaps checks a single dependency for gaps
+func (v *dependencyValidator) checkSingleDependencyGaps(
+	ctx context.Context,
+	depID string,
+	position, endPos uint64,
+) (nextValidPos uint64, hasGaps bool) {
+	// Only incremental transformations can have gaps
+	if !v.isIncrementalTransformation(depID) {
+		return 0, false
+	}
+
+	// Get full bounds of the dependency to scan for ALL gaps (same as coordinator)
+	firstPos, err := v.admin.GetFirstPosition(ctx, depID)
+	if err != nil {
+		v.log.WithError(err).WithField("dependency_id", depID).Debug("Failed to get first position")
+		return 0, false
+	}
+
+	lastEndPos, err := v.admin.GetLastProcessedEndPosition(ctx, depID)
+	if err != nil {
+		v.log.WithError(err).WithField("dependency_id", depID).Debug("Failed to get last end position")
+		return 0, false
+	}
+
+	// Query the admin service for ALL gaps across the full range
+	// This prevents false positives when coverage starts before the search window
+	gaps, err := v.admin.FindGaps(ctx, depID, firstPos, lastEndPos, 1000)
+	if err != nil {
+		v.log.WithError(err).WithField("dependency_id", depID).Debug("Failed to find gaps in dependency")
+		return 0, false
+	}
+
+	// Process the gaps found for this dependency, filtering to our requested range
+	nextValid, depHasGaps := v.processGapsForRange(gaps, position, endPos)
+	return nextValid, depHasGaps
 }
 
 // isIncrementalTransformation checks if a dependency is an incremental transformation.

@@ -99,12 +99,55 @@ function RootComponent(): JSX.Element {
           <div className="mx-auto max-w-screen-2xl px-4 py-6 sm:px-6 lg:px-8">
             <div className="flex items-center gap-4 md:gap-6">
               <div className="relative group shrink-0">
-                <div className="absolute inset-0 rounded-2xl bg-linear-to-br from-indigo-500/40 via-purple-500/40 to-pink-500/40 blur-xl transition-all duration-300 group-hover:blur-2xl group-hover:from-indigo-500/50 group-hover:via-purple-500/50 group-hover:to-pink-500/50" />
-                <div className="absolute inset-0 rounded-2xl bg-linear-to-br from-indigo-500/20 to-purple-500/20 blur-sm" />
+                {/* Glass morphism container with Apple-style frosted glass effect */}
+                <div className="absolute inset-0 rounded-2xl bg-white/5 backdrop-blur-xl" />
+
+                {/* Subtle gradient overlay for depth */}
+                <div className="absolute inset-0 rounded-2xl bg-linear-to-br from-white/10 via-transparent to-white/5" />
+
+                {/* Very subtle inner shadow for glass edge effect */}
+                <div
+                  className="absolute inset-0 rounded-2xl shadow-inner"
+                  style={{
+                    boxShadow: 'inset 0 1px 2px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 1px 0 rgba(0, 0, 0, 0.1)',
+                  }}
+                />
+
+                {/* Animated border glimmer container */}
+                <div className="absolute -inset-0.5 rounded-2xl opacity-75 group-hover:opacity-100 transition-opacity">
+                  {/* Rotating conic gradient */}
+                  <div className="glimmer-border absolute inset-0 rounded-2xl" style={{ padding: '2px' }}>
+                    <div className="size-full rounded-2xl bg-slate-900/95" />
+                  </div>
+
+                  {/* Additional glow layer */}
+                  <div
+                    className="absolute inset-0 rounded-2xl bg-linear-to-r from-cyan-500/0 via-purple-500/30 to-pink-500/0 blur-md"
+                    style={{
+                      background:
+                        'linear-gradient(105deg, transparent 40%, rgba(34, 211, 238, 0.3) 50%, transparent 60%)',
+                      backgroundSize: '200% 200%',
+                      animation: 'border-glimmer 3s linear infinite',
+                    }}
+                  />
+                </div>
+
+                {/* Logo image */}
                 <img
                   src={Logo}
-                  className="relative size-12 rounded-2xl object-contain backdrop-blur-sm transition-all duration-300 group-hover:scale-105 sm:size-14 md:size-20"
+                  className="relative size-12 rounded-2xl object-contain transition-all duration-500 group-hover:scale-105 sm:size-14 md:size-20"
                   alt="Logo"
+                />
+
+                {/* Extra shimmer highlight */}
+                <div
+                  className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                  style={{
+                    background:
+                      'linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.1) 50%, transparent 60%)',
+                    backgroundSize: '200% 200%',
+                    animation: 'border-glimmer 2s linear infinite',
+                  }}
                 />
               </div>
               <div className="flex min-w-0 flex-1 items-center justify-between gap-4">
