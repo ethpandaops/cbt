@@ -13,7 +13,7 @@ import { Tooltip } from 'react-tooltip';
 import { ModelCoverageRow } from './ModelCoverageRow';
 import { ZoomControls } from './ZoomControls';
 import { CoverageTooltip } from './CoverageTooltip';
-import { LoadingState } from './shared/LoadingState';
+import { IncrementalModelsSectionSkeleton } from './IncrementalModelsSectionSkeleton';
 import { ErrorState } from './shared/ErrorState';
 import { TransformationSelector } from './shared/TransformationSelector';
 import { ZoomPresets } from './ZoomPresets';
@@ -88,7 +88,7 @@ export function IncrementalModelsSection({ zoomRanges, onZoomChange }: Increment
   const error = incrementalTransformations.error || coverage.error || externalModels.error || bounds.error;
 
   if (isLoading) {
-    return <LoadingState />;
+    return <IncrementalModelsSectionSkeleton />;
   }
 
   if (error) {

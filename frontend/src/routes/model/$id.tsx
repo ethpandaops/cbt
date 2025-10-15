@@ -11,11 +11,12 @@ import {
   listTransformationsOptions,
   getIntervalTypesOptions,
 } from '@api/@tanstack/react-query.gen';
-import { ArrowPathIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { XCircleIcon } from '@heroicons/react/24/outline';
 import { BackToDashboardButton } from '@/components/BackToDashboardButton';
 import { ModelHeader } from '@/components/ModelHeader';
 import { ModelInfoCard, type InfoField } from '@/components/ModelInfoCard';
 import { ModelDetailView } from '@/components/ModelDetailView';
+import { ModelSkeleton } from '@/components/ModelSkeleton';
 import { SQLCodeBlock } from '@/components/SQLCodeBlock';
 import { timeAgo } from '@/utils/time';
 
@@ -59,12 +60,7 @@ function ModelDetailComponent(): JSX.Element {
   });
 
   if (allModels.isLoading) {
-    return (
-      <div className="flex items-center gap-3 text-slate-400">
-        <ArrowPathIcon className="h-5 w-5 animate-spin" />
-        <span>Loading...</span>
-      </div>
-    );
+    return <ModelSkeleton />;
   }
 
   if (!model) {
@@ -80,12 +76,7 @@ function ModelDetailComponent(): JSX.Element {
 
   if (model.type === 'external') {
     if (externalModel.isLoading || externalBounds.isLoading) {
-      return (
-        <div className="flex items-center gap-3 text-slate-400">
-          <ArrowPathIcon className="h-5 w-5 animate-spin" />
-          <span>Loading external model details...</span>
-        </div>
-      );
+      return <ModelSkeleton />;
     }
 
     const bounds = externalBounds.data;
@@ -124,17 +115,17 @@ function ModelDetailComponent(): JSX.Element {
   }
 
   // Transformation model
-  if (transformationModel.isLoading || coverage.isLoading) {
-    return (
-      <div className="flex items-center gap-3 text-slate-400">
-        <ArrowPathIcon className="h-5 w-5 animate-spin" />
-        <span>Loading transformation model details...</span>
-      </div>
-    );
-  }
-
   const transformation = transformationModel.data;
   const isIncremental = transformation?.type === 'incremental';
+
+  // Check if transformation model is still loading - show skeleton to prevent flash
+  if (
+    transformationModel.isLoading ||
+    (isIncremental &&
+      (coverage.isLoading || allBounds.isLoading || allTransformations.isLoading || intervalTypes.isLoading))
+  ) {
+    return <ModelSkeleton />;
+  }
 
   if (!isIncremental) {
     // Scheduled transformation - no coverage

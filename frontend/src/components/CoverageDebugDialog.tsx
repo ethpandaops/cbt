@@ -119,8 +119,97 @@ export function CoverageDebugDialog({
 
             {/* Content */}
             {isLoading ? (
-              <div className="flex h-48 items-center justify-center sm:h-64">
-                <div className="size-12 animate-spin rounded-full border-4 border-slate-600 border-t-indigo-500" />
+              <div className="space-y-4 sm:space-y-6">
+                {/* Summary Card */}
+                <div className="rounded-lg bg-slate-800/50 p-3 sm:p-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+                    {[1, 2, 3, 4].map(i => (
+                      <div key={i} className="space-y-1">
+                        <div className="h-3 w-20 animate-shimmer rounded-xs bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                        <div className="h-5 w-full animate-shimmer rounded-xs bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Model Coverage & Validation */}
+                <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
+                  {/* Model Coverage */}
+                  <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-3 sm:p-4">
+                    <div className="mb-3 h-5 w-32 animate-shimmer rounded-sm bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                    <div className="space-y-3">
+                      {[1, 2, 3].map(i => (
+                        <div key={i} className="space-y-1">
+                          <div className="h-3 w-24 animate-shimmer rounded-xs bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                          <div className="h-4 w-full animate-shimmer rounded-xs bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                        </div>
+                      ))}
+                    </div>
+                    {/* Gaps section */}
+                    <div className="mt-4">
+                      <div className="mb-2 h-4 w-28 animate-shimmer rounded-xs bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                      <div className="space-y-1">
+                        {[1, 2].map(i => (
+                          <div
+                            key={i}
+                            className="h-6 w-full animate-shimmer rounded-xs bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Validation */}
+                  <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-3 sm:p-4">
+                    <div className="mb-3 h-5 w-36 animate-shimmer rounded-sm bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                    <div className="space-y-4">
+                      {[1, 2, 3].map(i => (
+                        <div key={i} className="space-y-1">
+                          <div className="h-3 w-20 animate-shimmer rounded-xs bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                          <div className="h-4 w-16 animate-shimmer rounded-xs bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                        </div>
+                      ))}
+                    </div>
+                    {/* Reasons section */}
+                    <div className="mt-4">
+                      <div className="mb-2 h-4 w-20 animate-shimmer rounded-xs bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                      <div className="space-y-1">
+                        {[1, 2, 3].map(i => (
+                          <div
+                            key={i}
+                            className="h-5 w-full animate-shimmer rounded-xs bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dependencies */}
+                <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-3 sm:p-4">
+                  <div className="mb-3 h-5 w-28 animate-shimmer rounded-sm bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                  <div className="space-y-3">
+                    {[1, 2, 3].map(i => (
+                      <div key={i} className="rounded-lg bg-slate-800/40 p-2 sm:p-3">
+                        <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="h-4 w-48 animate-shimmer rounded-xs bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                            <div className="h-5 w-20 animate-shimmer rounded-full bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                          </div>
+                          <div className="h-4 w-24 animate-shimmer rounded-xs bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]" />
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+                          {[1, 2, 3].map(j => (
+                            <div
+                              key={j}
+                              className="h-4 w-full animate-shimmer rounded-xs bg-linear-to-r from-slate-700 via-slate-600 to-slate-700 bg-[length:200%_100%]"
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             ) : error ? (
               <div className="rounded-lg bg-red-500/10 p-3 sm:p-4">

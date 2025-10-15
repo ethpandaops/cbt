@@ -7,6 +7,7 @@
   --animate-glow-orbit-medium: glow-orbit-medium 20s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   --animate-glow-orbit-fast: glow-orbit-fast 15s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   --animate-soft-glow: soft-glow 6s ease-in-out infinite;
+  --animate-shimmer: shimmer 2s ease-in-out infinite;
 }
 
 @keyframes border-glimmer {
@@ -127,5 +128,14 @@
   50% {
     opacity: 0.2;
     filter: blur(20px);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
   }
 }

@@ -2,7 +2,7 @@ import { type JSX, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listTransformationsOptions, listScheduledRunsOptions } from '@api/@tanstack/react-query.gen';
 import { ScheduledTransformationRow } from './ScheduledTransformationRow';
-import { LoadingState } from './shared/LoadingState';
+import { ScheduledTransformationsSectionSkeleton } from './ScheduledTransformationsSectionSkeleton';
 import { ErrorState } from './shared/ErrorState';
 import { getOrderedDependencies } from '@utils/dependency-resolver';
 import type { DependencyWithOrGroups } from '@utils/dependency-resolver';
@@ -21,7 +21,7 @@ export function ScheduledTransformationsSection(): JSX.Element {
   const runs = useQuery(listScheduledRunsOptions());
 
   if (allTransformations.isLoading || runs.isLoading) {
-    return <LoadingState />;
+    return <ScheduledTransformationsSectionSkeleton />;
   }
 
   if (scheduledTransformations.error || runs.error) {
