@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CoverageDebugDialog } from '@/components/CoverageDebugDialog';
-import { debugCoverageAtPositionQueryKey } from '@api/@tanstack/react-query.gen';
-import type { CoverageDebug } from '@api/types.gen';
+import { debugCoverageAtPositionQueryKey, getIntervalTypesQueryKey } from '@api/@tanstack/react-query.gen';
+import type { CoverageDebug, GetIntervalTypesResponse } from '@api/types.gen';
 
 const meta = {
   title: 'Components/CoverageDebugDialog',
@@ -55,6 +55,24 @@ const meta = {
           storyParams.mockDebugData
         );
       }
+
+      // Set mock interval types data
+      const mockIntervalTypes: GetIntervalTypesResponse = {
+        interval_types: {
+          slot: [
+            {
+              name: 'Slot',
+            },
+            {
+              name: 'Date',
+              format: 'datetime',
+              expression: 'value * 12 + 1606824023',
+            },
+          ],
+        },
+      };
+
+      queryClient.setQueryData(getIntervalTypesQueryKey(), mockIntervalTypes);
 
       return (
         <QueryClientProvider client={queryClient}>
@@ -286,6 +304,7 @@ export const CannotProcess: Story = {
     onClose: () => console.log('Close dialog'),
     modelId: 'analytics.entity_network_effects_or_test',
     position: 1760421480,
+    intervalType: 'slot',
   },
   parameters: {
     mockDebugData: mockDebugDataCannotProcess,
@@ -298,6 +317,7 @@ export const CanProcess: Story = {
     onClose: () => console.log('Close dialog'),
     modelId: 'analytics.successful_model',
     position: 1760400000,
+    intervalType: 'slot',
   },
   parameters: {
     mockDebugData: mockDebugDataCanProcess,
@@ -310,6 +330,7 @@ export const WithOrGroups: Story = {
     onClose: () => console.log('Close dialog'),
     modelId: 'analytics.or_group_model',
     position: 1760410000,
+    intervalType: 'slot',
   },
   parameters: {
     mockDebugData: mockDebugDataWithOrGroups,
@@ -322,6 +343,7 @@ export const NoData: Story = {
     onClose: () => console.log('Close dialog'),
     modelId: 'analytics.empty_model',
     position: 1760300000,
+    intervalType: 'slot',
   },
   parameters: {
     mockDebugData: mockDebugDataNoData,
@@ -334,8 +356,89 @@ export const Closed: Story = {
     onClose: () => console.log('Close dialog'),
     modelId: 'analytics.test_model',
     position: 1760400000,
+    intervalType: 'slot',
   },
   parameters: {
     mockDebugData: mockDebugDataCanProcess,
+  },
+};
+
+export const MobileView: Story = {
+  args: {
+    isOpen: true,
+    onClose: () => console.log('Close dialog'),
+    modelId: 'analytics.entity_network_effects_or_test',
+    position: 1760421480,
+    intervalType: 'slot',
+  },
+  parameters: {
+    mockDebugData: mockDebugDataCannotProcess,
+    viewport: {
+      defaultViewport: 'mobile1',
+    },
+  },
+};
+
+const mockDebugDataManyRanges: CoverageDebug = {
+  model_id: 'analytics.many_ranges_model',
+  position: 1760400000,
+  interval: 60,
+  end_position: 1760400060,
+  can_process: true,
+  model_coverage: {
+    has_data: true,
+    first_position: 1760399556,
+    last_end_position: 1760415038,
+    ranges_in_window: [
+      { position: 1760399900, interval: 60 },
+      { position: 1760399960, interval: 60 },
+      { position: 1760400020, interval: 60 },
+      { position: 1760400080, interval: 60 },
+      { position: 1760400140, interval: 60 },
+      { position: 1760400200, interval: 60 },
+      { position: 1760400260, interval: 60 },
+      { position: 1760400320, interval: 60 },
+      { position: 1760400380, interval: 60 },
+      { position: 1760400440, interval: 60 },
+    ],
+    gaps_in_window: [],
+  },
+  dependencies: [
+    {
+      id: 'analytics.source_model',
+      type: 'required',
+      node_type: 'transformation',
+      is_incremental: true,
+      bounds: {
+        has_data: true,
+        min: 1760390000,
+        max: 1760420000,
+      },
+      gaps: [],
+      coverage_status: 'full_coverage',
+      blocking: false,
+    },
+  ],
+  validation: {
+    in_bounds: true,
+    has_dependency_gaps: false,
+    valid_range: {
+      min: 1760390000,
+      max: 1760420000,
+    },
+    reasons: [],
+  },
+};
+
+export const ManyRanges: Story = {
+  args: {
+    isOpen: true,
+    onClose: () => console.log('Close dialog'),
+    modelId: 'analytics.many_ranges_model',
+    position: 1760400000,
+    intervalType: 'slot',
+  },
+  parameters: {
+    mockDebugData: mockDebugDataManyRanges,
   },
 };

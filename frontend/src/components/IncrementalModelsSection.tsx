@@ -25,6 +25,7 @@ import {
   getZoomInScale,
   getZoomOutScale,
 } from '@utils/zoom-helpers';
+import { useTransformationSelection } from '@hooks/useTransformationSelection';
 
 interface IncrementalModelsSectionProps {
   zoomRanges: ZoomRanges;
@@ -39,11 +40,11 @@ export function IncrementalModelsSection({ zoomRanges, onZoomChange }: Increment
     mouseX: number;
     intervalType: string;
   } | null>(null);
-  // Track selected transformation index for each interval type
-  const [selectedTransformations, setSelectedTransformations] = useState<Record<string, number>>({});
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   // Track previous max values to detect when max increases
   const prevMaxValues = useRef<Map<string, number>>(new Map());
+  // Persistent transformation selection hook
+  const { getSelectedIndex, setSelectedIndex } = useTransformationSelection();
 
   // Memoize coverage hover handler to prevent creating new objects on every mousemove
   const handleCoverageHover = useCallback((modelId: string, position: number, mouseX: number, intervalType: string) => {
@@ -204,7 +205,7 @@ export function IncrementalModelsSection({ zoomRanges, onZoomChange }: Increment
 
         // Get available transformations for this interval type
         const transformations = intervalTypes.data?.interval_types?.[intervalType] || [];
-        const selectedTransformationIndex = selectedTransformations[intervalType] ?? 0;
+        const selectedTransformationIndex = getSelectedIndex(intervalType, transformations);
         const currentTransformation: IntervalTypeTransformation | undefined =
           transformations[selectedTransformationIndex];
 
@@ -293,12 +294,7 @@ export function IncrementalModelsSection({ zoomRanges, onZoomChange }: Increment
                     <TransformationSelector
                       transformations={transformations}
                       selectedIndex={selectedTransformationIndex}
-                      onSelect={index =>
-                        setSelectedTransformations(prev => ({
-                          ...prev,
-                          [intervalType]: index,
-                        }))
-                      }
+                      onSelect={index => setSelectedIndex(intervalType, index)}
                     />
                   </div>
                   <ZoomPresets

@@ -6,12 +6,14 @@ export interface TransformationSelectorProps {
   transformations: IntervalTypeTransformation[];
   selectedIndex: number;
   onSelect: (index: number) => void;
+  compact?: boolean;
 }
 
 export function TransformationSelector({
   transformations,
   selectedIndex,
   onSelect,
+  compact = false,
 }: TransformationSelectorProps): JSX.Element | null {
   // Only render if there are 2+ transformations
   if (transformations.length < 2) {
@@ -20,7 +22,13 @@ export function TransformationSelector({
 
   return (
     <TabGroup selectedIndex={selectedIndex} onChange={onSelect}>
-      <TabList className="flex flex-wrap gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50">
+      <TabList
+        className={
+          compact
+            ? 'inline-flex w-full flex-wrap gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50 sm:w-auto'
+            : 'flex flex-wrap gap-1 rounded-lg bg-slate-900/60 p-1 ring-1 ring-slate-700/50'
+        }
+      >
         {transformations.map((transformation, index) => (
           <Tab
             key={index}

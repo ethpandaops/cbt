@@ -17,7 +17,7 @@ export default defineConfig({
     tailwindcss(),
     react(),
     visualizer({
-      open: true,
+      open: false,
       gzipSize: true,
       brotliSize: true,
       filename: 'build/stats.html',
