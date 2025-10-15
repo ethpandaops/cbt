@@ -396,7 +396,12 @@ func (s *service) isGapFillable(ctx context.Context, trans models.Transformation
 	var intervalToUse uint64
 	switch {
 	case minInterval == 0:
-		intervalToUse = gapSize
+		// If min interval is 0, use gap size but cap at maxInterval
+		if gapSize > maxInterval {
+			intervalToUse = maxInterval
+		} else {
+			intervalToUse = gapSize
+		}
 	case gapSize < minInterval:
 		intervalToUse = minInterval
 	case gapSize < maxInterval:
@@ -462,8 +467,19 @@ func (s *service) processSingleGap(ctx context.Context, trans models.Transformat
 	var intervalToUse uint64
 	switch {
 	case minInterval == 0:
-		// If min interval is 0, use the exact gap size
-		intervalToUse = gapSize
+		// If min interval is 0, use gap size but cap at maxInterval
+		if gapSize > maxInterval {
+			intervalToUse = maxInterval
+			s.log.WithFields(logrus.Fields{
+				"model_id":          trans.GetID(),
+				"gap_index":         gapIndex,
+				"gap_size":          gapSize,
+				"max_interval":      maxInterval,
+				"adjusted_interval": intervalToUse,
+			}).Debug("Capped interval at max for large gap (min interval is 0)")
+		} else {
+			intervalToUse = gapSize
+		}
 	case gapSize < minInterval:
 		// If gap is smaller than min interval, use min interval (may overlap)
 		intervalToUse = minInterval

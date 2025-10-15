@@ -584,20 +584,28 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 		"interval":  rangeResult.EndPos - rangeResult.StartPos,
 	}).Debug("Consolidating admin table rows")
 
-	// Insert the consolidated row FIRST to avoid gaps
+	// Capture timestamp for the consolidated row before insertion
+	// This allows us to delete all older rows using timestamp comparison
+	consolidationTime := time.Now().UTC()
 	consolidatedInterval := rangeResult.EndPos - rangeResult.StartPos
+
+	// Insert the consolidated row FIRST to avoid gaps
+	// Use explicit timestamp to ensure we can reliably delete older rows
 	insertQuery := fmt.Sprintf(`
 		INSERT INTO `+"`%s`.`%s`"+` (updated_date_time, database, table, position, interval)
-		VALUES (now(), '%s', '%s', %d, %d)
-	`, a.adminDatabase, a.adminTable, database, table, rangeResult.StartPos, consolidatedInterval)
+		VALUES ('%s', '%s', '%s', %d, %d)
+	`, a.adminDatabase, a.adminTable, consolidationTime.Format("2006-01-02 15:04:05.000"),
+		database, table, rangeResult.StartPos, consolidatedInterval)
 
 	if _, err := a.client.Execute(ctx, insertQuery); err != nil {
 		return 0, fmt.Errorf("failed to insert consolidated row: %w", err)
 	}
 
-	// Delete old rows EXCEPT the consolidated row we just inserted
-	// This ensures we don't create gaps and don't delete our new row
-	// Use lazy DELETE and handle cluster mode if configured
+	// Delete old rows using timestamp comparison
+	// This is more robust than excluding by position+interval since it:
+	// 1. Leverages the ReplacingMergeTree version column semantically
+	// 2. Handles concurrent consolidations safely
+	// 3. Protects against accidentally deleting the new consolidated row
 	var deleteQuery string
 	if a.cluster != "" {
 		// Cluster mode: use local suffix and ON CLUSTER
@@ -605,20 +613,20 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 			DELETE FROM `+"`%s`.`%s%s`"+` ON CLUSTER '%s'
 			WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position < %d
-			  AND NOT (position = %d AND interval = %d)
+			  AND updated_date_time < '%s'
 		`, a.adminDatabase, a.adminTable, a.localSuffix, a.cluster,
 			database, table, rangeResult.StartPos, rangeResult.EndPos,
-			rangeResult.StartPos, consolidatedInterval)
+			consolidationTime.Format("2006-01-02 15:04:05.000"))
 	} else {
 		// Non-cluster mode: simple DELETE
 		deleteQuery = fmt.Sprintf(`
 			DELETE FROM `+"`%s`.`%s`"+`
 			WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position < %d
-			  AND NOT (position = %d AND interval = %d)
+			  AND updated_date_time < '%s'
 		`, a.adminDatabase, a.adminTable,
 			database, table, rangeResult.StartPos, rangeResult.EndPos,
-			rangeResult.StartPos, consolidatedInterval)
+			consolidationTime.Format("2006-01-02 15:04:05.000"))
 	}
 
 	if _, err := a.client.Execute(ctx, deleteQuery); err != nil {
