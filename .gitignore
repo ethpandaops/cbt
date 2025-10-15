@@ -56,3 +56,6 @@ coverage.out
 
 # Python
 __pycache__
+
+# Playwright
+.playwright-mcp

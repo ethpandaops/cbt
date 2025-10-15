@@ -1,5 +1,5 @@
 import { type JSX } from 'react';
-import { ZOOM_PRESETS } from './zoom-presets-config';
+import { ZOOM_PRESETS } from '@utils/zoom-presets-config';
 
 export interface ZoomPresetsProps {
   activePreset?: 'all' | 'fit' | 'zoom-out' | 'zoom-in' | null;
