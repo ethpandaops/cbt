@@ -40,11 +40,11 @@ export function DependencyRow({
 }: DependencyRowProps): JSX.Element {
   return (
     <div data-model-id={dependencyId}>
-      <div className="mb-1.5 flex items-center gap-2">
+      <div className="mb-1.5 flex min-w-0 items-center gap-2">
         <Link
           to="/model/$id"
           params={{ id: encodeURIComponent(dependencyId) }}
-          className="font-mono text-xs font-semibold text-slate-300 transition-colors hover:text-indigo-400 hover:underline"
+          className="min-w-0 flex-1 truncate font-mono text-xs font-semibold text-slate-300 transition-colors hover:text-indigo-400 hover:underline"
         >
           {dependencyId}
         </Link>

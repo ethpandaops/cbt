@@ -17,7 +17,7 @@ export default defineConfig({
     tailwindcss(),
     react(),
     visualizer({
-      open: true,
+      open: false,
       gzipSize: true,
       brotliSize: true,
       filename: 'build/stats.html',
@@ -29,9 +29,9 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://cbt.sepolia.ethpandaops.io',
+        target: 'http://localhost:8080',
         changeOrigin: true,
-        secure: true,
+        secure: false,
       },
     },
   },

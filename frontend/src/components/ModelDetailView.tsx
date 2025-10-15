@@ -438,7 +438,7 @@ export function ModelDetailView({
         {/* Main model coverage */}
         <div className="mb-6" data-model-id={decodedId}>
           <div className="mb-2">
-            <span className="truncate font-mono text-xs font-bold text-slate-200 sm:text-sm">{decodedId}</span>
+            <p className="truncate font-mono text-xs font-bold text-slate-200 sm:text-sm">{decodedId}</p>
           </div>
           <CoverageBar
             ranges={modelCoverage?.ranges}
@@ -449,7 +449,10 @@ export function ModelDetailView({
             transformation={currentTransformation}
             onCoverageHover={(position, mouseX) => setHoveredCoverage({ modelId: decodedId, position, mouseX })}
             onCoverageLeave={() => setHoveredCoverage(null)}
-            onCoverageClick={position => setDebugPosition({ modelId: decodedId, position })}
+            onCoverageClick={position => {
+              setHoveredCoverage(null);
+              setDebugPosition({ modelId: decodedId, position });
+            }}
           />
         </div>
 

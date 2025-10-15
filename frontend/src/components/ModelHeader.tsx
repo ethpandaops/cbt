@@ -10,14 +10,16 @@ export function ModelHeader({ modelId, modelType }: ModelHeaderProps): JSX.Eleme
   const config = MODEL_TYPE_CONFIG[modelType];
 
   return (
-    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:gap-4">
-      <h1
-        className={`bg-linear-to-r ${config.gradient} bg-clip-text text-2xl font-black tracking-tight text-transparent sm:text-3xl lg:text-4xl`}
-      >
-        {modelId}
+    <div className="mb-6 flex min-w-0 items-center gap-4">
+      <h1 className="min-w-0 flex-1">
+        <span
+          className={`block overflow-hidden text-ellipsis whitespace-nowrap bg-linear-to-r ${config.gradient} bg-clip-text text-xl font-black tracking-tight text-transparent sm:text-2xl lg:text-3xl`}
+        >
+          {modelId}
+        </span>
       </h1>
       <span
-        className={`w-fit rounded-full ${config.badgeBg} px-3 py-1 text-xs font-bold ${config.badgeText} ring-1 ${config.badgeRing}`}
+        className={`hidden shrink-0 rounded-full ${config.badgeBg} px-3 py-1 text-xs font-bold ${config.badgeText} ring-1 ${config.badgeRing} sm:inline-block`}
       >
         {config.label}
       </span>
