@@ -16,6 +16,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import dagre from '@dagrejs/dagre';
 import { ExternalNode, TransformationNode, ScheduledNode } from './DagNode';
+import { useDagLayoutDirection } from '@hooks/useDagLayoutDirection';
 import '@xyflow/react/dist/style.css';
 
 const dagNodeTypes = {
@@ -50,7 +51,7 @@ export interface DagGraphProps {
 function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps): JSX.Element {
   const navigate = useNavigate();
   const { fitView } = useReactFlow();
-  const [layoutDirection, setLayoutDirection] = useState<'TB' | 'LR' | 'RL'>('TB');
+  const { layoutDirection, setLayoutDirection } = useDagLayoutDirection();
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [isSearchFocused, setIsSearchFocused] = useState(false);

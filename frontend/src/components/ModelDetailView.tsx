@@ -28,6 +28,7 @@ import {
   getZoomInScale,
   getZoomOutScale,
 } from '@utils/zoom-helpers';
+import { useTransformationSelection } from '@hooks/useTransformationSelection';
 
 export interface ModelDetailViewProps {
   decodedId: string;
@@ -46,7 +47,6 @@ export function ModelDetailView({
   allTransformations,
   intervalTypes,
 }: ModelDetailViewProps): JSX.Element {
-  const [selectedTransformationIndex, setSelectedTransformationIndex] = useState(0);
   const [hoveredCoverage, setHoveredCoverage] = useState<{ modelId: string; position: number; mouseX: number } | null>(
     null
   );
@@ -56,6 +56,8 @@ export function ModelDetailView({
   const [fitViewTrigger, setFitViewTrigger] = useState(0);
   const [debugPosition, setDebugPosition] = useState<{ modelId: string; position: number } | null>(null);
   const sectionRef = useRef<HTMLDivElement>(null);
+  // Persistent transformation selection hook
+  const { getSelectedIndex, setSelectedIndex } = useTransformationSelection();
 
   // Handle escape key to exit fullscreen
   useEffect(() => {
@@ -274,6 +276,7 @@ export function ModelDetailView({
 
   const intervalType = transformation?.interval?.type || 'unknown';
   const transformations = intervalTypes.data?.interval_types?.[intervalType] || [];
+  const selectedTransformationIndex = getSelectedIndex(intervalType, transformations);
   const currentTransformation: IntervalTypeTransformation | undefined = transformations[selectedTransformationIndex];
 
   const infoFields: InfoField[] = [
@@ -370,7 +373,7 @@ export function ModelDetailView({
               <TransformationSelector
                 transformations={transformations}
                 selectedIndex={selectedTransformationIndex}
-                onSelect={setSelectedTransformationIndex}
+                onSelect={index => setSelectedIndex(intervalType, index)}
               />
             </div>
             <ZoomPresets
@@ -562,6 +565,7 @@ export function ModelDetailView({
           onClose={() => setDebugPosition(null)}
           modelId={debugPosition.modelId}
           position={debugPosition.position}
+          intervalType={intervalType}
         />
       )}
     </div>

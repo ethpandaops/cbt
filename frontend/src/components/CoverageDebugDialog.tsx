@@ -3,22 +3,50 @@ import { Dialog, Transition } from '@headlessui/react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { XMarkIcon, CheckCircleIcon, XCircleIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline';
-import type { DependencyDebugInfo, GapInfo, Range } from '@api/types.gen';
-import { debugCoverageAtPositionOptions } from '@api/@tanstack/react-query.gen';
+import type { DependencyDebugInfo, GapInfo, Range, IntervalTypeTransformation } from '@api/types.gen';
+import { debugCoverageAtPositionOptions, getIntervalTypesOptions } from '@api/@tanstack/react-query.gen';
+import { transformValue, formatValue } from '@utils/interval-transform';
+import { TransformationSelector } from './shared/TransformationSelector';
+import { useTransformationSelection } from '@hooks/useTransformationSelection';
 
 interface CoverageDebugDialogProps {
   isOpen: boolean;
   onClose: () => void;
   modelId: string;
   position: number;
+  intervalType: string;
 }
 
-export function CoverageDebugDialog({ isOpen, onClose, modelId, position }: CoverageDebugDialogProps): JSX.Element {
+export function CoverageDebugDialog({
+  isOpen,
+  onClose,
+  modelId,
+  position,
+  intervalType,
+}: CoverageDebugDialogProps): JSX.Element {
   // Fetch debug data using TanStack Query generated options
   const { data, isLoading, error } = useQuery({
     ...debugCoverageAtPositionOptions({ path: { id: modelId, position } }),
     enabled: isOpen,
   });
+
+  // Fetch interval types
+  const intervalTypes = useQuery(getIntervalTypesOptions());
+
+  // Persistent transformation selection hook
+  const { getSelectedIndex, setSelectedIndex } = useTransformationSelection();
+
+  // Get available transformations for this interval type
+  const transformations = intervalTypes.data?.interval_types?.[intervalType] || [];
+  const selectedTransformationIndex = getSelectedIndex(intervalType, transformations);
+  const transformation: IntervalTypeTransformation | undefined = transformations[selectedTransformationIndex];
+
+  // Helper function to format values using the transformation
+  const formatDisplayValue = (value: number): string => {
+    if (!transformation) return value.toLocaleString();
+    const transformed = transformValue(value, transformation);
+    return formatValue(transformed, transformation.format);
+  };
 
   return (
     <Transition appear show={isOpen} as={Fragment}>
@@ -48,16 +76,25 @@ export function CoverageDebugDialog({ isOpen, onClose, modelId, position }: Cove
             >
               <Dialog.Panel className="w-full max-w-6xl transform overflow-hidden rounded-2xl bg-slate-900/95 p-6 text-left align-middle shadow-xl transition-all ring-1 ring-slate-700/50">
                 {/* Header */}
-                <div className="mb-6 flex items-center justify-between">
-                  <Dialog.Title as="h3" className="text-lg font-semibold text-slate-100">
-                    Coverage Debug Analysis
-                  </Dialog.Title>
-                  <button
-                    onClick={onClose}
-                    className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
-                  >
-                    <XMarkIcon className="size-5" />
-                  </button>
+                <div className="mb-6 flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <Dialog.Title as="h3" className="text-lg font-semibold text-slate-100">
+                      Coverage Debug Analysis
+                    </Dialog.Title>
+                    <button
+                      onClick={onClose}
+                      className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+                    >
+                      <XMarkIcon className="size-5" />
+                    </button>
+                  </div>
+                  {transformations.length > 0 && (
+                    <TransformationSelector
+                      transformations={transformations}
+                      selectedIndex={selectedTransformationIndex}
+                      onSelect={index => setSelectedIndex(intervalType, index)}
+                    />
+                  )}
                 </div>
 
                 {/* Content */}
@@ -86,11 +123,13 @@ export function CoverageDebugDialog({ isOpen, onClose, modelId, position }: Cove
                         </div>
                         <div>
                           <p className="text-xs text-slate-400">Position</p>
-                          <p className="mt-1 font-mono text-sm text-slate-200">{position}</p>
+                          <p className="mt-1 font-mono text-sm text-slate-200">{formatDisplayValue(position)}</p>
                         </div>
                         <div>
                           <p className="text-xs text-slate-400">Interval</p>
-                          <p className="mt-1 font-mono text-sm text-slate-200">{data.interval}</p>
+                          <p className="mt-1 font-mono text-sm text-slate-200">
+                            {transformation?.name || data.interval}
+                          </p>
                         </div>
                         <div>
                           <p className="text-xs text-slate-400">Status</p>
@@ -130,7 +169,7 @@ export function CoverageDebugDialog({ isOpen, onClose, modelId, position }: Cove
                             <div>
                               <p className="text-xs text-slate-400">First Position</p>
                               <p className="mt-1 font-mono text-sm text-slate-200">
-                                {data.model_coverage.first_position}
+                                {formatDisplayValue(data.model_coverage.first_position)}
                               </p>
                             </div>
                           )}
@@ -138,7 +177,7 @@ export function CoverageDebugDialog({ isOpen, onClose, modelId, position }: Cove
                             <div>
                               <p className="text-xs text-slate-400">Last End Position</p>
                               <p className="mt-1 font-mono text-sm text-slate-200">
-                                {data.model_coverage.last_end_position}
+                                {formatDisplayValue(data.model_coverage.last_end_position)}
                               </p>
                             </div>
                           )}
@@ -150,7 +189,7 @@ export function CoverageDebugDialog({ isOpen, onClose, modelId, position }: Cove
                             <p className="mb-2 text-xs font-semibold text-amber-400">Gaps in Window</p>
                             <div className="space-y-1">
                               {data.model_coverage.gaps_in_window.map((gap, idx) => (
-                                <GapDisplay key={idx} gap={gap} />
+                                <GapDisplay key={idx} gap={gap} transformation={transformation} />
                               ))}
                             </div>
                           </div>
@@ -162,7 +201,7 @@ export function CoverageDebugDialog({ isOpen, onClose, modelId, position }: Cove
                             <p className="mb-2 text-xs font-semibold text-green-400">Processed Ranges in Window</p>
                             <div className="space-y-1">
                               {data.model_coverage.ranges_in_window.map((range, idx) => (
-                                <RangeDisplay key={idx} range={range} />
+                                <RangeDisplay key={idx} range={range} transformation={transformation} />
                               ))}
                             </div>
                           </div>
@@ -176,7 +215,7 @@ export function CoverageDebugDialog({ isOpen, onClose, modelId, position }: Cove
                         <h4 className="mb-3 text-sm font-semibold text-slate-200">Dependencies</h4>
                         <div className="space-y-3">
                           {data.dependencies.map((dep, idx) => (
-                            <DependencyCard key={idx} dependency={dep} />
+                            <DependencyCard key={idx} dependency={dep} transformation={transformation} />
                           ))}
                         </div>
                       </div>
@@ -212,7 +251,7 @@ export function CoverageDebugDialog({ isOpen, onClose, modelId, position }: Cove
                             <div>
                               <p className="text-xs text-slate-400">Next Valid Position</p>
                               <p className="mt-1 font-mono text-sm text-slate-200">
-                                {data.validation.next_valid_position}
+                                {formatDisplayValue(data.validation.next_valid_position)}
                               </p>
                             </div>
                           )}
@@ -223,7 +262,8 @@ export function CoverageDebugDialog({ isOpen, onClose, modelId, position }: Cove
                           <div className="mt-4">
                             <p className="mb-2 text-xs font-semibold text-slate-300">Valid Range</p>
                             <p className="font-mono text-sm text-slate-400">
-                              {data.validation.valid_range.min} → {data.validation.valid_range.max}
+                              {formatDisplayValue(data.validation.valid_range.min)} →{' '}
+                              {formatDisplayValue(data.validation.valid_range.max)}
                             </p>
                           </div>
                         )}
@@ -242,7 +282,9 @@ export function CoverageDebugDialog({ isOpen, onClose, modelId, position }: Cove
                                   >
                                     {block.dependency_id}
                                   </Link>
-                                  {block.gap && <GapDisplay gap={block.gap} className="mt-1" />}
+                                  {block.gap && (
+                                    <GapDisplay gap={block.gap} className="mt-1" transformation={transformation} />
+                                  )}
                                 </div>
                               ))}
                             </div>
@@ -277,7 +319,13 @@ export function CoverageDebugDialog({ isOpen, onClose, modelId, position }: Cove
 }
 
 // Helper component to display a dependency
-function DependencyCard({ dependency }: { dependency: DependencyDebugInfo }): JSX.Element {
+function DependencyCard({
+  dependency,
+  transformation,
+}: {
+  dependency: DependencyDebugInfo;
+  transformation?: IntervalTypeTransformation;
+}): JSX.Element {
   const statusColors = {
     full_coverage: 'text-green-400',
     has_gaps: 'text-amber-400',
@@ -323,15 +371,25 @@ function DependencyCard({ dependency }: { dependency: DependencyDebugInfo }): JS
       </div>
 
       {/* Bounds */}
-      {dependency.bounds && (
+      {dependency.bounds && transformation && (
         <div className="mb-2 grid grid-cols-3 gap-2 text-xs">
           <div>
             <span className="text-slate-500">Min:</span>{' '}
-            <span className="font-mono text-slate-300">{dependency.bounds.min}</span>
+            <span className="font-mono text-slate-300">
+              {(() => {
+                const transformed = transformValue(dependency.bounds.min, transformation);
+                return formatValue(transformed, transformation.format);
+              })()}
+            </span>
           </div>
           <div>
             <span className="text-slate-500">Max:</span>{' '}
-            <span className="font-mono text-slate-300">{dependency.bounds.max}</span>
+            <span className="font-mono text-slate-300">
+              {(() => {
+                const transformed = transformValue(dependency.bounds.max, transformation);
+                return formatValue(transformed, transformation.format);
+              })()}
+            </span>
           </div>
           {dependency.bounds.lag_applied !== undefined && (
             <div>
@@ -348,7 +406,7 @@ function DependencyCard({ dependency }: { dependency: DependencyDebugInfo }): JS
           <p className="mb-1 text-xs font-semibold text-amber-400">Gaps</p>
           <div className="space-y-1">
             {dependency.gaps.slice(0, 3).map((gap, idx) => (
-              <GapDisplay key={idx} gap={gap} />
+              <GapDisplay key={idx} gap={gap} transformation={transformation} />
             ))}
             {dependency.gaps.length > 3 && (
               <p className="text-xs text-slate-500">...and {dependency.gaps.length - 3} more gaps</p>
@@ -362,7 +420,7 @@ function DependencyCard({ dependency }: { dependency: DependencyDebugInfo }): JS
         <div className="mt-2 ml-4 space-y-2 border-l-2 border-slate-700 pl-3">
           <p className="text-xs font-semibold text-slate-400">OR Group Members</p>
           {dependency.or_group_members.map((member, idx) => (
-            <DependencyCard key={idx} dependency={member} />
+            <DependencyCard key={idx} dependency={member} transformation={transformation} />
           ))}
         </div>
       )}
@@ -372,7 +430,7 @@ function DependencyCard({ dependency }: { dependency: DependencyDebugInfo }): JS
         <div className="mt-2 ml-4 space-y-2 border-l-2 border-slate-700 pl-3">
           <p className="text-xs font-semibold text-slate-400">Child Dependencies</p>
           {dependency.child_dependencies.map((child, idx) => (
-            <DependencyCard key={idx} dependency={child} />
+            <DependencyCard key={idx} dependency={child} transformation={transformation} />
           ))}
         </div>
       )}
@@ -381,12 +439,26 @@ function DependencyCard({ dependency }: { dependency: DependencyDebugInfo }): JS
 }
 
 // Helper component to display a gap
-function GapDisplay({ gap, className = '' }: { gap: GapInfo; className?: string }): JSX.Element {
+function GapDisplay({
+  gap,
+  className = '',
+  transformation,
+}: {
+  gap: GapInfo;
+  className?: string;
+  transformation?: IntervalTypeTransformation;
+}): JSX.Element {
+  const formatDisplayValue = (value: number): string => {
+    if (!transformation) return value.toLocaleString();
+    const transformed = transformValue(value, transformation);
+    return formatValue(transformed, transformation.format);
+  };
+
   return (
     <div className={`flex items-center gap-2 text-xs ${className}`}>
       <span className="text-slate-500">Gap:</span>
       <span className="font-mono text-amber-400">
-        {gap.start} → {gap.end}
+        {formatDisplayValue(gap.start)} → {formatDisplayValue(gap.end)}
       </span>
       <span className="text-slate-500">(size: {gap.size})</span>
       {gap.overlaps_request && (
@@ -397,12 +469,24 @@ function GapDisplay({ gap, className = '' }: { gap: GapInfo; className?: string 
 }
 
 // Helper component to display a range
-function RangeDisplay({ range }: { range: Range }): JSX.Element {
+function RangeDisplay({
+  range,
+  transformation,
+}: {
+  range: Range;
+  transformation?: IntervalTypeTransformation;
+}): JSX.Element {
+  const formatDisplayValue = (value: number): string => {
+    if (!transformation) return value.toLocaleString();
+    const transformed = transformValue(value, transformation);
+    return formatValue(transformed, transformation.format);
+  };
+
   return (
     <div className="flex items-center gap-2 text-xs">
       <span className="text-slate-500">Range:</span>
       <span className="font-mono text-green-400">
-        {range.position} → {range.position + range.interval}
+        {formatDisplayValue(range.position)} → {formatDisplayValue(range.position + range.interval)}
       </span>
       <span className="text-slate-500">(interval: {range.interval})</span>
     </div>
