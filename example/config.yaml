@@ -45,7 +45,7 @@ redis:
 # Scheduler settings
 scheduler:
   concurrency: 10
-  consolidation: "@every 10m"
+  consolidation: "@every 1m"
 
 # Worker-specific settings (ignored by coordinator and CLI)
 worker:
