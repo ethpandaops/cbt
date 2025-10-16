@@ -19,12 +19,13 @@ type taskOperation struct {
 }
 
 // checkAndEnqueuePositionWithTrigger validates and enqueues a transformation task
-func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64) {
+func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64, direction string) {
 	// Create task payload
 	payload := tasks.IncrementalTaskPayload{
 		ModelID:    trans.GetID(),
 		Position:   position,
 		Interval:   interval,
+		Direction:  direction,
 		EnqueuedAt: time.Now(),
 	}
 
@@ -241,6 +242,7 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		}
 
 		// Check if this completion unblocks the dependent
-		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, interval)
+		// Use forward direction for dependent triggers
+		s.checkAndEnqueuePositionWithTrigger(ctx, model, nextPos, interval, string(DirectionForward))
 	}
 }

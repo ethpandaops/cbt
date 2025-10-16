@@ -46,7 +46,7 @@ func (s *service) processForward(trans models.Transformation) {
 			return
 		}
 
-		s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval)
+		s.checkAndEnqueuePositionWithTrigger(ctx, trans, nextPos, interval, string(DirectionForward))
 	}
 }
 
@@ -255,7 +255,7 @@ func (s *service) processForwardWithGapSkipping(
 	case result.CanProcess:
 		// Dependencies are satisfied at this position
 		// Enqueue the transformation task for processing
-		s.checkAndEnqueuePositionWithTrigger(ctx, trans, currentPos, interval)
+		s.checkAndEnqueuePositionWithTrigger(ctx, trans, currentPos, interval, string(DirectionForward))
 
 	case result.NextValidPos > currentPos:
 		// Dependencies have missing data in range [currentPos, currentPos+interval]
