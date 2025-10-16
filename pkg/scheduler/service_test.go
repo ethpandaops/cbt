@@ -853,7 +853,7 @@ func TestHandlerRegistrationSeparation(t *testing.T) {
 
 	// Verify handlers are registered but tasks are not yet scheduled
 	assert.NotNil(t, s.mux, "ServeMux should be initialized")
-	assert.Equal(t, 3, len(desiredTasks), "Should have 3 tasks (forward, back, and bounds orchestrator)")
+	assert.Equal(t, 2, len(desiredTasks), "Should have 2 tasks (forward and back)")
 }
 
 // TestBuildDesiredTasksWithEmptySchedules tests that empty schedules are handled correctly
@@ -875,25 +875,25 @@ func TestBuildDesiredTasksWithEmptySchedules(t *testing.T) {
 			name:                "both schedules set",
 			forwardFillSchedule: "@every 1m",
 			backfillSchedule:    "@every 5m",
-			expectedTaskCount:   3, // 2 transformation tasks + 1 bounds orchestrator
+			expectedTaskCount:   2, // 2 transformation tasks
 		},
 		{
 			name:                "only forward fill set",
 			forwardFillSchedule: "@every 1m",
 			backfillSchedule:    "",
-			expectedTaskCount:   2, // 1 transformation task + 1 bounds orchestrator
+			expectedTaskCount:   1, // 1 transformation task
 		},
 		{
 			name:                "only backfill set",
 			forwardFillSchedule: "",
 			backfillSchedule:    "@every 5m",
-			expectedTaskCount:   2, // 1 transformation task + 1 bounds orchestrator
+			expectedTaskCount:   1, // 1 transformation task
 		},
 		{
 			name:                "both schedules empty",
 			forwardFillSchedule: "",
 			backfillSchedule:    "",
-			expectedTaskCount:   1, // 0 transformation tasks + 1 bounds orchestrator
+			expectedTaskCount:   0, // 0 transformation tasks
 		},
 	}
 

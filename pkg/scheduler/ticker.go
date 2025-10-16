@@ -33,7 +33,7 @@ type tickerServiceImpl struct {
 
 // scheduledTask represents a task that should run on a schedule
 type scheduledTask struct {
-	ID       string        // Unique identifier (e.g., "bounds:orchestrator")
+	ID       string        // Unique identifier (e.g., "transformation:model:forward")
 	Schedule string        // Cron expression (e.g., "@every 30s")
 	Interval time.Duration // Parsed interval from schedule
 	Task     *asynq.Task   // Asynq task to enqueue

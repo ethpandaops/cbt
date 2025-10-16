@@ -27,8 +27,6 @@ const (
 	TransformationTaskPrefix = "transformation:"
 	// ConsolidationTaskType is the task type for consolidation
 	ConsolidationTaskType = "consolidation"
-	// BoundsOrchestratorTaskType is the task type for bounds orchestration
-	BoundsOrchestratorTaskType = "bounds:orchestrator"
 	// ExternalTaskPrefix is the prefix for external model tasks
 	ExternalTaskPrefix = "external:"
 	// QueueName is the queue name for scheduler tasks
@@ -315,15 +313,6 @@ func (s *service) buildSystemScheduledTasks() []scheduledTask {
 			})
 		}
 	}
-
-	// Bounds orchestrator (runs every second)
-	scheduledTasks = append(scheduledTasks, scheduledTask{
-		ID:       BoundsOrchestratorTaskType,
-		Schedule: "@every 1s",
-		Interval: 1 * time.Second,
-		Task:     asynq.NewTask(BoundsOrchestratorTaskType, nil),
-		Queue:    QueueName,
-	})
 
 	return scheduledTasks
 }
@@ -677,10 +666,6 @@ func (s *service) registerSystemHandlers() {
 		s.mux.HandleFunc(ConsolidationTaskType, s.HandleConsolidation)
 		s.log.Debug("Registered consolidation handler")
 	}
-
-	// Register bounds orchestrator handler
-	s.mux.HandleFunc(BoundsOrchestratorTaskType, s.HandleBoundsOrchestrator)
-	s.log.Debug("Registered bounds orchestrator handler")
 }
 
 // buildSystemTasks builds desired task schedules for system tasks
@@ -688,9 +673,6 @@ func (s *service) buildSystemTasks(desiredTasks map[string]string) {
 	if s.cfg.Consolidation != "" {
 		desiredTasks[ConsolidationTaskType] = s.cfg.Consolidation
 	}
-
-	// Add bounds orchestrator task - runs every second
-	desiredTasks[BoundsOrchestratorTaskType] = "@every 1s"
 }
 
 // extractModelID extracts the model ID from a task type
@@ -868,21 +850,6 @@ func (s *service) HandleConsolidation(ctx context.Context, _ *asynq.Task) error 
 		s.log.Info("Admin consolidation completed")
 	} else {
 		s.log.Debug("Coordinator doesn't support consolidation")
-	}
-
-	return nil
-}
-
-// HandleBoundsOrchestrator processes the bounds orchestrator task
-// This task runs every second and checks if external models need bounds updates
-func (s *service) HandleBoundsOrchestrator(ctx context.Context, _ *asynq.Task) error {
-	s.log.Debug("Running bounds orchestrator check")
-
-	// Delegate to coordinator to handle bounds orchestration
-	if boundsOrchestrator, ok := s.coordinator.(interface{ ProcessBoundsOrchestration(context.Context) }); ok {
-		boundsOrchestrator.ProcessBoundsOrchestration(ctx)
-	} else {
-		s.log.Debug("Coordinator doesn't support bounds orchestration")
 	}
 
 	return nil

@@ -50,8 +50,6 @@ const (
 	ExternalIncrementalTaskType = "external:incremental"
 	// ExternalFullTaskType is the task type for external full scan
 	ExternalFullTaskType = "external:full"
-	// BoundsCacheTaskType is the task type for bounds cache updates
-	BoundsCacheTaskType = "bounds:cache"
 )
 
 // service coordinates task processing and dependencies
