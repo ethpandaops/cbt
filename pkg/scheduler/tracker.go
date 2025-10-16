@@ -13,7 +13,6 @@ import (
 const (
 	scheduleKeyPrefix = "cbt:scheduler:task:" // Redis key prefix
 	// Full key pattern: cbt:scheduler:task:{taskID}
-	// Example: cbt:scheduler:task:bounds:orchestrator
 	// Example: cbt:scheduler:task:external:mainnet.blocks:incremental
 	// Example: cbt:scheduler:task:transformation:fct_blocks:forward
 )
