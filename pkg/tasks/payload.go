@@ -55,8 +55,11 @@ func (p IncrementalTaskPayload) GetType() TaskType { return TaskTypeIncremental 
 func (p IncrementalTaskPayload) QueueName() string { return p.ModelID }
 
 // UniqueID returns a unique identifier for this task
+// Uses model.id:direction to ensure only one task per direction can run at a time.
+// This prevents duplicate work when intervals expand (e.g., model:100:25 -> model:100:50)
+// and leverages the natural separation between forward fill (frontier) and backfill (historical gaps).
 func (p IncrementalTaskPayload) UniqueID() string {
-	return fmt.Sprintf("%s:%d:%d", p.ModelID, p.Position, p.Interval)
+	return fmt.Sprintf("%s:%s", p.ModelID, p.Direction)
 }
 
 // ScheduledTaskPayload represents a scheduled cron-based task

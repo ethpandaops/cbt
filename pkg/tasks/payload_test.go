@@ -15,13 +15,13 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "incremental task unique ID",
+			name: "incremental task unique ID without direction",
 			payload: IncrementalTaskPayload{
 				ModelID:  "model.test",
 				Position: 100,
 				Interval: 50,
 			},
-			expected: "model.test:100:50",
+			expected: "model.test:",
 		},
 		{
 			name: "scheduled task unique ID",
@@ -31,33 +31,6 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 			expected: "model.scheduled",
 		},
 		{
-			name: "incremental with zero values",
-			payload: IncrementalTaskPayload{
-				ModelID:  "model.zero",
-				Position: 0,
-				Interval: 0,
-			},
-			expected: "model.zero:0:0",
-		},
-		{
-			name: "large values",
-			payload: IncrementalTaskPayload{
-				ModelID:  "model.large",
-				Position: 18446744073709551615,
-				Interval: 18446744073709551615,
-			},
-			expected: "model.large:18446744073709551615:18446744073709551615",
-		},
-		{
-			name: "with special characters in model ID",
-			payload: IncrementalTaskPayload{
-				ModelID:  "model.test-123_v2",
-				Position: 500,
-				Interval: 100,
-			},
-			expected: "model.test-123_v2:500:100",
-		},
-		{
 			name: "incremental with direction forward",
 			payload: IncrementalTaskPayload{
 				ModelID:   "model.test",
@@ -65,7 +38,7 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 				Interval:  50,
 				Direction: DirectionForward,
 			},
-			expected: "model.test:100:50",
+			expected: "model.test:forward",
 		},
 		{
 			name: "incremental with direction back",
@@ -75,7 +48,17 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 				Interval:  50,
 				Direction: DirectionBack,
 			},
-			expected: "model.test:200:50",
+			expected: "model.test:back",
+		},
+		{
+			name: "with special characters in model ID",
+			payload: IncrementalTaskPayload{
+				ModelID:   "model.test-123_v2",
+				Position:  500,
+				Interval:  100,
+				Direction: DirectionForward,
+			},
+			expected: "model.test-123_v2:forward",
 		},
 	}
 
@@ -177,34 +160,36 @@ func TestScheduledTaskPayload_Fields(t *testing.T) {
 // Test TaskPayload UniqueID consistency
 func TestTaskPayload_UniqueID_Consistency(t *testing.T) {
 	payload1 := IncrementalTaskPayload{
-		ModelID:  "model.test",
-		Position: 100,
-		Interval: 50,
+		ModelID:   "model.test",
+		Position:  100,
+		Interval:  50,
+		Direction: DirectionForward,
 	}
 
 	payload2 := IncrementalTaskPayload{
-		ModelID:  "model.test",
-		Position: 100,
-		Interval: 50,
+		ModelID:   "model.test",
+		Position:  100,
+		Interval:  50,
+		Direction: DirectionForward,
 	}
 
-	// Same payloads should produce same unique ID
+	// Same payloads with same direction should produce same unique ID
 	assert.Equal(t, payload1.UniqueID(), payload2.UniqueID())
 
-	// Different position produces different unique ID (position is part of uniqueness)
+	// Different position with same direction produces SAME unique ID (position not part of uniqueness)
 	payload2.Position = 200
-	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
+	assert.Equal(t, payload1.UniqueID(), payload2.UniqueID())
 
-	// Reset position, different interval produces different unique ID
+	// Different interval with same direction produces SAME unique ID (interval not part of uniqueness)
 	payload2.Position = 100
 	payload2.Interval = 100
-	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
+	assert.Equal(t, payload1.UniqueID(), payload2.UniqueID())
 
 	// Different model ID should produce different unique ID
 	payload2.ModelID = "model.different"
 	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
 
-	// Direction doesn't affect uniqueness for incremental tasks - position and interval do
+	// Direction DOES affect uniqueness - only model.id and direction matter
 	payload3 := IncrementalTaskPayload{
 		ModelID:   "model.test",
 		Position:  100,
@@ -217,11 +202,29 @@ func TestTaskPayload_UniqueID_Consistency(t *testing.T) {
 		Interval:  50,
 		Direction: DirectionBack,
 	}
+	assert.NotEqual(t, payload3.UniqueID(), payload4.UniqueID())
+
+	// Same direction but different position/interval produces SAME unique ID
+	payload4.Direction = DirectionForward
+	payload4.Position = 200
+	payload4.Interval = 100
 	assert.Equal(t, payload3.UniqueID(), payload4.UniqueID())
 
-	// Different position/interval means different task
-	payload4.Position = 200
-	assert.NotEqual(t, payload3.UniqueID(), payload4.UniqueID())
+	// This prevents duplicate work when intervals expand (e.g., model:100:25 -> model:100:50)
+	expandingInterval1 := IncrementalTaskPayload{
+		ModelID:   "model.test",
+		Position:  100,
+		Interval:  25,
+		Direction: DirectionForward,
+	}
+	expandingInterval2 := IncrementalTaskPayload{
+		ModelID:   "model.test",
+		Position:  100,
+		Interval:  50,
+		Direction: DirectionForward,
+	}
+	assert.Equal(t, expandingInterval1.UniqueID(), expandingInterval2.UniqueID(),
+		"Tasks with different intervals at same position should have same ID to prevent duplication")
 }
 
 // Benchmark UniqueID generation for incremental

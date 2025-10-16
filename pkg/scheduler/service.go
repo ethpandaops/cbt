@@ -930,9 +930,9 @@ func (s *service) enqueueScheduledTask(payload tasks.TaskPayload) error {
 	}
 
 	// Both scheduled and incremental transformations use the same uniqueness strategy:
-	// The unique ID is based on model_id:position:interval
-	// For scheduled: model_id:0:0 (always the same, preventing overlapping runs)
-	// For incremental: model_id:position:interval (preventing duplicate processing of same range)
+	// The unique ID is based on model_id:direction
+	// For scheduled: just model_id (preventing overlapping runs of same scheduled task)
+	// For incremental: model_id:direction (preventing duplicate forward/backfill tasks)
 	// Use 1 second uniqueness - just prevents rapid-fire duplicates, task ID handles actual deduplication
 	return enqueuer.EnqueueTransformation(payload, asynq.Unique(1*time.Second))
 }

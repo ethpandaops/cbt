@@ -7,7 +7,6 @@ import (
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/observability"
-	"github.com/ethpandaops/cbt/pkg/tasks"
 	"github.com/sirupsen/logrus"
 )
 
@@ -519,46 +518,9 @@ func (s *service) processSingleGap(ctx context.Context, trans models.Transformat
 		"backfill_interval":        intervalToUse,
 		"will_process_range_start": pos,
 		"will_process_range_end":   pos + intervalToUse,
-	}).Debug("Processing gap for backfill")
-
-	// Check if task is already pending
-	payload := tasks.IncrementalTaskPayload{
-		ModelID:  trans.GetID(),
-		Position: pos,
-		Interval: intervalToUse,
-	}
-
-	isPending, err := s.queueManager.IsTaskPendingOrRunning(payload)
-	if err != nil {
-		s.log.WithError(err).WithFields(logrus.Fields{
-			"model_id": trans.GetID(),
-			"position": pos,
-			"interval": intervalToUse,
-		}).Error("Failed to check if task is pending")
-		return false
-	}
-
-	if isPending {
-		s.log.WithFields(logrus.Fields{
-			"model_id":  trans.GetID(),
-			"gap_index": gapIndex,
-			"position":  pos,
-			"interval":  intervalToUse,
-		}).Debug("Task already pending for gap, skipping")
-		return false
-	}
-
-	s.log.WithFields(logrus.Fields{
-		"model_id":       trans.GetID(),
-		"gap_index":      gapIndex,
-		"gap_start":      gap.StartPos,
-		"gap_end":        gap.EndPos,
-		"position":       pos,
-		"interval":       intervalToUse,
-		"model_interval": maxInterval,
-		"gap_size":       gapSize,
 	}).Info("Enqueueing backfill task for gap")
 
-	s.checkAndEnqueuePositionWithTrigger(ctx, trans, pos, intervalToUse)
+	// checkAndEnqueuePositionWithTrigger handles deduplication via IsTaskPendingOrRunning
+	s.checkAndEnqueuePositionWithTrigger(ctx, trans, pos, intervalToUse, string(DirectionBack))
 	return true
 }
