@@ -237,6 +237,14 @@ func (a *externalModelAdapter) SetDefaultDatabase(defaultDB string) {
 	}
 }
 
+func (a *externalModelAdapter) SetDefaults(_, defaultDB string) {
+	config := a.testModel.GetConfig()
+	if config.Database == "" && defaultDB != "" {
+		config.Database = defaultDB
+		a.testModel.config = config
+	}
+}
+
 func TestQueryParsing(t *testing.T) {
 	tests := []struct {
 		name          string

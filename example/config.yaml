@@ -62,6 +62,8 @@ models:
   external:
     paths:
       - "/app/models/external"
+    # Optional: Set defaultCluster if using ClickHouse cluster functions
+    # defaultCluster: "my_cluster"
     defaultDatabase: "ethereum"  # Default database for external models
   transformations:
     paths:

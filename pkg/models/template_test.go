@@ -69,8 +69,8 @@ func (m *mockExternalWithTemplate) GetType() string                    { return 
 func (m *mockExternalWithTemplate) GetSQL() string                     { return "" }
 func (m *mockExternalWithTemplate) GetValue() string                   { return m.value }
 func (m *mockExternalWithTemplate) GetEnvironmentVariables() []string  { return []string{} }
-func (m *mockExternalWithTemplate) SetDefaultDatabase(defaultDB string) {
-	m.config.SetDefaults(defaultDB)
+func (m *mockExternalWithTemplate) SetDefaults(defaultCluster, defaultDB string) {
+	m.config.SetDefaults(defaultCluster, defaultDB)
 }
 
 func TestTemplateEngineWithRealSQL(t *testing.T) {
@@ -669,4 +669,123 @@ func TestTemplateRenderingWithHyphenatedDatabases(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, rendered, "`analytics-db`.`hourly_stats`")
+}
+
+// TestFromFieldWithCluster tests the 'from' field functionality with cluster configuration
+func TestFromFieldWithCluster(t *testing.T) {
+	dag := NewDependencyGraph()
+
+	// Create external model with cluster
+	externalModel := &mockExternalWithTemplate{
+		id:    "ethereum.beacon_blocks",
+		typ:   external.ExternalTypeSQL,
+		value: "SELECT * FROM {{ .self.helpers.from }}",
+		config: external.Config{
+			Cluster:  "my_cluster",
+			Database: "ethereum",
+			Table:    "beacon_blocks",
+		},
+	}
+
+	// Create transformation that depends on the external model
+	transformModel := &mockTransformationWithTemplate{
+		id: "analytics.block_summary",
+		config: transformation.Config{
+			Database: "analytics",
+			Table:    "block_summary",
+		},
+		handler: &mockTemplateHandler{
+			dependencies: []string{"ethereum.beacon_blocks"},
+		},
+		value: "SELECT * FROM {{ index .dep \"ethereum\" \"beacon_blocks\" \"helpers\" \"from\" }}",
+	}
+
+	// Build the graph
+	err := dag.BuildGraph([]Transformation{transformModel}, []External{externalModel})
+	require.NoError(t, err)
+
+	// Create template engine with cluster config
+	clickhouseCfg := &clickhouse.Config{
+		Cluster:     "test_cluster",
+		LocalSuffix: "_local",
+	}
+	engine := NewTemplateEngine(clickhouseCfg, dag)
+
+	// Test external model rendering
+	externalRendered, err := engine.RenderExternal(externalModel, nil)
+	require.NoError(t, err)
+	assert.Contains(t, externalRendered, "cluster('my_cluster', `ethereum`.`beacon_blocks`)")
+
+	// Test transformation rendering with external dependency
+	transformRendered, err := engine.RenderTransformation(transformModel, 1000, 100, time.Now())
+	require.NoError(t, err)
+	assert.Contains(t, transformRendered, "cluster('my_cluster', `ethereum`.`beacon_blocks`)")
+}
+
+// TestFromFieldWithoutCluster tests the 'from' field functionality without cluster configuration
+func TestFromFieldWithoutCluster(t *testing.T) {
+	dag := NewDependencyGraph()
+
+	// Create external model without cluster
+	externalModel := &mockExternalWithTemplate{
+		id:    "ethereum.transactions",
+		typ:   external.ExternalTypeSQL,
+		value: "SELECT * FROM {{ .self.helpers.from }}",
+		config: external.Config{
+			Database: "ethereum",
+			Table:    "transactions",
+		},
+	}
+
+	// Create transformation without cluster that references another transformation
+	refTransformModel := &mockTransformationWithTemplate{
+		id: "analytics.hourly_stats",
+		config: transformation.Config{
+			Database: "analytics",
+			Table:    "hourly_stats",
+		},
+		handler: &mockTemplateHandler{
+			dependencies: []string{},
+		},
+		value: "SELECT * FROM stats",
+	}
+
+	transformModel := &mockTransformationWithTemplate{
+		id: "analytics.daily_summary",
+		config: transformation.Config{
+			Database: "analytics",
+			Table:    "daily_summary",
+		},
+		handler: &mockTemplateHandler{
+			dependencies: []string{"ethereum.transactions", "analytics.hourly_stats"},
+		},
+		value: `External: {{ index .dep "ethereum" "transactions" "helpers" "from" }}
+Transform: {{ index .dep "analytics" "hourly_stats" "helpers" "from" }}`,
+	}
+
+	// Build the graph
+	err := dag.BuildGraph([]Transformation{transformModel, refTransformModel}, []External{externalModel})
+	require.NoError(t, err)
+
+	// Create template engine without cluster config
+	clickhouseCfg := &clickhouse.Config{
+		Cluster:     "",
+		LocalSuffix: "",
+	}
+	engine := NewTemplateEngine(clickhouseCfg, dag)
+
+	// Test external model rendering (should not include cluster function)
+	externalRendered, err := engine.RenderExternal(externalModel, nil)
+	require.NoError(t, err)
+	assert.Contains(t, externalRendered, "`ethereum`.`transactions`")
+	assert.NotContains(t, externalRendered, "cluster(")
+
+	// Test transformation rendering
+	transformRendered, err := engine.RenderTransformation(transformModel, 1000, 100, time.Now())
+	require.NoError(t, err)
+	// External dependency without cluster should be plain database.table
+	assert.Contains(t, transformRendered, "External: `ethereum`.`transactions`")
+	// Transformation dependency should be plain database.table
+	assert.Contains(t, transformRendered, "Transform: `analytics`.`hourly_stats`")
+	assert.NotContains(t, transformRendered, "cluster(")
 }

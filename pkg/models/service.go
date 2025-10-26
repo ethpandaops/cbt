@@ -104,8 +104,8 @@ func (s *service) parseModels() error {
 				return parseErr
 			}
 
-			// Apply default database if not specified
-			externalModel.SetDefaultDatabase(s.config.External.DefaultDatabase)
+			// Apply default cluster and database if not specified
+			externalModel.SetDefaults(s.config.External.DefaultCluster, s.config.External.DefaultDatabase)
 
 			// Validate that database is set after applying defaults
 			config := externalModel.GetConfig()

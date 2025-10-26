@@ -120,10 +120,12 @@ worker:
 
 # Models configuration (optional)
 # Configure where to find external and transformation models
-# Set default databases to use when models don't specify one
+# Set default cluster and databases to use when models don't specify one
 # Defaults to models/external and models/transformations if not specified
 # models:
 #   external:
+#     # Optional: Set defaultCluster if using ClickHouse cluster functions
+#     # defaultCluster: "my_cluster"
 #     defaultDatabase: ethereum # optional - models without 'database' field will use this
 #     paths:
 #       - "models/external" # default
@@ -164,16 +166,18 @@ frontend:
 
 Models define your data pipelines and should be stored in your own repository or directory.
 
-### Database Configuration
+### Database and Cluster Configuration
 
-The `database` field in model configurations can be:
+The `database` and `cluster` fields in model configurations can be:
 - **Explicitly set**: When specified in the model, it takes precedence
-- **Omitted**: Falls back to the `defaultDatabase` configured for that model type:
-  - External models: Uses `models.external.defaultDatabase`
+- **Omitted**: Falls back to defaults configured for that model type:
+  - External models: Uses `models.external.defaultDatabase` and `models.external.defaultCluster`
   - Transformation models: Uses `models.transformations.defaultDatabase`
 - **Required**: If no default is configured, the database field must be specified in each model
 
-This allows you to centralize database configuration while still having the flexibility to override it for specific models.
+The `cluster` field is optional and only applies to external models. When set, it enables ClickHouse cluster functions in generated queries.
+
+This allows you to centralize database and cluster configuration while still having the flexibility to override it for specific models.
 
 When referencing models in dependencies, you can use placeholders to reference the default databases:
 - `{{external}}.table_name` - Resolves to the default external database
@@ -336,14 +340,38 @@ Models referenced in overrides that don't exist will generate warning logs but w
 
 ### External Models
 
-External models define source data boundaries. The `database` field can be omitted if a `defaultDatabase` is configured in the models configuration.
+External models define source data boundaries. The `database` and `cluster` fields can be omitted if `defaultDatabase` and `defaultCluster` are configured in the models configuration.
+
+#### Cluster Configuration
+
+External models support optional ClickHouse cluster configuration for distributed deployments:
+
+```yaml
+models:
+  external:
+    # Optional: Set defaultCluster if using ClickHouse cluster functions
+    # defaultCluster: "my_cluster"
+    defaultDatabase: ethereum
+```
+
+Individual models can override the default cluster:
+
+```yaml
+---
+cluster: my_cluster  # Optional: Falls back to models.external.defaultCluster
+database: ethereum   # Optional: Falls back to models.external.defaultDatabase
+table: beacon_blocks
+---
+```
 
 #### Template Variables
 
 Models support Go template syntax with the following variables:
 
-- `{{ .clickhouse.cluster }}` - ClickHouse cluster name
+**Data fields:**
+- `{{ .clickhouse.cluster }}` - ClickHouse cluster name from global config
 - `{{ .clickhouse.local_suffix }}` - Local table suffix for cluster setups
+- `{{ .self.cluster }}` - Current model's cluster (if configured)
 - `{{ .self.database }}` - Current model's database
 - `{{ .self.table }}` - Current model's table
 - `{{ .cache.is_incremental_scan }}` - Boolean indicating if this is an incremental scan
@@ -351,11 +379,16 @@ Models support Go template syntax with the following variables:
 - `{{ .cache.previous_min }}` - Previous minimum bound (for incremental scans)
 - `{{ .cache.previous_max }}` - Previous maximum bound (for incremental scans)
 
+**Helper functions:**
+- `{{ .self.helpers.from }}` - Generates complete FROM clause with cluster function if configured
+
 #### Example
 
 ```sql
 ---
-database: ethereum  # Optional: Falls back to models.external.defaultDatabase if not specified
+# cluster and database are optional if defaults are configured
+# cluster: my_cluster  # Falls back to models.external.defaultCluster
+# database: ethereum   # Falls back to models.external.defaultDatabase
 table: beacon_blocks
 interval:
   type: slot
@@ -364,15 +397,19 @@ cache:  # Optional (strongly recommended): configure bounds caching to reduce qu
   full_scan_interval: 5m          # How often to do a full table scan to verify bounds
 lag: 30  # Optional: ignore last 30 positions of data to avoid incomplete data
 ---
-SELECT 
+SELECT
     toUnixTimestamp(min(slot_start_date_time)) as min,
     toUnixTimestamp(max(slot_start_date_time)) as max
-FROM `{{ .self.database }}`.`{{ .self.table }}` FINAL
+FROM {{ .self.helpers.from }} FINAL
 {{ if .cache.is_incremental_scan }}
 WHERE slot_start_date_time < fromUnixTimestamp({{ .cache.previous_min }})
    OR slot_start_date_time > fromUnixTimestamp({{ .cache.previous_max }})
 {{ end }}
 ```
+
+The `{{ .self.helpers.from }}` helper automatically generates the appropriate FROM clause:
+- **Without cluster**: `` `ethereum`.`beacon_blocks` ``
+- **With cluster**: `cluster('my_cluster', `ethereum`.`beacon_blocks`)`
 
 #### Cache Configuration
 
@@ -512,7 +549,8 @@ Models support Go template syntax. Available variables depend on the transformat
 - `{{ .bounds.start }}` - Processing interval start position
 - `{{ .bounds.end }}` - Processing interval end position
 - `{{ .self.interval }}` - Processing interval size
-- `{{ index .dep "db" "table" "field" }}` - Access dependency configuration
+- `{{ index .dep "db" "table" "field" }}` - Access dependency data fields
+- `{{ index .dep "db" "table" "helpers" "from" }}` - Access dependency FROM clause helper
 
 **All transformations:**
 - `{{ .task.start }}` - Task start timestamp (Unix)
@@ -522,6 +560,12 @@ When using placeholder dependencies (e.g., `{{external}}.beacon_blocks`), you ca
 - **Resolved form**: `{{ index .dep "ethereum" "beacon_blocks" "database" }}`
 
 Both forms work identically, allowing your templates to be portable across different database configurations.
+
+**Dependency fields available:**
+- `{{ index .dep "db" "table" "cluster" }}` - Dependency's cluster (if configured)
+- `{{ index .dep "db" "table" "database" }}` - Dependency's database
+- `{{ index .dep "db" "table" "table" }}` - Dependency's table name
+- `{{ index .dep "db" "table" "helpers" "from" }}` - Dependency's FROM clause helper
 
 #### Examples
 
@@ -552,7 +596,7 @@ dependencies:
 ---
 INSERT INTO
   `{{ .self.database }}`.`{{ .self.table }}`
-SELECT 
+SELECT
     fromUnixTimestamp({{ .task.start }}) as updated_date_time,
     now64(3) as event_date_time,
     slot_start_date_time,
@@ -561,7 +605,7 @@ SELECT
     count(DISTINCT meta_client_name) as client_count,
     avg(propagation_slot_start_diff) as avg_propagation,
     {{ .bounds.start }} as position
-FROM `{{ index .dep "{{external}}" "beacon_blocks" "database" }}`.`{{ index .dep "{{external}}" "beacon_blocks" "table" }}`
+FROM {{ index .dep "{{external}}" "beacon_blocks" "helpers" "from" }}
 WHERE slot_start_date_time BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
 GROUP BY slot_start_date_time, slot, block_root;
 

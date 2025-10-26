@@ -74,9 +74,9 @@ func (c *SQL) GetValue() string {
 	return c.Content
 }
 
-// SetDefaultDatabase applies the default database if not already set
-func (c *SQL) SetDefaultDatabase(defaultDB string) {
-	c.SetDefaults(defaultDB)
+// SetDefaults applies the default cluster and database if not already set
+func (c *SQL) SetDefaults(defaultCluster, defaultDB string) {
+	c.Config.SetDefaults(defaultCluster, defaultDB)
 }
 
 // GetIntervalType returns the interval type for this external model

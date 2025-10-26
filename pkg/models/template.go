@@ -180,6 +180,9 @@ func (t *TemplateEngine) processTransformationDependency(dep Node, depID, origin
 	depData := map[string]interface{}{
 		"database": tConfig.Database,
 		"table":    tConfig.Table,
+		"helpers": map[string]interface{}{
+			"from": buildFromClause("", tConfig.Database, tConfig.Table),
+		},
 	}
 
 	// Add entry with resolved database
@@ -203,8 +206,12 @@ func (t *TemplateEngine) processExternalDependency(dep Node, depID, originalDep 
 
 	eConfig := external.GetConfig()
 	depData := map[string]interface{}{
+		"cluster":  eConfig.Cluster,
 		"database": eConfig.Database,
 		"table":    eConfig.Table,
+		"helpers": map[string]interface{}{
+			"from": buildFromClause(eConfig.Cluster, eConfig.Database, eConfig.Table),
+		},
 	}
 
 	// Add entry with resolved database
@@ -325,8 +332,12 @@ func (t *TemplateEngine) buildExternalVariables(model External, cacheState map[s
 			"local_suffix": t.clickhouseCfg.LocalSuffix,
 		},
 		"self": map[string]interface{}{
+			"cluster":  config.Cluster,
 			"database": config.Database,
 			"table":    config.Table,
+			"helpers": map[string]interface{}{
+				"from": buildFromClause(config.Cluster, config.Database, config.Table),
+			},
 		},
 	}
 
@@ -336,4 +347,13 @@ func (t *TemplateEngine) buildExternalVariables(model External, cacheState map[s
 	}
 
 	return variables
+}
+
+// buildFromClause constructs a ClickHouse FROM clause with optional cluster function
+func buildFromClause(cluster, database, table string) string {
+	dbTable := fmt.Sprintf("`%s`.`%s`", database, table)
+	if cluster != "" {
+		return fmt.Sprintf("cluster('%s', %s)", cluster, dbTable)
+	}
+	return dbTable
 }

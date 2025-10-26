@@ -295,6 +295,15 @@ func (m *mockExternal) SetDefaultDatabase(defaultDB string) {
 	}
 }
 
+func (m *mockExternal) SetDefaults(_, defaultDB string) {
+	cfg := m.GetConfigMutable()
+	if cfg.Database == "" && defaultDB != "" {
+		cfg.Database = defaultDB
+	}
+	m.database = cfg.Database
+	m.table = cfg.Table
+}
+
 func TestNewServer(t *testing.T) {
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel)

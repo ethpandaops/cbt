@@ -11,11 +11,13 @@ func TestConfigSetDefaults(t *testing.T) {
 	tests := []struct {
 		name            string
 		config          *Config
+		defaultCluster  string
 		defaultDatabase string
+		expectedCluster string
 		expectedDB      string
 	}{
 		{
-			name: "apply default when database is empty",
+			name: "apply defaults when cluster and database are empty",
 			config: &Config{
 				Table: "test_table",
 				Interval: &IntervalConfig{
@@ -26,11 +28,49 @@ func TestConfigSetDefaults(t *testing.T) {
 					FullScanInterval:        time.Hour,
 				},
 			},
+			defaultCluster:  "default_cluster",
 			defaultDatabase: "default_db",
+			expectedCluster: "default_cluster",
 			expectedDB:      "default_db",
 		},
 		{
-			name: "keep existing database when already set",
+			name: "keep existing cluster and database when already set",
+			config: &Config{
+				Cluster:  "existing_cluster",
+				Database: "existing_db",
+				Table:    "test_table",
+				Interval: &IntervalConfig{
+					Type: "second",
+				},
+				Cache: &CacheConfig{
+					IncrementalScanInterval: time.Minute,
+					FullScanInterval:        time.Hour,
+				},
+			},
+			defaultCluster:  "default_cluster",
+			defaultDatabase: "default_db",
+			expectedCluster: "existing_cluster",
+			expectedDB:      "existing_db",
+		},
+		{
+			name: "no change when defaults are empty",
+			config: &Config{
+				Table: "test_table",
+				Interval: &IntervalConfig{
+					Type: "second",
+				},
+				Cache: &CacheConfig{
+					IncrementalScanInterval: time.Minute,
+					FullScanInterval:        time.Hour,
+				},
+			},
+			defaultCluster:  "",
+			defaultDatabase: "",
+			expectedCluster: "",
+			expectedDB:      "",
+		},
+		{
+			name: "apply only cluster default when database is set",
 			config: &Config{
 				Database: "existing_db",
 				Table:    "test_table",
@@ -42,29 +82,17 @@ func TestConfigSetDefaults(t *testing.T) {
 					FullScanInterval:        time.Hour,
 				},
 			},
+			defaultCluster:  "default_cluster",
 			defaultDatabase: "default_db",
+			expectedCluster: "default_cluster",
 			expectedDB:      "existing_db",
-		},
-		{
-			name: "no change when default is empty",
-			config: &Config{
-				Table: "test_table",
-				Interval: &IntervalConfig{
-					Type: "second",
-				},
-				Cache: &CacheConfig{
-					IncrementalScanInterval: time.Minute,
-					FullScanInterval:        time.Hour,
-				},
-			},
-			defaultDatabase: "",
-			expectedDB:      "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.config.SetDefaults(tt.defaultDatabase)
+			tt.config.SetDefaults(tt.defaultCluster, tt.defaultDatabase)
+			assert.Equal(t, tt.expectedCluster, tt.config.Cluster)
 			assert.Equal(t, tt.expectedDB, tt.config.Database)
 		})
 	}
