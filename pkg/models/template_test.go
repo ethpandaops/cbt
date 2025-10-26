@@ -119,7 +119,7 @@ GROUP BY block_number, block_hash`,
 		Cluster:     "",
 		LocalSuffix: "",
 	}
-	engine := NewTemplateEngine(clickhouseCfg, dag)
+	engine := NewTemplateEngine(clickhouseCfg, dag, nil)
 
 	// Render the template
 	rendered, err := engine.RenderTransformation(transformModel, 1000, 100, time.Now())
@@ -184,7 +184,7 @@ Transformation resolved: {{ index .dep "analytics" "hourly_stats" "database" }}.
 		Cluster:     "test_cluster",
 		LocalSuffix: "_local",
 	}
-	engine := NewTemplateEngine(clickhouseCfg, dag)
+	engine := NewTemplateEngine(clickhouseCfg, dag, nil)
 
 	// Render the template
 	rendered, err := engine.RenderTransformation(mainTransformModel, 1000, 100, time.Now())
@@ -204,7 +204,7 @@ func TestNewTemplateEngine(t *testing.T) {
 	}
 	dag := NewDependencyGraph()
 
-	engine := NewTemplateEngine(chConfig, dag)
+	engine := NewTemplateEngine(chConfig, dag, nil)
 
 	assert.NotNil(t, engine)
 	assert.NotNil(t, engine.funcMap)
@@ -237,7 +237,7 @@ func TestRenderTransformation(t *testing.T) {
 	err := dag.BuildGraph([]Transformation{dep1}, []External{})
 	require.NoError(t, err)
 
-	engine := NewTemplateEngine(chConfig, dag)
+	engine := NewTemplateEngine(chConfig, dag, nil)
 
 	tests := []struct {
 		name        string
@@ -345,7 +345,7 @@ func TestRenderExternal(t *testing.T) {
 		URL:         "http://localhost:8123",
 	}
 	dag := NewDependencyGraph()
-	engine := NewTemplateEngine(chConfig, dag)
+	engine := NewTemplateEngine(chConfig, dag, nil)
 
 	tests := []struct {
 		name        string
@@ -446,7 +446,7 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 	err := dag.BuildGraph([]Transformation{dep1}, []External{ext1})
 	require.NoError(t, err)
 
-	engine := NewTemplateEngine(chConfig, dag)
+	engine := NewTemplateEngine(chConfig, dag, nil)
 
 	model := &mockTransformationWithTemplate{
 		id: "test_db.test_table",
@@ -461,8 +461,7 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 	}
 
 	startTime := time.Now()
-	globalEnv := map[string]string{}
-	envVars, err := engine.GetTransformationEnvironmentVariables(model, 1000, 100, startTime, globalEnv)
+	envVars, err := engine.GetTransformationEnvironmentVariables(model, 1000, 100, startTime)
 	require.NoError(t, err)
 	require.NotNil(t, envVars)
 
@@ -503,7 +502,7 @@ func TestGetTransformationEnvironmentVariables_CustomEnv(t *testing.T) {
 		URL:         "http://localhost:8123",
 	}
 	dag := NewDependencyGraph()
-	engine := NewTemplateEngine(chConfig, dag)
+	engine := NewTemplateEngine(chConfig, dag, nil)
 
 	// Create model with transformation-specific env vars
 	model := &mockTransformationWithTemplate{
@@ -521,14 +520,7 @@ func TestGetTransformationEnvironmentVariables_CustomEnv(t *testing.T) {
 
 	startTime := time.Now()
 
-	// Global env vars from config
-	globalEnv := map[string]string{
-		"GLOBAL_VAR":  "global_value",
-		"API_KEY":     "global_key",
-		"ENVIRONMENT": "production",
-	}
-
-	envVars, err := engine.GetTransformationEnvironmentVariables(model, 1000, 100, startTime, globalEnv)
+	envVars, err := engine.GetTransformationEnvironmentVariables(model, 1000, 100, startTime)
 	require.NoError(t, err)
 	require.NotNil(t, envVars)
 
@@ -541,12 +533,8 @@ func TestGetTransformationEnvironmentVariables_CustomEnv(t *testing.T) {
 		}
 	}
 
-	// Check global env vars are present
-	assert.Equal(t, "global_value", envMap["GLOBAL_VAR"], "Global env var should be present")
-	assert.Equal(t, "production", envMap["ENVIRONMENT"], "Global env var should be present")
-
-	// Check transformation-specific env vars override globals
-	assert.Equal(t, "model_override", envMap["API_KEY"], "Transformation env should override global")
+	// Check transformation-specific env vars
+	assert.Equal(t, "model_override", envMap["API_KEY"], "Transformation env should be present")
 	assert.Equal(t, "value1", envMap["MODEL_SPECIFIC"], "Transformation-specific env should be present")
 
 	// Check built-in vars are still present
@@ -562,7 +550,7 @@ func TestBuildTransformationVariables_MissingDependency(t *testing.T) {
 		URL:         "http://localhost:8123",
 	}
 	dag := NewDependencyGraph()
-	engine := NewTemplateEngine(chConfig, dag)
+	engine := NewTemplateEngine(chConfig, dag, nil)
 
 	model := &mockTransformationWithTemplate{
 		id: "test_db.test_table",
@@ -590,7 +578,7 @@ func BenchmarkRenderTransformation(b *testing.B) {
 		URL:         "http://localhost:8123",
 	}
 	dag := NewDependencyGraph()
-	engine := NewTemplateEngine(chConfig, dag)
+	engine := NewTemplateEngine(chConfig, dag, nil)
 
 	model := &mockTransformationWithTemplate{
 		id: "test_db.test_table",
@@ -619,7 +607,7 @@ func BenchmarkRenderExternal(b *testing.B) {
 		URL:         "http://localhost:8123",
 	}
 	dag := NewDependencyGraph()
-	engine := NewTemplateEngine(chConfig, dag)
+	engine := NewTemplateEngine(chConfig, dag, nil)
 
 	model := &mockExternalWithTemplate{
 		id: "ext.model",
@@ -645,7 +633,7 @@ func TestTemplateRenderingWithHyphenatedDatabases(t *testing.T) {
 	}
 
 	dag := NewDependencyGraph()
-	engine := NewTemplateEngine(clickhouseCfg, dag)
+	engine := NewTemplateEngine(clickhouseCfg, dag, nil)
 
 	// Create a mock transformation with hyphenated database
 	mockTransform := &mockTransformationWithTemplate{
@@ -709,7 +697,7 @@ func TestFromFieldWithCluster(t *testing.T) {
 		Cluster:     "test_cluster",
 		LocalSuffix: "_local",
 	}
-	engine := NewTemplateEngine(clickhouseCfg, dag)
+	engine := NewTemplateEngine(clickhouseCfg, dag, nil)
 
 	// Test external model rendering
 	externalRendered, err := engine.RenderExternal(externalModel, nil)
@@ -772,7 +760,7 @@ Transform: {{ index .dep "analytics" "hourly_stats" "helpers" "from" }}`,
 		Cluster:     "",
 		LocalSuffix: "",
 	}
-	engine := NewTemplateEngine(clickhouseCfg, dag)
+	engine := NewTemplateEngine(clickhouseCfg, dag, nil)
 
 	// Test external model rendering (should not include cluster function)
 	externalRendered, err := engine.RenderExternal(externalModel, nil)
@@ -788,4 +776,114 @@ Transform: {{ index .dep "analytics" "hourly_stats" "helpers" "from" }}`,
 	// Transformation dependency should be plain database.table
 	assert.Contains(t, transformRendered, "Transform: `analytics`.`hourly_stats`")
 	assert.NotContains(t, transformRendered, "cluster(")
+}
+
+// TestEnvironmentVariablesInSQLTemplates tests that env vars are accessible in SQL templates
+func TestEnvironmentVariablesInSQLTemplates(t *testing.T) {
+	clickhouseCfg := &clickhouse.Config{
+		Cluster:     "test_cluster",
+		LocalSuffix: "_local",
+		URL:         "http://localhost:8123",
+	}
+
+	// Global environment variables
+	globalEnv := map[string]string{
+		"API_KEY":     "global_api_key_12345",
+		"ENVIRONMENT": "production",
+		"REGION":      "us-east-1",
+	}
+
+	dag := NewDependencyGraph()
+	engine := NewTemplateEngine(clickhouseCfg, dag, globalEnv)
+
+	t.Run("transformation with global env vars", func(t *testing.T) {
+		mockTransform := &mockTransformationWithTemplate{
+			config: transformation.Config{
+				Database: "analytics",
+				Table:    "api_calls",
+			},
+			handler: &mockTemplateHandler{
+				dependencies: []string{},
+			},
+			value: `INSERT INTO {{ .self.database }}.{{ .self.table }}
+SELECT '{{ .env.API_KEY }}' as api_key,
+       '{{ .env.ENVIRONMENT }}' as environment,
+       '{{ .env.REGION }}' as region`,
+		}
+
+		rendered, err := engine.RenderTransformation(mockTransform, 1000, 3600, time.Now())
+		require.NoError(t, err)
+		assert.Contains(t, rendered, "global_api_key_12345")
+		assert.Contains(t, rendered, "production")
+		assert.Contains(t, rendered, "us-east-1")
+	})
+
+	t.Run("transformation with model-specific env override", func(t *testing.T) {
+		mockTransform := &mockTransformationWithTemplate{
+			config: transformation.Config{
+				Database: "analytics",
+				Table:    "api_calls",
+				Env: map[string]string{
+					"API_KEY":   "model_override_key",
+					"MODEL_VAR": "model_specific_value",
+				},
+			},
+			handler: &mockTemplateHandler{
+				dependencies: []string{},
+			},
+			value: `SELECT '{{ .env.API_KEY }}' as api_key,
+       '{{ .env.ENVIRONMENT }}' as environment,
+       '{{ .env.MODEL_VAR }}' as model_var`,
+		}
+
+		rendered, err := engine.RenderTransformation(mockTransform, 1000, 3600, time.Now())
+		require.NoError(t, err)
+		// Model-specific should override global
+		assert.Contains(t, rendered, "model_override_key")
+		assert.NotContains(t, rendered, "global_api_key_12345")
+		// Global env should still be accessible
+		assert.Contains(t, rendered, "production")
+		// Model-specific var should be present
+		assert.Contains(t, rendered, "model_specific_value")
+	})
+
+	t.Run("external model with env vars", func(t *testing.T) {
+		mockExternal := &mockExternalWithTemplate{
+			id: "ext.api_data",
+			config: external.Config{
+				Cluster:  "test_cluster",
+				Database: "external",
+				Table:    "api_data",
+			},
+			typ: external.ExternalTypeSQL,
+			value: `SELECT * FROM {{ .self.database }}.{{ .self.table }}
+WHERE api_key = '{{ .env.API_KEY }}'
+  AND environment = '{{ .env.ENVIRONMENT }}'`,
+		}
+
+		rendered, err := engine.RenderExternal(mockExternal, nil)
+		require.NoError(t, err)
+		assert.Contains(t, rendered, "global_api_key_12345")
+		assert.Contains(t, rendered, "production")
+	})
+
+	t.Run("no env vars configured", func(t *testing.T) {
+		emptyEngine := NewTemplateEngine(clickhouseCfg, dag, nil)
+
+		mockTransform := &mockTransformationWithTemplate{
+			config: transformation.Config{
+				Database: "analytics",
+				Table:    "test_table",
+			},
+			handler: &mockTemplateHandler{
+				dependencies: []string{},
+			},
+			value: `SELECT '{{ .env.API_KEY }}' as api_key`,
+		}
+
+		rendered, err := emptyEngine.RenderTransformation(mockTransform, 1000, 3600, time.Now())
+		require.NoError(t, err)
+		// When no env vars are configured, template should still work but render <no value>
+		assert.Contains(t, rendered, "SELECT '<no value>' as api_key")
+	})
 }

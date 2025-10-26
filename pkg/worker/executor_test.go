@@ -855,7 +855,13 @@ func TestGetTransformationEnvironmentVariables_Integration(t *testing.T) {
 		LocalSuffix: "_local",
 	}
 
-	templateEngine := models.NewTemplateEngine(chConfig, dag)
+	// Global env vars from config
+	globalEnv := map[string]string{
+		"GLOBAL_API_KEY": "global_key_456",
+		"ENVIRONMENT":    "staging",
+	}
+
+	templateEngine := models.NewTemplateEngine(chConfig, dag, globalEnv)
 
 	// Create a transformation with custom env vars
 	model := &transformation.Exec{
@@ -871,19 +877,12 @@ func TestGetTransformationEnvironmentVariables_Integration(t *testing.T) {
 		Exec: "echo test",
 	}
 
-	// Global env vars from config
-	globalEnv := map[string]string{
-		"GLOBAL_API_KEY": "global_key_456",
-		"ENVIRONMENT":    "staging",
-	}
-
 	// Get environment variables
 	envVars, err := templateEngine.GetTransformationEnvironmentVariables(
 		model,
 		1000,
 		100,
 		time.Unix(1234567890, 0),
-		globalEnv,
 	)
 
 	require.NoError(t, err)

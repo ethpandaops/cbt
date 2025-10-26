@@ -53,6 +53,11 @@ def main():
     # Get environment variables provided by CBT worker
     ch_url = os.environ['CLICKHOUSE_URL']
 
+    # Custom environment variables can be accessed via os.environ
+    # Example: api_key = os.environ.get('API_KEY', 'default_key')
+    # These can be set globally in config.yaml under models.env
+    # or per-model in the transformation's env section
+
     # Parse to get hostname (ignore port since we'll use 8123 for HTTP)
     parsed = urlparse(ch_url)
     ch_host = parsed.hostname or 'clickhouse'
@@ -70,20 +75,23 @@ def main():
     dep_db = os.environ.get('DEP_ETHEREUM_VALIDATOR_ENTITY_DATABASE', 'ethereum')
     dep_table = os.environ.get('DEP_ETHEREUM_VALIDATOR_ENTITY_TABLE', 'validator_entity')
 
-    # Custom environment variables (example)
-    api_key = os.environ.get('API_KEY', 'not_set')
+    # Custom environment variables - these come from:
+    # 1. Global config: models.env in config.yaml
+    # 2. Model-specific: env section in the model's YAML frontmatter
+    # Model-specific env vars override global ones with the same name
     environment = os.environ.get('ENVIRONMENT', 'not_set')
-    custom_param = os.environ.get('CUSTOM_PARAM', 'not_set')
+    demo_mode = os.environ.get('DEMO_MODE', 'false')
+    base_currency = os.environ.get('BASE_CURRENCY', 'not_set')
 
     print(f"=== Python Transformation Model Execution ===")
     print(f"Time range: {datetime.fromtimestamp(bounds_start)} to {datetime.fromtimestamp(bounds_end)}")
     print(f"Source: {dep_db}.{dep_table}")
     print(f"Target: {target_db}.{target_table}")
     print(f"ClickHouse host: {ch_host}")
-    print(f"\n=== Custom Environment Variables ===")
-    print(f"API_KEY: {api_key}")
+    print(f"\n=== Custom Environment Variables (from config.yaml) ===")
     print(f"ENVIRONMENT: {environment}")
-    print(f"CUSTOM_PARAM: {custom_param}")
+    print(f"DEMO_MODE: {demo_mode}")
+    print(f"BASE_CURRENCY: {base_currency}")
     
     try:
         # Create target table if it doesn't exist

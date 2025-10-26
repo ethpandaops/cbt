@@ -5,6 +5,7 @@ type Config struct {
 	External       ExternalConfig            `yaml:"external"`
 	Transformation TransformationConfig      `yaml:"transformations"`
 	Overrides      map[string]*ModelOverride `yaml:"overrides,omitempty"`
+	Env            map[string]string         `yaml:"env,omitempty"`
 }
 
 // ExternalConfig defines configuration for external models
@@ -16,9 +17,8 @@ type ExternalConfig struct {
 
 // TransformationConfig defines configuration for transformation models
 type TransformationConfig struct {
-	Paths           []string          `yaml:"paths"`
-	DefaultDatabase string            `yaml:"defaultDatabase"`
-	Env             map[string]string `yaml:"env,omitempty"`
+	Paths           []string `yaml:"paths"`
+	DefaultDatabase string   `yaml:"defaultDatabase"`
 }
 
 // Validate validates and sets defaults for the configuration

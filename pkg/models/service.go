@@ -46,7 +46,7 @@ type service struct {
 // NewService creates a new worker application
 func NewService(log logrus.FieldLogger, cfg *Config, _ *redis.Client, clickhouseCfg *clickhouse.Config) (Service, error) {
 	dag := NewDependencyGraph()
-	templateEngine := NewTemplateEngine(clickhouseCfg, dag)
+	templateEngine := NewTemplateEngine(clickhouseCfg, dag, cfg.Env)
 
 	return &service{
 		config: cfg,
@@ -413,7 +413,7 @@ func (s *service) RenderTransformation(model Transformation, position, interval 
 
 // GetTransformationEnvironmentVariables returns environment variables for a transformation
 func (s *service) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error) {
-	return s.templateEngine.GetTransformationEnvironmentVariables(model, position, interval, startTime, s.config.Transformation.Env)
+	return s.templateEngine.GetTransformationEnvironmentVariables(model, position, interval, startTime)
 }
 
 // RenderExternal renders an external model template with variables
