@@ -1,5 +1,6 @@
 ---
-# database is set in the config models.external.defaultDatabase
+# cluster and database are set in the config models.external.defaultCluster and models.external.defaultDatabase
+# cluster: my_cluster
 # database: ethereum
 table: beacon_blocks
 interval:
@@ -9,10 +10,10 @@ cache:
   full_scan_interval: 1h
 lag: 10
 ---
-SELECT 
+SELECT
     toUnixTimestamp(min(slot_start_date_time)) as min,
     toUnixTimestamp(max(slot_start_date_time)) as max
-FROM `{{ .self.database }}`.`{{ .self.table }}` FINAL
+FROM {{ .self.helpers.from }} FINAL
 {{ if .cache.is_incremental_scan }}
 WHERE slot_start_date_time < fromUnixTimestamp({{ .cache.previous_min }})
    OR slot_start_date_time > fromUnixTimestamp({{ .cache.previous_max }})

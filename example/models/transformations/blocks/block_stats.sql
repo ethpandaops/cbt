@@ -32,7 +32,7 @@ SELECT
     count(DISTINCT entity_name) as max_entities,  -- Same for now
     count(DISTINCT entity_name) as min_entities,   -- Same for now
     {{ .bounds.start }} as position
-FROM `{{ index .dep "{{transformation}}" "block_entity" "database" }}`.`{{ index .dep "{{transformation}}" "block_entity" "table" }}`
+FROM {{ index .dep "{{transformation}}" "block_entity" "helpers" "from" }}
 WHERE slot_start_date_time >= fromUnixTimestamp({{ .bounds.start }})
   AND slot_start_date_time < fromUnixTimestamp({{ .bounds.end }})
 GROUP BY hour_start;

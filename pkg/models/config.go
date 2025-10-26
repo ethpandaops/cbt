@@ -10,6 +10,7 @@ type Config struct {
 // ExternalConfig defines configuration for external models
 type ExternalConfig struct {
 	Paths           []string `yaml:"paths"`
+	DefaultCluster  string   `yaml:"defaultCluster"`
 	DefaultDatabase string   `yaml:"defaultDatabase"`
 }
 

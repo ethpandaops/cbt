@@ -75,16 +75,18 @@ worker:
   shutdownTimeout: 30
 
 # Model configuration (optional)
-# Configure where to find external and transformation models and default database
+# Configure where to find external and transformation models and default cluster/database
 # Defaults to models/external and models/transformations if not specified
 # models:
 #   external:
-#     defaultDatabase: ethereum # optional
+#     # Optional: Set defaultCluster if using ClickHouse cluster functions
+#     # defaultCluster: "my_cluster"
+#     defaultDatabase: ethereum # optional - default database for external models
 #     paths:
 #       - "models/external" # default
 #       - "/additional/external/models"
 #   transformations:
-#     defaultDatabase: analytics # optional
+#     defaultDatabase: analytics # optional - default database for transformation models
 #     paths:
 #       - "models/transformations" # default
 #       - "/additional/transformation/models"

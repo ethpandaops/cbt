@@ -28,7 +28,7 @@ type External interface {
 	GetConfig() external.Config
 	GetConfigMutable() *external.Config
 	GetValue() string
-	SetDefaultDatabase(defaultDB string)
+	SetDefaults(defaultCluster, defaultDB string)
 }
 
 // NewExternal creates a new external model from file content

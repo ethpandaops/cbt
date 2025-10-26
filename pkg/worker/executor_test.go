@@ -626,6 +626,12 @@ func (m *mockExternal) SetDefaultDatabase(defaultDB string) {
 	}
 }
 
+func (m *mockExternal) SetDefaults(_, defaultDB string) {
+	if m.conf.Database == "" && defaultDB != "" {
+		m.conf.Database = defaultDB
+	}
+}
+
 var _ models.External = (*mockExternal)(nil)
 
 type mockDAGReader struct {

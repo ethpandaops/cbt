@@ -39,6 +39,7 @@ type IntervalConfig struct {
 
 // Config defines configuration for external models
 type Config struct {
+	Cluster  string          `yaml:"cluster"`  // Optional, can fall back to default
 	Database string          `yaml:"database"` // Optional, can fall back to default
 	Table    string          `yaml:"table" validate:"required"`
 	Cache    *CacheConfig    `yaml:"cache"`
@@ -94,7 +95,10 @@ func (c IntervalConfig) Validate() error {
 }
 
 // SetDefaults applies default values to the configuration
-func (c *Config) SetDefaults(defaultDatabase string) {
+func (c *Config) SetDefaults(defaultCluster, defaultDatabase string) {
+	if c.Cluster == "" && defaultCluster != "" {
+		c.Cluster = defaultCluster
+	}
 	if c.Database == "" && defaultDatabase != "" {
 		c.Database = defaultDatabase
 	}

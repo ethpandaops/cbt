@@ -1073,6 +1073,10 @@ func (m *mockExternal) SetDefaultDatabase(_ string) {
 	// No-op for mock
 }
 
+func (m *mockExternal) SetDefaults(_, _ string) {
+	// No-op for mock
+}
+
 // mockExternalModelValidator is a mock implementation for testing
 type mockExternalModelValidator struct {
 	admin *mockAdmin
