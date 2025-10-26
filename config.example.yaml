@@ -90,10 +90,15 @@ worker:
 #     paths:
 #       - "models/transformations" # default
 #       - "/additional/transformation/models"
-#     # Optional: Global custom environment variables for all transformations
-#     env:
-#       API_KEY: "your_api_key_here"
-#       ENVIRONMENT: "production"
+#   # Optional: Global custom environment variables for all models
+#   # These are available in:
+#   #   - SQL templates: Access via {{ .env.KEY_NAME }}
+#   #   - Command/script transformations: Access via $KEY_NAME
+#   # Model-specific env vars (defined in model frontmatter) override these global values
+#   env:
+#     API_KEY: "your_api_key_here"
+#     ENVIRONMENT: "production"
+#     REGION: "us-east-1"
 
 # Frontend service configuration (includes API)
 # The frontend serves both the web UI and API endpoints on the same port

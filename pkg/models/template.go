@@ -18,14 +18,16 @@ type TemplateEngine struct {
 	funcMap       template.FuncMap
 	dag           *DependencyGraph
 	clickhouseCfg *clickhouse.Config
+	globalEnv     map[string]string
 }
 
 // NewTemplateEngine creates a new template engine for rendering models
-func NewTemplateEngine(clickhouseCfg *clickhouse.Config, dag *DependencyGraph) *TemplateEngine {
+func NewTemplateEngine(clickhouseCfg *clickhouse.Config, dag *DependencyGraph, globalEnv map[string]string) *TemplateEngine {
 	return &TemplateEngine{
 		funcMap:       sprig.TxtFuncMap(),
 		dag:           dag,
 		clickhouseCfg: clickhouseCfg,
+		globalEnv:     globalEnv,
 	}
 }
 
@@ -65,6 +67,15 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 
 // buildBaseVariables creates the base template variables
 func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, position, interval uint64, startTime time.Time) map[string]interface{} {
+	// Merge global and model-specific env vars (model-specific overrides global)
+	mergedEnv := make(map[string]string)
+	for k, v := range t.globalEnv {
+		mergedEnv[k] = v
+	}
+	for k, v := range config.Env {
+		mergedEnv[k] = v
+	}
+
 	return map[string]interface{}{
 		"clickhouse": map[string]interface{}{
 			"cluster":      t.clickhouseCfg.Cluster,
@@ -82,6 +93,7 @@ func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, posit
 			"start": position,
 			"end":   position + interval,
 		},
+		"env": mergedEnv,
 	}
 }
 
@@ -227,7 +239,7 @@ func (t *TemplateEngine) processExternalDependency(dep Node, depID, originalDep 
 }
 
 // GetTransformationEnvironmentVariables builds environment variables for transformation execution
-func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time, globalEnv map[string]string) (*[]string, error) {
+func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error) {
 	config := model.GetConfig()
 
 	// Start with built-in environment variables
@@ -249,7 +261,7 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 	}
 
 	// Add global custom environment variables
-	for key, value := range globalEnv {
+	for key, value := range t.globalEnv {
 		env = append(env, fmt.Sprintf("%s=%s", key, value))
 	}
 
@@ -339,6 +351,7 @@ func (t *TemplateEngine) buildExternalVariables(model External, cacheState map[s
 				"from": buildFromClause(config.Cluster, config.Database, config.Table),
 			},
 		},
+		"env": t.globalEnv,
 	}
 
 	// Add cache state if provided

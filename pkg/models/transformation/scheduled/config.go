@@ -23,13 +23,14 @@ var (
 
 // Config defines the configuration for scheduled transformation models
 type Config struct {
-	Type     string   `yaml:"type"`
-	Database string   `yaml:"database"`
-	Table    string   `yaml:"table"`
-	Schedule string   `yaml:"schedule"` // Cron expression for scheduling
-	Tags     []string `yaml:"tags,omitempty"`
-	Exec     string   `yaml:"exec,omitempty"`
-	SQL      string   `yaml:"-"` // SQL content from separate file
+	Type     string            `yaml:"type"`
+	Database string            `yaml:"database"`
+	Table    string            `yaml:"table"`
+	Schedule string            `yaml:"schedule"` // Cron expression for scheduling
+	Tags     []string          `yaml:"tags,omitempty"`
+	Env      map[string]string `yaml:"env,omitempty"` // Model-specific environment variables
+	Exec     string            `yaml:"exec,omitempty"`
+	SQL      string            `yaml:"-"` // SQL content from separate file
 }
 
 // ValidateScheduleFormat validates a cron schedule expression

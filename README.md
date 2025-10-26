@@ -135,10 +135,11 @@ worker:
 #     paths:
 #       - "models/transformations" # default
 #       - "/additional/transformation/models"
-#     # Optional: Global custom environment variables for all transformations
-#     env:
-#       API_KEY: "your_api_key_here"
-#       ENVIRONMENT: "production"
+#   # Optional: Global custom environment variables for all models
+#   # Available in SQL templates via {{ .env.KEY_NAME }} and in command/scripts via $KEY_NAME
+#   env:
+#     API_KEY: "your_api_key_here"
+#     ENVIRONMENT: "production"
 #
 # # Model overrides for environment-specific adjustments (optional)
 # # Override transformation model configurations without modifying base definitions
@@ -378,6 +379,7 @@ Models support Go template syntax with the following variables:
 - `{{ .cache.is_full_scan }}` - Boolean indicating if this is a full scan
 - `{{ .cache.previous_min }}` - Previous minimum bound (for incremental scans)
 - `{{ .cache.previous_max }}` - Previous maximum bound (for incremental scans)
+- `{{ .env.KEY_NAME }}` - Custom environment variables (global or model-specific)
 
 **Helper functions:**
 - `{{ .self.helpers.from }}` - Generates complete FROM clause with cluster function if configured
@@ -544,6 +546,7 @@ Models support Go template syntax. Available variables depend on the transformat
 - `{{ .self.database }}` - Current model's database
 - `{{ .self.table }}` - Current model's table
 - `{{ .task.direction }}` - Processing direction ("forward" or "backfill")
+- `{{ .env.KEY_NAME }}` - Custom environment variables (global or model-specific)
 
 **Incremental transformations only:**
 - `{{ .bounds.start }}` - Processing interval start position
@@ -669,17 +672,21 @@ Environment variables provided to scripts:
 
 You can define custom environment variables at two levels:
 
-1. **Global level** (config.yaml) - applies to all transformations:
+1. **Global level** (config.yaml) - applies to all models (both transformations and external):
 ```yaml
 models:
+  external:
+    paths: ["models/external"]
   transformations:
-    env:
-      API_KEY: "your_api_key"
-      ENVIRONMENT: "production"
-      CUSTOM_SETTING: "value"
+    paths: ["models/transformations"]
+  # Global environment variables available to all models
+  env:
+    API_KEY: "your_api_key"
+    ENVIRONMENT: "production"
+    CUSTOM_SETTING: "value"
 ```
 
-2. **Transformation level** (model YAML) - overrides global variables:
+2. **Model level** (model YAML) - overrides global variables:
 ```yaml
 type: incremental
 table: my_model
@@ -689,7 +696,11 @@ env:
   MODEL_PARAM: "specific_value"   # Model-specific only
 ```
 
-Custom variables are passed to your script alongside built-in variables. Transformation-level variables take precedence over global variables with the same name
+**Using environment variables:**
+- **In command/script models**: Access via shell variables (e.g., `$API_KEY`)
+- **In SQL templates**: Access via template variables (e.g., `{{ .env.API_KEY }}`)
+
+Custom variables are passed to your scripts and SQL templates alongside built-in variables. Model-level variables take precedence over global variables with the same name
 
 #### Example
 

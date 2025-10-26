@@ -69,10 +69,12 @@ models:
     paths:
       - "/app/models/transformations"
     defaultDatabase: "analytics"  # Default database for transformation models
-    # Optional: Global custom environment variables for all transformations
-    env:
-      API_KEY: "global_api_key_12345"
-      ENVIRONMENT: "development"
+  # Optional: Global custom environment variables for all models
+  # Available in SQL templates via {{ .env.KEY_NAME }} and in command/scripts via $KEY_NAME
+  env:
+    ENVIRONMENT: "development"
+    DEMO_MODE: "true"
+    BASE_CURRENCY: "USD"
 
   # Optional: Override configuration for specific transformation models
   # Useful for environment-specific adjustments (staging, production, etc.)

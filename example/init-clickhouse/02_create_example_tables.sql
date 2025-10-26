@@ -233,7 +233,8 @@ CREATE TABLE IF NOT EXISTS reference.exchange_rates (
     base_currency String,
     target_currency String,
     rate Float64,
-    refresh_timestamp UInt64
+    refresh_timestamp UInt64,
+    environment String  -- Demonstrates using env vars from config.yaml
 ) ENGINE = ReplacingMergeTree(updated_at)
 ORDER BY (base_currency, target_currency);
 
