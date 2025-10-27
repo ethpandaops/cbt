@@ -665,15 +665,20 @@ func (v *dependencyValidator) processDependenciesFromHandler(ctx context.Context
 	return nil
 }
 
-// processORGroup processes an OR group dependency and adds the best available bounds
+// processORGroup processes an OR group dependency and adds the union of all members' bounds.
+// For OR semantics ("at least one must be available"), we use:
+//   - min = MIN(all members) - can start when ANY member has data
+//   - max = MAX(all members) - can continue as long as ANY member has data
 func (v *dependencyValidator) processORGroup(ctx context.Context, dep transformation.Dependency, bounds *dependencyBounds) error {
-	bestMin := uint64(0)
-	bestMax := uint64(0)
-	bestFound := false
-	bestDepID := ""
-	bestNodeType := models.NodeType("")
+	var (
+		orGroupMin     = ^uint64(0) // Start with max uint64
+		orGroupMax     = uint64(0)  // Start with 0
+		hasValidMember = false
+		nodeType       = models.NodeType("")
+		memberBounds   = make(map[string][2]uint64) // Track each member's bounds for logging
+	)
 
-	// Find the best available dependency in the OR group
+	// Calculate the union of bounds across ALL OR group members
 	for _, depID := range dep.GroupDeps {
 		depNode, err := v.dag.GetNode(depID)
 		if err != nil {
@@ -681,7 +686,7 @@ func (v *dependencyValidator) processORGroup(ctx context.Context, dep transforma
 				"dependency": depID,
 				"error":      err,
 			}).Debug("Skipping missing dependency in OR group")
-			continue // Skip missing dependencies in OR groups
+			continue
 		}
 
 		minDep, maxDep, err := v.getBoundsForNode(ctx, depNode, depID)
@@ -703,36 +708,40 @@ func (v *dependencyValidator) processORGroup(ctx context.Context, dep transforma
 			continue
 		}
 
-		// Use the dependency with the best (widest) range
-		if !bestFound || (maxDep-minDep) > (bestMax-bestMin) {
-			bestMin = minDep
-			bestMax = maxDep
-			bestFound = true
-			bestDepID = depID
-			bestNodeType = depNode.NodeType
+		// Take MIN of all mins, MAX of all maxes (union of ranges)
+		if minDep < orGroupMin {
+			orGroupMin = minDep
 		}
+		if maxDep > orGroupMax {
+			orGroupMax = maxDep
+		}
+
+		hasValidMember = true
+		nodeType = depNode.NodeType // Assume all members are same type
+		memberBounds[depID] = [2]uint64{minDep, maxDep}
 	}
 
-	if !bestFound {
+	if !hasValidMember {
 		return fmt.Errorf("%w: %v (all dependencies are uninitialized or unavailable)", ErrNoORDependencyAvailable, dep.GroupDeps)
 	}
 
-	// Add the best bounds to the appropriate category
-	switch bestNodeType {
+	// Add the union bounds to the appropriate category
+	switch nodeType {
 	case models.NodeTypeExternal:
-		bounds.externalMins = append(bounds.externalMins, bestMin)
-		bounds.externalMaxs = append(bounds.externalMaxs, bestMax)
+		bounds.externalMins = append(bounds.externalMins, orGroupMin)
+		bounds.externalMaxs = append(bounds.externalMaxs, orGroupMax)
 	case models.NodeTypeTransformation:
-		bounds.transformationMins = append(bounds.transformationMins, bestMin)
-		bounds.transformationMaxs = append(bounds.transformationMaxs, bestMax)
+		bounds.transformationMins = append(bounds.transformationMins, orGroupMin)
+		bounds.transformationMaxs = append(bounds.transformationMaxs, orGroupMax)
 	}
 
 	v.log.WithFields(logrus.Fields{
-		"or_group": dep.GroupDeps,
-		"selected": bestDepID,
-		"min":      bestMin,
-		"max":      bestMax,
-	}).Debug("Selected best dependency from OR group")
+		"or_group":      dep.GroupDeps,
+		"member_bounds": memberBounds,
+		"union_min":     orGroupMin,
+		"union_max":     orGroupMax,
+		"member_count":  len(memberBounds),
+	}).Debug("Calculated union bounds for OR group")
 
 	return nil
 }
