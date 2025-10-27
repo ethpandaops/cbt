@@ -1416,7 +1416,7 @@ func TestGetValidRangeWithORGroups(t *testing.T) {
 		errMessage  string
 	}{
 		{
-			name:    "OR group with all dependencies initialized - uses best range",
+			name:    "OR group with all dependencies initialized - uses union of all ranges",
 			modelID: "model.test",
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				// Create a model with an OR dependency group
@@ -1437,12 +1437,54 @@ func TestGetValidRangeWithORGroups(t *testing.T) {
 					"dep.model2": 200,
 				}
 				admin.lastPositions = map[string]uint64{
-					"dep.model1": 3000, // Wider range
-					"dep.model2": 1500, // Narrower range
+					"dep.model1": 3000, // Wider range (2900)
+					"dep.model2": 1500, // Narrower range (1300)
 				}
 			},
-			expectedMin: 100,  // Uses dep.model1 with wider range
-			expectedMax: 3000, // Uses dep.model1's max
+			expectedMin: 100,  // Takes minimum of all OR members: min(100, 200) = 100
+			expectedMax: 3000, // Takes maximum of all OR members: max(3000, 1500) = 3000 (union semantics)
+			wantErr:     false,
+		},
+		{
+			name:    "OR group where widest range doesn't have highest max - uses union not widest",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				// Reproduces the bug: ModelA has widest range but ModelB has higher max
+				// This is the exact scenario from the user's issue
+				orDeps := []transformation.Dependency{
+					{
+						IsGroup: true,
+						GroupDeps: []string{
+							"ext.modelA", "ext.modelB", "ext.modelC", "ext.modelD",
+						},
+					},
+				}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{
+						NodeType: models.NodeTypeTransformation,
+						Model:    &mockTransformation{id: "model.test", interval: 50000, orDependencies: orDeps},
+					},
+					"ext.modelA": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.modelA"}}, // Widest range: 28188
+					"ext.modelB": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.modelB"}}, // Narrower but higher max: 2592
+					"ext.modelC": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.modelC"}}, // Range: 27588
+					"ext.modelD": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.modelD"}}, // Same as B
+				}
+				// Set bounds for external models via admin mock
+				admin.firstPositions = map[string]uint64{
+					"ext.modelA": 0,     // Widest range: 0 to 28188 (28188 units)
+					"ext.modelB": 27396, // Narrower range but higher max: 27396 to 29988 (2592 units)
+					"ext.modelC": 0,     // Range: 0 to 27588 (27588 units)
+					"ext.modelD": 27396, // Same as B: 27396 to 29988 (2592 units)
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.modelA": 28188, // ModelA has widest range
+					"ext.modelB": 29988, // ModelB has highest max
+					"ext.modelC": 27588,
+					"ext.modelD": 29988, // Same as ModelB
+				}
+			},
+			expectedMin: 0,     // Takes minimum across all OR members: min(0, 27396, 0, 27396) = 0
+			expectedMax: 29988, // Takes maximum across all OR members: max(28188, 29988, 27588, 29988) = 29988 not 28188
 			wantErr:     false,
 		},
 		{
