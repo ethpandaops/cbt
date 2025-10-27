@@ -114,9 +114,24 @@ func (v *dependencyValidator) ValidateDependencies(
 	canProcess := position >= minValid && requestedEnd <= maxValid
 
 	if !canProcess {
+		// If position is below minValid (e.g., due to limits.min config),
+		// tell forward fill to skip to minValid instead of giving up
+		nextValidPos := uint64(0)
+		if position < minValid {
+			nextValidPos = minValid
+			v.log.WithFields(logrus.Fields{
+				"model_id":       modelID,
+				"position":       position,
+				"min_valid":      minValid,
+				"next_valid_pos": nextValidPos,
+				"reason":         "position below minimum valid range",
+			}).Debug("Position below minValid, setting NextValidPos to skip gap")
+		}
+
 		return Result{
-			CanProcess: false,
-			Errors:     []error{ErrRangeNotAvailable},
+			CanProcess:   false,
+			NextValidPos: nextValidPos,
+			Errors:       []error{ErrRangeNotAvailable},
 		}, nil
 	}
 
