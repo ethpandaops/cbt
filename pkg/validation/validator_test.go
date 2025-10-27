@@ -182,6 +182,91 @@ func TestValidateDependencies(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name:     "position below limits.min - returns NextValidPos to skip gap",
+			modelID:  "model.test",
+			position: 500,
+			interval: 50,
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				// Model has processed up to 500, dependencies available [0-1000]
+				// But limits.min=700 creates a gap [500-700] that should be skipped
+				dag.dependencies = []string{"dep.model1"}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{
+						NodeType: models.NodeTypeTransformation,
+						Model: &mockTransformation{
+							id:       "model.test",
+							interval: 50,
+							handler: &mockHandler{
+								interval:     50,
+								dependencies: []string{"dep.model1"},
+								limits: &mockLimitsConfig{
+									Min: 700, // Configured minimum limit
+									Max: 0,   // No max limit
+								},
+							},
+						},
+					},
+					"dep.model1": models.Node{
+						NodeType: models.NodeTypeTransformation,
+						Model:    &mockTransformation{id: "dep.model1", interval: 100},
+					},
+				}
+				// Dependency has data from 0 to 1000
+				admin.firstPositions = map[string]uint64{
+					"dep.model1": 0,
+				}
+				admin.lastPositions = map[string]uint64{
+					"dep.model1": 1000,
+				}
+			},
+			expectedResult: Result{
+				CanProcess:   false,
+				NextValidPos: 700, // Should skip to limits.min
+			},
+			wantErr: false,
+		},
+		{
+			name:     "position at limits.min boundary - can process",
+			modelID:  "model.test",
+			position: 700,
+			interval: 50,
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"dep.model1"}
+				dag.nodes = map[string]models.Node{
+					"model.test": models.Node{
+						NodeType: models.NodeTypeTransformation,
+						Model: &mockTransformation{
+							id:       "model.test",
+							interval: 50,
+							handler: &mockHandler{
+								interval:     50,
+								dependencies: []string{"dep.model1"},
+								limits: &mockLimitsConfig{
+									Min: 700,
+									Max: 0,
+								},
+							},
+						},
+					},
+					"dep.model1": models.Node{
+						NodeType: models.NodeTypeTransformation,
+						Model:    &mockTransformation{id: "dep.model1", interval: 100},
+					},
+				}
+				admin.firstPositions = map[string]uint64{
+					"dep.model1": 0,
+				}
+				admin.lastPositions = map[string]uint64{
+					"dep.model1": 1000,
+				}
+			},
+			expectedResult: Result{
+				CanProcess:   true,
+				NextValidPos: 0,
+			},
+			wantErr: false,
+		},
 	}
 
 	// Run tests
@@ -217,7 +302,8 @@ func TestValidateDependencies(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.expectedResult.CanProcess, result.CanProcess)
+				assert.Equal(t, tt.expectedResult.CanProcess, result.CanProcess, "CanProcess mismatch")
+				assert.Equal(t, tt.expectedResult.NextValidPos, result.NextValidPos, "NextValidPos mismatch")
 			}
 		})
 	}
