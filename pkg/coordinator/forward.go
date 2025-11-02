@@ -36,11 +36,11 @@ func (s *service) processForward(trans models.Transformation) {
 	// in their dependency data that need to be skipped. Scheduled
 	// transformations run on time schedules (hourly, daily) and don't have
 	// position-based gaps, so they use the normal processing path.
-	if handler.ShouldTrackPosition() {
+	if handler.ShouldTrackPosition() && s.shouldAllowGapSkipping(handler) {
 		// Gap-aware path: detect and skip gaps in dependencies
 		s.processForwardWithGapSkipping(ctx, trans, nextPos, maxLimit)
 	} else {
-		// Normal path: for scheduled transformations that don't track positions
+		// Normal path: for scheduled transformations or incremental with gap skipping disabled
 		interval, shouldReturn := s.calculateProcessingInterval(ctx, trans, handler, nextPos, maxLimit)
 		if shouldReturn {
 			return
@@ -57,6 +57,18 @@ func (s *service) isForwardFillEnabled(handler transformation.Handler) bool {
 	}
 	provider, ok := handler.(scheduleProvider)
 	return ok && provider.IsForwardFillEnabled()
+}
+
+// shouldAllowGapSkipping checks if gap skipping is allowed for the handler
+func (s *service) shouldAllowGapSkipping(handler transformation.Handler) bool {
+	type gapSkippingProvider interface {
+		AllowGapSkipping() bool
+	}
+	provider, ok := handler.(gapSkippingProvider)
+	if !ok {
+		return true // default: allow gap skipping
+	}
+	return provider.AllowGapSkipping()
 }
 
 // getProcessingPosition gets the next position to process, calculating initial if needed
