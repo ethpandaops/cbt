@@ -26,6 +26,8 @@ var (
 	ErrInvalidLimits = errors.New("min limit cannot be greater than max limit")
 	// ErrIntervalTypeRequired is returned when interval.type is not specified
 	ErrIntervalTypeRequired = errors.New("interval.type is required")
+	// ErrInvalidFillDirection is returned when fill.direction is not 'head' or 'tail'
+	ErrInvalidFillDirection = errors.New("fill.direction must be 'head' or 'tail'")
 )
 
 // Config defines the configuration for incremental transformation models
@@ -36,6 +38,7 @@ type Config struct {
 	Limits       *LimitsConfig               `yaml:"limits,omitempty"`
 	Interval     *IntervalConfig             `yaml:"interval"`
 	Schedules    *SchedulesConfig            `yaml:"schedules"`
+	Fill         *FillConfig                 `yaml:"fill,omitempty"`
 	Dependencies []transformation.Dependency `yaml:"dependencies"`
 	Tags         []string                    `yaml:"tags,omitempty"`
 	Exec         string                      `yaml:"exec,omitempty"`
@@ -63,6 +66,12 @@ type SchedulesConfig struct {
 type LimitsConfig struct {
 	Min uint64 `yaml:"min,omitempty"`
 	Max uint64 `yaml:"max,omitempty"`
+}
+
+// FillConfig defines how the transformation is initially filled and processed
+type FillConfig struct {
+	Direction        string `yaml:"direction,omitempty"`          // "head" or "tail" (default: "head")
+	AllowGapSkipping *bool  `yaml:"allow_gap_skipping,omitempty"` // default: true
 }
 
 // Validate checks if the interval configuration is valid
@@ -103,6 +112,14 @@ func (c *SchedulesConfig) Validate() error {
 func (c *LimitsConfig) Validate() error {
 	if c.Min > 0 && c.Max > 0 && c.Min > c.Max {
 		return ErrInvalidLimits
+	}
+	return nil
+}
+
+// Validate checks if the fill configuration is valid
+func (c *FillConfig) Validate() error {
+	if c.Direction != "" && c.Direction != "head" && c.Direction != "tail" {
+		return ErrInvalidFillDirection
 	}
 	return nil
 }

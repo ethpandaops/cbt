@@ -521,12 +521,10 @@ func (v *dependencyValidator) GetEarliestPosition(ctx context.Context, modelID s
 	return minPos, nil
 }
 
-// GetInitialPosition calculates the initial position for a model starting from the head (most recent data)
-// Returns the latest position where all dependencies have data available minus one interval
+// GetInitialPosition calculates the initial position for a model
+// Supports both head-first (from most recent data) and tail-first (from oldest data) strategies
 func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID string) (uint64, error) {
-	v.log.WithField("model_id", modelID).Debug("GetInitialPosition called (head-first)")
-
-	// Get the model's interval
+	// Get the model's interval and handler
 	node, err := v.dag.GetNode(modelID)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %s", ErrModelNotFound, modelID)
@@ -540,12 +538,21 @@ func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
 	}
+
 	// Get interval from handler
 	var interval uint64
 	handler := model.GetHandler()
 	if handler != nil {
 		if intervalProvider, ok := handler.(interface{ GetMaxInterval() uint64 }); ok {
 			interval = intervalProvider.GetMaxInterval()
+		}
+	}
+
+	// Get fill direction from handler
+	direction := "head" // default
+	if handler != nil {
+		if directionProvider, ok := handler.(interface{ GetFillDirection() string }); ok {
+			direction = directionProvider.GetFillDirection()
 		}
 	}
 
@@ -560,18 +567,14 @@ func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 		return 0, nil
 	}
 
-	// Simple calculation: start one interval back from max, but not below min
+	// Calculate initial position based on fill direction
 	var initialPos uint64
-	if maxPos > interval {
-		targetPos := maxPos - interval
-		if targetPos > minPos {
-			initialPos = targetPos
-		} else {
-			initialPos = minPos
-		}
-	} else {
-		// Not enough data for even one interval from 0
+	if direction == "tail" {
+		// Tail-first: start from the beginning
 		initialPos = minPos
+	} else {
+		// Head-first: start one interval back from max, but not below min
+		initialPos = v.calculateHeadFirstPosition(minPos, maxPos, interval)
 	}
 
 	v.log.WithFields(logrus.Fields{
@@ -580,9 +583,21 @@ func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID st
 		"maxPos":     maxPos,
 		"interval":   interval,
 		"initialPos": initialPos,
-	}).Debug("Calculated initial position (head-first)")
+		"direction":  direction,
+	}).Debug("Calculated initial position")
 
 	return initialPos, nil
+}
+
+// calculateHeadFirstPosition calculates the initial position for head-first fill strategy
+func (v *dependencyValidator) calculateHeadFirstPosition(minPos, maxPos, interval uint64) uint64 {
+	if maxPos > interval {
+		targetPos := maxPos - interval
+		if targetPos > minPos {
+			return targetPos
+		}
+	}
+	return minPos
 }
 
 // dependencyBounds holds min/max bounds for dependencies

@@ -74,6 +74,12 @@ func (h *Handler) Validate() error {
 		return ErrDependenciesRequired
 	}
 
+	if h.config.Fill != nil {
+		if err := h.config.Fill.Validate(); err != nil {
+			return fmt.Errorf("fill validation failed: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -213,6 +219,22 @@ func (h *Handler) IsForwardFillEnabled() bool {
 // IsBackfillEnabled returns true if backfill schedule is configured
 func (h *Handler) IsBackfillEnabled() bool {
 	return h.config.Schedules != nil && h.config.Schedules.Backfill != ""
+}
+
+// GetFillDirection returns the configured fill direction ("head" or "tail")
+func (h *Handler) GetFillDirection() string {
+	if h.config.Fill != nil && h.config.Fill.Direction != "" {
+		return h.config.Fill.Direction
+	}
+	return "head" // default
+}
+
+// AllowGapSkipping returns whether gap skipping is allowed during forward fill
+func (h *Handler) AllowGapSkipping() bool {
+	if h.config.Fill != nil && h.config.Fill.AllowGapSkipping != nil {
+		return *h.config.Fill.AllowGapSkipping
+	}
+	return true // default: allow gap skipping
 }
 
 // AllowsPartialIntervals returns true if min interval is 0 (allows partial processing)

@@ -289,3 +289,20 @@ CREATE TABLE IF NOT EXISTS analytics.transactions_with_rates (
 ) ENGINE = MergeTree()
 ORDER BY (timestamp, transaction_id, _position)
 PARTITION BY toYYYYMM(timestamp);
+
+-- Historical block analysis table (tail-first fill example)
+CREATE TABLE IF NOT EXISTS analytics.historical_block_analysis (
+    updated_date_time DateTime DEFAULT now() CODEC(DoubleDelta, ZSTD(1)),
+    event_date_time DateTime64(3) DEFAULT now64(3) CODEC(DoubleDelta, ZSTD(1)),
+    slot_start_date_time DateTime,
+    block_count UInt32,
+    unique_validators UInt32,
+    avg_slot Float64,
+    min_slot UInt64,
+    max_slot UInt64,
+    position UInt64,
+    position_end UInt64,
+    fill_direction String
+) ENGINE = ReplacingMergeTree(updated_date_time)
+PARTITION BY toYYYYMM(slot_start_date_time)
+ORDER BY (slot_start_date_time, position);

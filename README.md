@@ -448,12 +448,67 @@ interval:
   max: 3600                # Maximum interval size (required)
   min: 0                   # Minimum interval size (0 = allow partial)
   type: timestamp          # Type of interval (required)
+fill:                      # Optional: Control initial fill behavior
+  direction: "head"        # "head" (default) or "tail"
+  allow_gap_skipping: true # true (default) or false
 schedules:                 # At least one schedule required
   forwardfill: "@every 5m"
   backfill: "@every 1h"
 dependencies:              # Required
   - {{external}}.source_data
 tags: [aggregation]
+```
+
+**Fill Configuration Options:**
+
+The `fill` configuration controls how incremental transformations are initially populated and how they handle gaps:
+
+- **`fill.direction`** (default: `"head"`):
+  - `"head"`: Start processing from most recent data and work backwards
+    - Initial position: `maxPos - interval` (one interval back from latest available)
+    - Best for: Production systems needing recent data quickly
+    - Example: Start at position 9900 when max is 10000, then backfill to 0
+
+  - `"tail"`: Start processing from oldest data and work forwards chronologically
+    - Initial position: `minPos` (earliest available data)
+    - Best for: Historical analysis, reproducible datasets, testing
+    - Example: Start at position 0 and forward fill to current
+
+- **`fill.allow_gap_skipping`** (default: `true`):
+  - `true`: Skip over gaps in dependency data automatically
+    - If position 100 has missing dependency data but 110 is available, jump to 110
+    - More efficient - doesn't wait for missing historical data
+    - Gaps are logged and can be backfilled later
+
+  - `false`: Enforce strict sequential processing
+    - Must process every position in order without gaps
+    - Waits at current position if dependency data is missing
+    - Required for: Tables needing guaranteed sequential ordering, stateful processing
+
+**Examples:**
+
+```yaml
+# Default behavior (head-first with gap skipping) - omit fill config entirely
+type: incremental
+# Uses: direction=head, allow_gap_skipping=true
+
+# Historical analysis from beginning, sequential only
+type: incremental
+fill:
+  direction: "tail"
+  allow_gap_skipping: false
+
+# Recent data first, but no gap skipping
+type: incremental
+fill:
+  direction: "head"
+  allow_gap_skipping: false
+
+# Start from beginning but allow gaps
+type: incremental
+fill:
+  direction: "tail"
+  allow_gap_skipping: true
 ```
 
 ##### Type 2: Scheduled Transformations (`type: scheduled`)
