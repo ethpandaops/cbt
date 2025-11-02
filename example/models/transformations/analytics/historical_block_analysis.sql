@@ -1,5 +1,5 @@
 ---
-# Example demonstrating tail-first fill with no gap skipping
+# Example demonstrating tail-first fill with no gap skipping and buffer
 # This model processes blocks chronologically from the beginning
 # and requires sequential processing (no gaps allowed)
 type: incremental
@@ -11,6 +11,7 @@ interval:
 fill:
   direction: "tail"           # Start from oldest data (beginning)
   allow_gap_skipping: false   # Must process sequentially, no gaps
+  buffer: 50                  # Stay 50 slots behind dependency data for safety
 schedules:
   forwardfill: "@every 30s"
   backfill: "@every 1m"

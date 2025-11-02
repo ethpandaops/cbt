@@ -1732,3 +1732,74 @@ func TestGetValidRangeWithORGroups(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyFillBuffer(t *testing.T) {
+	tests := []struct {
+		name        string
+		buffer      uint64
+		finalMin    uint64
+		finalMax    uint64
+		expectedMax uint64
+	}{
+		{
+			name:        "no buffer configured",
+			buffer:      0,
+			finalMin:    1000,
+			finalMax:    2000,
+			expectedMax: 2000,
+		},
+		{
+			name:        "buffer smaller than max",
+			buffer:      100,
+			finalMin:    1000,
+			finalMax:    2000,
+			expectedMax: 1900, // 2000 - 100
+		},
+		{
+			name:        "buffer equals max",
+			buffer:      2000,
+			finalMin:    1000,
+			finalMax:    2000,
+			expectedMax: 1000, // Set to min when buffer >= max
+		},
+		{
+			name:        "buffer larger than max",
+			buffer:      3000,
+			finalMin:    1000,
+			finalMax:    2000,
+			expectedMax: 1000, // Set to min when buffer > max
+		},
+		{
+			name:        "buffer applied to large range",
+			buffer:      500,
+			finalMin:    0,
+			finalMax:    10000,
+			expectedMax: 9500, // 10000 - 500
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &dependencyValidator{
+				log: logrus.New(),
+			}
+
+			handler := &mockTransformationHandlerWithBuffer{
+				buffer: tt.buffer,
+			}
+
+			result := validator.applyFillBuffer(handler, "test_model", tt.finalMin, tt.finalMax)
+			assert.Equal(t, tt.expectedMax, result)
+		})
+	}
+}
+
+// mockTransformationHandlerWithBuffer mocks a handler with buffer configuration
+type mockTransformationHandlerWithBuffer struct {
+	mockHandler
+	buffer uint64
+}
+
+func (m *mockTransformationHandlerWithBuffer) GetFillBuffer() uint64 {
+	return m.buffer
+}

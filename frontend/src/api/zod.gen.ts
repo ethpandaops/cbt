@@ -96,6 +96,13 @@ export const zIncrementalTransformation = z.intersection(
         max: z.optional(z.int()),
       })
     ),
+    fill: z.optional(
+      z.object({
+        direction: z.optional(z.enum(['head', 'tail'])),
+        allow_gap_skipping: z.optional(z.boolean()),
+        buffer: z.optional(z.int()),
+      })
+    ),
   })
 );
 
@@ -120,6 +127,13 @@ export const zTransformationModel = z.intersection(
       z.object({
         min: z.optional(z.int()),
         max: z.optional(z.int()),
+      })
+    ),
+    fill: z.optional(
+      z.object({
+        direction: z.optional(z.enum(['head', 'tail'])),
+        allow_gap_skipping: z.optional(z.boolean()),
+        buffer: z.optional(z.int()),
       })
     ),
   })

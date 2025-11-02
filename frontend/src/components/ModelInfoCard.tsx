@@ -4,7 +4,7 @@ export interface InfoField {
   label: string;
   value: ReactNode;
   variant?: 'default' | 'highlight';
-  highlightColor?: 'green' | 'indigo' | 'emerald' | 'amber';
+  highlightColor?: 'green' | 'indigo' | 'emerald' | 'amber' | 'blue';
 }
 
 export interface ModelInfoCardProps {
@@ -34,6 +34,9 @@ export function ModelInfoCard({
       if (color === 'amber') {
         return 'rounded-lg bg-amber-500/10 p-4 ring-1 ring-amber-500/50';
       }
+      if (color === 'blue') {
+        return 'rounded-lg bg-blue-500/10 p-4 ring-1 ring-blue-500/50';
+      }
       return 'rounded-lg bg-indigo-500/10 p-4 ring-1 ring-indigo-500/50';
     }
     return 'rounded-lg bg-slate-900/60 p-4';
@@ -51,6 +54,9 @@ export function ModelInfoCard({
       if (color === 'amber') {
         return 'mb-1 font-semibold text-amber-400';
       }
+      if (color === 'blue') {
+        return 'mb-1 font-semibold text-blue-400';
+      }
       return 'mb-1 font-semibold text-indigo-400';
     }
     return 'mb-1 font-semibold text-slate-400';
@@ -67,6 +73,9 @@ export function ModelInfoCard({
       }
       if (color === 'amber') {
         return 'font-mono text-base font-bold text-amber-200';
+      }
+      if (color === 'blue') {
+        return 'font-mono text-base font-bold text-blue-200';
       }
       return 'font-mono text-base font-bold text-indigo-200';
     }

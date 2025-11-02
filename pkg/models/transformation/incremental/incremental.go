@@ -237,6 +237,14 @@ func (h *Handler) AllowGapSkipping() bool {
 	return true // default: allow gap skipping
 }
 
+// GetFillBuffer returns the configured fill buffer (how far behind dependencies to stay)
+func (h *Handler) GetFillBuffer() uint64 {
+	if h.config.Fill != nil {
+		return h.config.Fill.Buffer
+	}
+	return 0
+}
+
 // AllowsPartialIntervals returns true if min interval is 0 (allows partial processing)
 func (h *Handler) AllowsPartialIntervals() bool {
 	return h.config.Interval != nil && h.config.Interval.Min == 0

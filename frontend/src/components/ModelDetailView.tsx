@@ -329,6 +329,30 @@ export function ModelDetailView({
     }
   }
 
+  // Fill configuration
+  if (transformation?.fill) {
+    if (transformation.fill.direction) {
+      infoFields.push({
+        label: 'Fill Direction',
+        value: transformation.fill.direction,
+      });
+    }
+    if (transformation.fill.allow_gap_skipping !== undefined) {
+      infoFields.push({
+        label: 'Gap Skipping',
+        value: transformation.fill.allow_gap_skipping ? 'Enabled' : 'Disabled',
+      });
+    }
+    if (transformation.fill.buffer !== undefined && transformation.fill.buffer > 0) {
+      infoFields.push({
+        label: 'Fill Buffer',
+        value: transformation.fill.buffer.toString(),
+        variant: 'highlight',
+        highlightColor: 'blue',
+      });
+    }
+  }
+
   return (
     <div className="space-y-6">
       <ModelInfoCard title="Model Information" fields={infoFields} borderColor="border-indigo-500/30" columns={4} />

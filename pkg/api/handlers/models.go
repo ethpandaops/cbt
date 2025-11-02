@@ -339,6 +339,7 @@ func populateIncrementalFields(model *generated.TransformationModel, node models
 	populateInterval(model, incrementalHandler, handler)
 	populateSchedules(model, incrementalHandler)
 	populateLimits(model, handler)
+	populateFill(model, handler)
 	populateTags(model, incrementalHandler)
 }
 
@@ -402,6 +403,54 @@ func populateLimits(model *generated.TransformationModel, handler interface{}) {
 		Min: intPtr(int(limits.Min)), // nolint:gosec
 		Max: intPtr(int(limits.Max)), // nolint:gosec
 	}
+}
+
+func populateFill(model *generated.TransformationModel, handler interface{}) {
+	// Check if handler provides fill direction
+	directionProvider, hasDirection := handler.(interface {
+		GetFillDirection() string
+	})
+
+	// Check if handler provides gap skipping setting
+	gapSkippingProvider, hasGapSkipping := handler.(interface {
+		AllowGapSkipping() bool
+	})
+
+	// Check if handler provides buffer setting
+	bufferProvider, hasBuffer := handler.(interface {
+		GetFillBuffer() uint64
+	})
+
+	// Only populate if at least one fill property is available
+	if !hasDirection && !hasGapSkipping && !hasBuffer {
+		return
+	}
+
+	fill := &struct {
+		AllowGapSkipping *bool                                       `json:"allow_gap_skipping,omitempty"`
+		Buffer           *int                                        `json:"buffer,omitempty"`
+		Direction        *generated.TransformationModelFillDirection `json:"direction,omitempty"`
+	}{}
+
+	if hasDirection {
+		if direction := directionProvider.GetFillDirection(); direction != "" {
+			dir := generated.TransformationModelFillDirection(direction)
+			fill.Direction = &dir
+		}
+	}
+
+	if hasGapSkipping {
+		allowGapSkipping := gapSkippingProvider.AllowGapSkipping()
+		fill.AllowGapSkipping = &allowGapSkipping
+	}
+
+	if hasBuffer {
+		if buffer := bufferProvider.GetFillBuffer(); buffer > 0 {
+			fill.Buffer = intPtr(int(buffer)) // nolint:gosec
+		}
+	}
+
+	model.Fill = fill
 }
 
 func populateTags(model *generated.TransformationModel, incrementalHandler interface {
