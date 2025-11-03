@@ -903,6 +903,9 @@ func (v *dependencyValidator) GetValidRange(ctx context.Context, modelID string)
 	// Apply configured limits from handler if any
 	finalMin, finalMax = v.applyLimitsFromHandler(model.GetHandler(), modelID, finalMin, finalMax)
 
+	// Apply fill.buffer if configured (stays behind dependency max)
+	finalMax = v.applyFillBuffer(model.GetHandler(), modelID, finalMin, finalMax)
+
 	// Ensure min <= max
 	if finalMin > finalMax {
 		// No valid range
@@ -973,4 +976,48 @@ func (v *dependencyValidator) applyLimitsFromHandler(handler transformation.Hand
 	}
 
 	return finalMin, finalMax
+}
+
+// applyFillBuffer applies fill.buffer configuration if available
+// Buffer reduces the max position to stay N positions behind dependency data
+func (v *dependencyValidator) applyFillBuffer(handler transformation.Handler, modelID string, finalMin, finalMax uint64) uint64 {
+	if handler == nil {
+		return finalMax
+	}
+
+	type bufferProvider interface {
+		GetFillBuffer() uint64
+	}
+
+	provider, ok := handler.(bufferProvider)
+	if !ok {
+		return finalMax
+	}
+
+	buffer := provider.GetFillBuffer()
+	if buffer == 0 {
+		return finalMax
+	}
+
+	// Apply buffer: stay N positions behind dependency max
+	if finalMax > buffer {
+		originalMax := finalMax
+		finalMax -= buffer
+		v.log.WithFields(logrus.Fields{
+			"model_id":     modelID,
+			"original_max": originalMax,
+			"buffer":       buffer,
+			"adjusted_max": finalMax,
+		}).Debug("Applied fill.buffer to dependency max position")
+	} else {
+		// Buffer exceeds max, set to min
+		v.log.WithFields(logrus.Fields{
+			"model_id": modelID,
+			"max":      finalMax,
+			"buffer":   buffer,
+		}).Debug("Buffer exceeds max, setting max to min")
+		finalMax = finalMin
+	}
+
+	return finalMax
 }

@@ -737,6 +737,23 @@ components:
                   type: integer
                   description: Maximum position limit
                   example: 1000000
+            fill:
+              type: object
+              description: Fill behavior configuration for incremental processing
+              properties:
+                direction:
+                  type: string
+                  description: Fill direction (head or tail)
+                  enum: ["head", "tail"]
+                  example: "head"
+                allow_gap_skipping:
+                  type: boolean
+                  description: Whether to allow skipping gaps in dependency data
+                  example: true
+                buffer:
+                  type: integer
+                  description: Stay N positions behind dependency max (0 = no buffer)
+                  example: 20
 
     # Union type - handlers will return appropriate concrete type
     # Contains all possible fields (base + type-specific)
@@ -784,6 +801,20 @@ components:
                 max:
                   type: integer
                   description: Maximum position limit
+            fill:
+              type: object
+              description: Fill behavior (present when type=incremental)
+              properties:
+                direction:
+                  type: string
+                  description: Fill direction (head or tail)
+                  enum: ["head", "tail"]
+                allow_gap_skipping:
+                  type: boolean
+                  description: Whether to allow skipping gaps in dependency data
+                buffer:
+                  type: integer
+                  description: Stay N positions behind dependency max (0 = no buffer)
 
     # ============================================
     # BOUNDS, COVERAGE & RUNS SCHEMAS

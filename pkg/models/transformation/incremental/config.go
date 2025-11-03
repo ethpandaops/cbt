@@ -72,6 +72,7 @@ type LimitsConfig struct {
 type FillConfig struct {
 	Direction        string `yaml:"direction,omitempty"`          // "head" or "tail" (default: "head")
 	AllowGapSkipping *bool  `yaml:"allow_gap_skipping,omitempty"` // default: true
+	Buffer           uint64 `yaml:"buffer,omitempty"`             // Stay N positions behind dependency max (default: 0)
 }
 
 // Validate checks if the interval configuration is valid

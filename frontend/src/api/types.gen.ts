@@ -170,6 +170,23 @@ export type IncrementalTransformation = TransformationModelBase & {
      */
     max?: number;
   };
+  /**
+   * Fill behavior configuration for incremental processing
+   */
+  fill?: {
+    /**
+     * Fill direction (head or tail)
+     */
+    direction?: 'head' | 'tail';
+    /**
+     * Whether to allow skipping gaps in dependency data
+     */
+    allow_gap_skipping?: boolean;
+    /**
+     * Stay N positions behind dependency max (0 = no buffer)
+     */
+    buffer?: number;
+  };
 };
 
 export type TransformationModel = TransformationModelBase & {
@@ -219,6 +236,23 @@ export type TransformationModel = TransformationModelBase & {
      * Maximum position limit
      */
     max?: number;
+  };
+  /**
+   * Fill behavior (present when type=incremental)
+   */
+  fill?: {
+    /**
+     * Fill direction (head or tail)
+     */
+    direction?: 'head' | 'tail';
+    /**
+     * Whether to allow skipping gaps in dependency data
+     */
+    allow_gap_skipping?: boolean;
+    /**
+     * Stay N positions behind dependency max (0 = no buffer)
+     */
+    buffer?: number;
   };
 };
 

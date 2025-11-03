@@ -485,6 +485,13 @@ The `fill` configuration controls how incremental transformations are initially 
     - Waits at current position if dependency data is missing
     - Required for: Tables needing guaranteed sequential ordering, stateful processing
 
+- **`fill.buffer`** (default: `0`):
+  - Stay N positions behind dependency max as a safety buffer
+  - Applied to the calculated dependency max (after external lag is applied)
+  - Useful for: Avoiding edge cases with recent data, adding processing delays
+  - Example: If dependencies have data up to position 2000 and buffer is 20, max fill position is 1980
+  - Independent of `limits.max` which sets an absolute ceiling
+
 **Examples:**
 
 ```yaml
@@ -509,6 +516,11 @@ type: incremental
 fill:
   direction: "tail"
   allow_gap_skipping: true
+
+# Stay 20 positions behind dependency data for safety
+type: incremental
+fill:
+  buffer: 20
 ```
 
 ##### Type 2: Scheduled Transformations (`type: scheduled`)

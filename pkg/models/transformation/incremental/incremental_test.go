@@ -559,3 +559,80 @@ func (m *mockAdminService) RecordCompletion(ctx context.Context, modelID string,
 func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
 	return []admin.ProcessedRange{}, nil
 }
+
+func TestHandler_GetFillBuffer(t *testing.T) {
+	tests := []struct {
+		name         string
+		yamlData     string
+		expectBuffer uint64
+	}{
+		{
+			name: "fill.buffer configured",
+			yamlData: `
+type: incremental
+database: test_db
+table: test_table
+interval:
+  max: 100
+  type: slot
+schedules:
+  forwardfill: "@every 10s"
+fill:
+  buffer: 20
+dependencies:
+  - source.table
+`,
+			expectBuffer: 20,
+		},
+		{
+			name: "no fill config",
+			yamlData: `
+type: incremental
+database: test_db
+table: test_table
+interval:
+  max: 100
+  type: slot
+schedules:
+  forwardfill: "@every 10s"
+dependencies:
+  - source.table
+`,
+			expectBuffer: 0,
+		},
+		{
+			name: "fill config without buffer",
+			yamlData: `
+type: incremental
+database: test_db
+table: test_table
+interval:
+  max: 100
+  type: slot
+schedules:
+  forwardfill: "@every 10s"
+fill:
+  direction: head
+  allow_gap_skipping: true
+dependencies:
+  - source.table
+`,
+			expectBuffer: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adminTable := transformation.AdminTable{
+				Database: "admin",
+				Table:    "cbt_incremental",
+			}
+
+			handler, err := NewHandler([]byte(tt.yamlData), adminTable)
+			require.NoError(t, err)
+
+			buffer := handler.GetFillBuffer()
+			assert.Equal(t, tt.expectBuffer, buffer)
+		})
+	}
+}

@@ -9,6 +9,8 @@ interval:
 schedules:
   forwardfill: "@every 1m"
   backfill: "@every 5s"
+fill:
+  buffer: 10  # Stay 10 slots behind dependency data (safety buffer)
 tags:
   - python
   - entity
