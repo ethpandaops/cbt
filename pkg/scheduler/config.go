@@ -12,8 +12,9 @@ var (
 
 // Config defines scheduler configuration
 type Config struct {
-	Concurrency   int    `yaml:"concurrency" default:"10"`
-	Consolidation string `yaml:"consolidation" default:"@every 10m"`
+	Concurrency     int    `yaml:"concurrency" default:"10"`
+	Consolidation   string `yaml:"consolidation" default:"@every 10m"`
+	ShutdownTimeout int    `yaml:"shutdownTimeout" default:"10"`
 }
 
 // Validate checks if the scheduler configuration is valid

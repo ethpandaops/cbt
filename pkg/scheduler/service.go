@@ -189,20 +189,33 @@ func (s *service) Stop() error {
 		}
 	}
 
-	// Close asynq client
+	// Shutdown server first
+	if s.server != nil {
+		s.server.Shutdown()
+	}
+
+	// Wait for all goroutines to complete BEFORE closing asynq client with timeout
+	// This prevents "redis: client is closed" errors from ticker goroutines
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+
+	timeout := time.Duration(s.cfg.ShutdownTimeout) * time.Second
+	select {
+	case <-done:
+		s.log.Info("Scheduler goroutines stopped successfully")
+	case <-time.After(timeout):
+		s.log.Warnf("Scheduler shutdown timed out after %v, forcing shutdown", timeout)
+	}
+
+	// Now safe to close asynq client
 	if s.client != nil {
 		if err := s.client.Close(); err != nil {
 			s.log.WithError(err).Warn("Failed to close asynq client")
 		}
 	}
-
-	// Shutdown server
-	if s.server != nil {
-		s.server.Shutdown()
-	}
-
-	// Wait for all goroutines to complete
-	s.wg.Wait()
 
 	s.log.Info("Scheduler service stopped successfully")
 
