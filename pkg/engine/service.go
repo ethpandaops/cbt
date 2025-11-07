@@ -201,27 +201,32 @@ func (a *Service) Stop() error {
 		}
 	}
 
-	// Stop all services in correct order:
+	// Stop all services.
 	// 1. Stop scheduler first (stop creating new tasks)
 	if a.scheduler != nil {
 		stopService("scheduler service", a.scheduler.Stop)
 	}
+
 	// 2. Stop coordinator (stop coordinating tasks)
 	if a.coordinator != nil {
 		stopService("coordinator service", a.coordinator.Stop)
 	}
+
 	// 3. Stop worker (finish in-flight tasks)
 	if a.worker != nil {
 		stopService("worker service", a.worker.Stop)
 	}
+
 	// 4. Stop API/frontend
 	if a.api != nil {
 		stopService("API and frontend service", a.api.Stop)
 	}
+
 	// 5. Close Redis (now safe, nothing is using it)
 	if a.redisClient != nil {
 		stopService("Redis client", a.redisClient.Close)
 	}
+
 	// 6. Stop models service
 	if a.models != nil {
 		stopService("models service", a.models.Stop)
