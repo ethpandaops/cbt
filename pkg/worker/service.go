@@ -6,6 +6,7 @@ import (
 	_ "net/http/pprof" //nolint:gosec // pprof is intentionally exposed when pprofAddr is configured
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
@@ -129,10 +130,21 @@ func (s *service) Stop() error {
 		s.server.Shutdown()
 	}
 
-	// Wait for all goroutines to complete
-	s.wg.Wait()
+	// Wait for all goroutines to complete with timeout
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
 
-	s.log.Info("Worker service stopped successfully")
+	timeout := time.Duration(s.config.ShutdownTimeout) * time.Second
+	select {
+	case <-done:
+		s.log.Info("Worker service stopped successfully")
+	case <-time.After(timeout):
+		s.log.Warnf("Worker service shutdown timed out after %v, forcing shutdown", timeout)
+		return fmt.Errorf("%w after %v", ErrWorkerShutdownTimeout, timeout)
+	}
 
 	return nil
 }

@@ -9,6 +9,8 @@ var (
 	ErrNoQueuesConfigured = errors.New("at least one queue must be configured")
 	// ErrInvalidConcurrency is returned when concurrency is not positive
 	ErrInvalidConcurrency = errors.New("concurrency must be positive")
+	// ErrWorkerShutdownTimeout is returned when worker shutdown times out
+	ErrWorkerShutdownTimeout = errors.New("worker shutdown timed out")
 )
 
 // Config contains worker-specific settings
