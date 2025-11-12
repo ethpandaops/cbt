@@ -702,12 +702,12 @@ func TestFromFieldWithCluster(t *testing.T) {
 	// Test external model rendering
 	externalRendered, err := engine.RenderExternal(externalModel, nil)
 	require.NoError(t, err)
-	assert.Contains(t, externalRendered, "cluster('my_cluster', `ethereum`.`beacon_blocks`)")
+	assert.Contains(t, externalRendered, "cluster('my_cluster', `ethereum`.`beacon_blocks_local`)")
 
 	// Test transformation rendering with external dependency
 	transformRendered, err := engine.RenderTransformation(transformModel, 1000, 100, time.Now())
 	require.NoError(t, err)
-	assert.Contains(t, transformRendered, "cluster('my_cluster', `ethereum`.`beacon_blocks`)")
+	assert.Contains(t, transformRendered, "cluster('my_cluster', `ethereum`.`beacon_blocks_local`)")
 }
 
 // TestFromFieldWithoutCluster tests the 'from' field functionality without cluster configuration
