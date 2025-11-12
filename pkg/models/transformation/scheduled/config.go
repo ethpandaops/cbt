@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/robfig/cron/v3"
 )
 
@@ -15,22 +16,24 @@ var (
 	ErrIntervalNotAllowed = errors.New("interval cannot be specified for scheduled transformations")
 	// ErrSchedulesNotAllowed is returned when schedules are specified for scheduled transformations
 	ErrSchedulesNotAllowed = errors.New("schedules (forwardfill/backfill) cannot be specified for scheduled transformations, use schedule field instead")
-	// ErrDependenciesNotAllowed is returned when dependencies are specified for scheduled transformations
-	ErrDependenciesNotAllowed = errors.New("dependencies cannot be specified for scheduled transformations")
 	// ErrAdminServiceInvalid is returned when admin service doesn't implement required interface
 	ErrAdminServiceInvalid = errors.New("admin service does not implement RecordScheduledCompletion")
 )
 
 // Config defines the configuration for scheduled transformation models
 type Config struct {
-	Type     string            `yaml:"type"`
-	Database string            `yaml:"database"`
-	Table    string            `yaml:"table"`
-	Schedule string            `yaml:"schedule"` // Cron expression for scheduling
-	Tags     []string          `yaml:"tags,omitempty"`
-	Env      map[string]string `yaml:"env,omitempty"` // Model-specific environment variables
-	Exec     string            `yaml:"exec,omitempty"`
-	SQL      string            `yaml:"-"` // SQL content from separate file
+	Type         string                      `yaml:"type"`
+	Database     string                      `yaml:"database"`
+	Table        string                      `yaml:"table"`
+	Schedule     string                      `yaml:"schedule"` // Cron expression for scheduling
+	Dependencies []transformation.Dependency `yaml:"dependencies,omitempty"`
+	Tags         []string                    `yaml:"tags,omitempty"`
+	Env          map[string]string           `yaml:"env,omitempty"` // Model-specific environment variables
+	Exec         string                      `yaml:"exec,omitempty"`
+	SQL          string                      `yaml:"-"` // SQL content from separate file
+
+	// OriginalDependencies stores the dependencies before placeholder substitution
+	OriginalDependencies []transformation.Dependency `yaml:"-"`
 }
 
 // ValidateScheduleFormat validates a cron schedule expression

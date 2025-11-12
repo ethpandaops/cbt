@@ -37,21 +37,20 @@ tags:
 			wantErr: false,
 		},
 		{
-			name: "scheduled config with dependencies should fail",
+			name: "scheduled config with dependencies metadata",
 			yamlData: `
 type: scheduled
 database: test_db
 table: test_table
 schedule: "@every 1m"
-dependencies:  # Not allowed for scheduled type
+dependencies:  # Metadata-only dependencies for scheduled type
   - source.table1
 `,
 			adminTable: transformation.AdminTable{
 				Database: "admin",
 				Table:    "cbt_scheduled",
 			},
-			wantErr: true,
-			errMsg:  "field dependencies not found",
+			wantErr: false,
 		},
 		{
 			name: "scheduled config with interval should fail",
@@ -460,17 +459,16 @@ tags:
 			wantErr: false,
 		},
 		{
-			name: "scheduled config with dependencies should fail",
+			name: "scheduled config with dependencies metadata",
 			yamlData: `
 type: scheduled
 database: test_db
 table: test_table
 schedule: "@every 1m"
-dependencies:  # This belongs to incremental type
+dependencies:  # Metadata-only for scheduled type
   - source.table
 `,
-			wantErr: true,
-			errMsg:  "field dependencies not found",
+			wantErr: false,
 		},
 		{
 			name: "scheduled config with interval should fail",
@@ -528,6 +526,87 @@ unknown_field: value
 				}
 			} else {
 				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestHandler_DependencyMethods(t *testing.T) {
+	tests := []struct {
+		name                 string
+		yamlData             string
+		expectedDeps         []string
+		expectedOriginalDeps []string
+	}{
+		{
+			name: "simple dependencies",
+			yamlData: `
+type: scheduled
+database: test_db
+table: test_table
+schedule: "@every 1m"
+dependencies:
+  - source.table1
+  - source.table2
+`,
+			expectedDeps:         []string{"source.table1", "source.table2"},
+			expectedOriginalDeps: []string{"source.table1", "source.table2"},
+		},
+		{
+			name: "dependencies with placeholders",
+			yamlData: `
+type: scheduled
+database: test_db
+table: test_table
+schedule: "@every 1m"
+dependencies:
+  - "{{external}}.beacon_blocks"
+  - "{{transformation}}.processed_data"
+`,
+			expectedDeps:         []string{"external_db.beacon_blocks", "transform_db.processed_data"},
+			expectedOriginalDeps: []string{"{{external}}.beacon_blocks", "{{transformation}}.processed_data"},
+		},
+		{
+			name: "no dependencies",
+			yamlData: `
+type: scheduled
+database: test_db
+table: test_table
+schedule: "@every 1m"
+`,
+			expectedDeps:         []string{},
+			expectedOriginalDeps: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, err := NewHandler([]byte(tt.yamlData), transformation.AdminTable{
+				Database: "admin",
+				Table:    "cbt_scheduled",
+			})
+			require.NoError(t, err)
+			require.NotNil(t, handler)
+
+			// Test GetOriginalDependencies before substitution
+			origDeps := handler.GetFlattenedDependencies()
+			assert.Equal(t, tt.expectedOriginalDeps, origDeps)
+
+			// Apply placeholder substitution
+			handler.SubstituteDependencyPlaceholders("external_db", "transform_db")
+
+			// Test GetFlattenedDependencies after substitution
+			flatDeps := handler.GetFlattenedDependencies()
+			assert.Equal(t, tt.expectedDeps, flatDeps)
+
+			// Test GetDependencies returns structured format
+			structDeps := handler.GetDependencies()
+			assert.Len(t, structDeps, len(tt.expectedDeps))
+
+			// Test GetOriginalDependencies preserves original
+			origDepsAfter := handler.GetOriginalDependencies()
+			if len(tt.expectedOriginalDeps) > 0 {
+				assert.Len(t, origDepsAfter, len(tt.expectedOriginalDeps))
 			}
 		})
 	}

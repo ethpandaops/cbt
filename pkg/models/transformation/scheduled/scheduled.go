@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
@@ -115,6 +116,67 @@ func (h *Handler) GetSchedule() string {
 // GetTags returns the tags for this transformation
 func (h *Handler) GetTags() []string {
 	return h.config.Tags
+}
+
+// GetDependencies returns the dependencies (after placeholder substitution)
+func (h *Handler) GetDependencies() []transformation.Dependency {
+	return h.config.Dependencies
+}
+
+// GetOriginalDependencies returns the original dependencies before placeholder substitution
+func (h *Handler) GetOriginalDependencies() []transformation.Dependency {
+	return h.config.OriginalDependencies
+}
+
+// GetFlattenedDependencies returns all dependencies as a flat string array
+func (h *Handler) GetFlattenedDependencies() []string {
+	result := []string{}
+	for _, dep := range h.config.Dependencies {
+		result = append(result, dep.GetAllDependencies()...)
+	}
+	return result
+}
+
+// SubstituteDependencyPlaceholders replaces {{external}} and {{transformation}} placeholders
+func (h *Handler) SubstituteDependencyPlaceholders(externalDefaultDB, transformationDefaultDB string) {
+	// Deep copy original dependencies before substitution
+	h.config.OriginalDependencies = make([]transformation.Dependency, len(h.config.Dependencies))
+	for i := range h.config.Dependencies {
+		origDep := transformation.Dependency{
+			IsGroup:   h.config.Dependencies[i].IsGroup,
+			SingleDep: h.config.Dependencies[i].SingleDep,
+		}
+		if h.config.Dependencies[i].IsGroup {
+			origDep.GroupDeps = make([]string, len(h.config.Dependencies[i].GroupDeps))
+			copy(origDep.GroupDeps, h.config.Dependencies[i].GroupDeps)
+		}
+		h.config.OriginalDependencies[i] = origDep
+	}
+
+	for i := range h.config.Dependencies {
+		h.config.Dependencies[i] = h.substituteDependency(h.config.Dependencies[i], externalDefaultDB, transformationDefaultDB)
+	}
+}
+
+func (h *Handler) substituteDependency(dep transformation.Dependency, externalDB, transformationDB string) transformation.Dependency {
+	if dep.IsGroup {
+		for j := range dep.GroupDeps {
+			dep.GroupDeps[j] = h.substitutePlaceholders(dep.GroupDeps[j], externalDB, transformationDB)
+		}
+	} else {
+		dep.SingleDep = h.substitutePlaceholders(dep.SingleDep, externalDB, transformationDB)
+	}
+	return dep
+}
+
+func (h *Handler) substitutePlaceholders(s, externalDB, transformationDB string) string {
+	if externalDB != "" {
+		s = strings.ReplaceAll(s, "{{external}}", externalDB)
+	}
+	if transformationDB != "" {
+		s = strings.ReplaceAll(s, "{{transformation}}", transformationDB)
+	}
+	return s
 }
 
 // ApplyOverrides applies configuration overrides to this scheduled transformation handler
