@@ -586,6 +586,317 @@ func (m *mockClickhouseClient) Stop() error {
 // Ensure mock implements the interface
 var _ clickhouse.ClientInterface = (*mockClickhouseClient)(nil)
 
+// Test ConsolidateHistoricalData
+func TestConsolidateHistoricalData(t *testing.T) {
+	tests := []struct {
+		name            string
+		modelID         string
+		mockRangeResult *struct {
+			StartPos uint64 `json:"start_pos,string"`
+			EndPos   uint64 `json:"end_pos,string"`
+			RowCount int    `json:"row_count,string"`
+		}
+		mockRangeError      error
+		expectedRowsDeleted int
+		wantErr             bool
+		errMatch            error
+	}{
+		{
+			name:    "successful consolidation",
+			modelID: "database.table",
+			mockRangeResult: &struct {
+				StartPos uint64 `json:"start_pos,string"`
+				EndPos   uint64 `json:"end_pos,string"`
+				RowCount int    `json:"row_count,string"`
+			}{
+				StartPos: 0,
+				EndPos:   400,
+				RowCount: 4,
+			},
+			expectedRowsDeleted: 4,
+			wantErr:             false,
+		},
+		{
+			name:    "no consolidation needed (no ranges found)",
+			modelID: "database.empty",
+			mockRangeResult: &struct {
+				StartPos uint64 `json:"start_pos,string"`
+				EndPos   uint64 `json:"end_pos,string"`
+				RowCount int    `json:"row_count,string"`
+			}{
+				StartPos: 0,
+				EndPos:   0,
+				RowCount: 0,
+			},
+			expectedRowsDeleted: 0,
+			wantErr:             false,
+		},
+		{
+			name:    "single row found (should not consolidate)",
+			modelID: "database.single",
+			mockRangeResult: &struct {
+				StartPos uint64 `json:"start_pos,string"`
+				EndPos   uint64 `json:"end_pos,string"`
+				RowCount int    `json:"row_count,string"`
+			}{
+				StartPos: 100,
+				EndPos:   200,
+				RowCount: 1,
+			},
+			expectedRowsDeleted: 0,
+			wantErr:             false,
+		},
+		{
+			name:                "invalid model ID",
+			modelID:             "invalid",
+			expectedRowsDeleted: 0,
+			wantErr:             true,
+			errMatch:            ErrInvalidModelID,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &consolidationMockClient{
+				rangeResult: tt.mockRangeResult,
+				rangeError:  tt.mockRangeError,
+			}
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+			config := TableConfig{
+				IncrementalDatabase: "admin",
+				IncrementalTable:    "tracking",
+				ScheduledDatabase:   "admin",
+				ScheduledTable:      "cbt_scheduled",
+			}
+			svc := NewService(log, mockClient, "", "", config, nil)
+
+			ctx := context.Background()
+			rowsDeleted, err := svc.ConsolidateHistoricalData(ctx, tt.modelID)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errMatch != nil {
+					assert.ErrorIs(t, err, tt.errMatch)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedRowsDeleted, rowsDeleted)
+			}
+		})
+	}
+}
+
+// Test ConsolidateHistoricalData query structure
+func TestConsolidateHistoricalDataQueryStructure(t *testing.T) {
+	tests := []struct {
+		name             string
+		modelID          string
+		expectedInQuery  []string // Strings that should appear in the consolidation query
+		expectedInDelete []string // Strings that should appear in the DELETE query
+		useCluster       bool
+		clusterName      string
+		localSuffix      string
+	}{
+		{
+			name:    "non-cluster mode - query structure",
+			modelID: "mydb.mytable",
+			expectedInQuery: []string{
+				"WITH ordered_rows AS",
+				"island_groups AS",
+				"consolidated_ranges AS",
+				"MAX(position + interval) OVER",
+				"COALESCE(prev_max_end, 0)",
+				"HAVING COUNT(*) > 1",
+				"WHERE database = 'mydb' AND table = 'mytable'",
+			},
+			expectedInDelete: []string{
+				"DELETE FROM",
+				"WHERE database = 'mydb' AND table = 'mytable'",
+				"AND position >=",
+				"AND position <",
+				"AND interval !=",
+			},
+			useCluster:  false,
+			clusterName: "",
+			localSuffix: "",
+		},
+		{
+			name:    "cluster mode - query structure",
+			modelID: "mydb.mytable",
+			expectedInQuery: []string{
+				"WITH ordered_rows AS",
+				"island_groups AS",
+				"consolidated_ranges AS",
+			},
+			expectedInDelete: []string{
+				"DELETE FROM",
+				"ON CLUSTER 'test_cluster'",
+				"WHERE database = 'mydb' AND table = 'mytable'",
+				"AND interval !=",
+			},
+			useCluster:  true,
+			clusterName: "test_cluster",
+			localSuffix: "_local",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &queryCapturingClient{
+				queries: []string{},
+			}
+
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+			config := TableConfig{
+				IncrementalDatabase: "admin",
+				IncrementalTable:    "cbt_incremental",
+				ScheduledDatabase:   "admin",
+				ScheduledTable:      "cbt_scheduled",
+			}
+
+			var svc Service
+			if tt.useCluster {
+				svc = NewService(log, mockClient, tt.clusterName, tt.localSuffix, config, nil)
+			} else {
+				svc = NewService(log, mockClient, "", "", config, nil)
+			}
+
+			ctx := context.Background()
+			_, err := svc.ConsolidateHistoricalData(ctx, tt.modelID)
+			require.NoError(t, err)
+
+			// Should have 3 queries: SELECT (range query), INSERT (consolidated row), DELETE (rows in range)
+			require.Len(t, mockClient.queries, 3, "Expected 3 queries: SELECT, INSERT, DELETE")
+
+			consolidationQuery := mockClient.queries[0]
+			insertQuery := mockClient.queries[1]
+			deleteQuery := mockClient.queries[2]
+
+			// Verify consolidation query structure (should be 3-CTE)
+			for _, expected := range tt.expectedInQuery {
+				assert.Contains(t, consolidationQuery, expected,
+					"Consolidation query should contain: %s", expected)
+			}
+
+			// Verify it uses the 3-CTE structure
+			assert.NotContains(t, consolidationQuery, "with_lag AS",
+				"Should NOT use lagInFrame approach")
+			assert.NotContains(t, consolidationQuery, "with_max AS",
+				"Should NOT use complex multi-CTE structure")
+			assert.NotContains(t, consolidationQuery, "row_number() OVER",
+				"Should NOT use row numbering approach")
+
+			// Verify INSERT query has consolidated row
+			assert.Contains(t, insertQuery, "INSERT INTO",
+				"Should have INSERT statement")
+
+			// Verify DELETE query structure (should use interval-based deletion)
+			for _, expected := range tt.expectedInDelete {
+				assert.Contains(t, deleteQuery, expected,
+					"DELETE query should contain: %s", expected)
+			}
+
+			// Verify interval-based deletion strategy
+			assert.Contains(t, deleteQuery, "AND interval !=",
+				"DELETE should use interval-based exclusion")
+			assert.NotContains(t, deleteQuery, "updated_date_time <",
+				"DELETE should NOT use timestamp-based deletion")
+		})
+	}
+}
+
+// Test consolidation with cluster configuration
+func TestConsolidateHistoricalDataClusterMode(t *testing.T) {
+	mockClient := &queryCapturingClient{
+		queries: []string{},
+	}
+
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+	config := TableConfig{
+		IncrementalDatabase: "admin",
+		IncrementalTable:    "cbt_incremental",
+		ScheduledDatabase:   "admin",
+		ScheduledTable:      "cbt_scheduled",
+	}
+
+	svc := NewService(log, mockClient, "my_cluster", "_local", config, nil)
+
+	ctx := context.Background()
+	_, err := svc.ConsolidateHistoricalData(ctx, "database.table")
+	require.NoError(t, err)
+
+	// Check DELETE query uses cluster syntax
+	require.Len(t, mockClient.queries, 3)
+	deleteQuery := mockClient.queries[2]
+
+	assert.Contains(t, deleteQuery, "ON CLUSTER 'my_cluster'",
+		"DELETE in cluster mode should use ON CLUSTER")
+	assert.Contains(t, deleteQuery, "`admin`.`cbt_incremental_local`",
+		"DELETE in cluster mode should use local suffix")
+}
+
+// consolidationMockClient is a specialized mock for consolidation testing
+type consolidationMockClient struct {
+	rangeResult *struct {
+		StartPos uint64 `json:"start_pos,string"`
+		EndPos   uint64 `json:"end_pos,string"`
+		RowCount int    `json:"row_count,string"`
+	}
+	rangeError   error
+	executeError error
+	queries      []string
+}
+
+func (m *consolidationMockClient) Execute(_ context.Context, query string) ([]byte, error) {
+	m.queries = append(m.queries, query)
+	if m.executeError != nil {
+		return nil, m.executeError
+	}
+	return []byte(`{"written_rows":"1"}`), nil
+}
+
+func (m *consolidationMockClient) QueryOne(_ context.Context, query string, result interface{}) error {
+	m.queries = append(m.queries, query)
+
+	if m.rangeError != nil {
+		return m.rangeError
+	}
+
+	// Handle consolidation range query
+	if v, ok := result.(*struct {
+		StartPos uint64 `json:"start_pos,string"`
+		EndPos   uint64 `json:"end_pos,string"`
+		RowCount int    `json:"row_count,string"`
+	}); ok && m.rangeResult != nil {
+		*v = *m.rangeResult
+	}
+
+	return nil
+}
+
+func (m *consolidationMockClient) QueryMany(_ context.Context, query string, _ interface{}) error {
+	m.queries = append(m.queries, query)
+	return nil
+}
+
+func (m *consolidationMockClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
+	return nil
+}
+
+func (m *consolidationMockClient) Start() error {
+	return nil
+}
+
+func (m *consolidationMockClient) Stop() error {
+	return nil
+}
+
+// Ensure consolidation mock implements the interface
+var _ clickhouse.ClientInterface = (*consolidationMockClient)(nil)
+
 // TestHyphenatedDatabaseNamesInQueries tests that SQL queries properly escape hyphenated database names
 func TestHyphenatedDatabaseNamesInQueries(t *testing.T) {
 	tests := []struct {
@@ -740,7 +1051,19 @@ func (m *queryCapturingClient) Execute(_ context.Context, query string) ([]byte,
 func (m *queryCapturingClient) QueryOne(_ context.Context, query string, result interface{}) error {
 	m.queries = append(m.queries, query)
 
-	// Return mock results if available
+	// Handle consolidation range query - always populate this
+	if v, ok := result.(*struct {
+		StartPos uint64 `json:"start_pos,string"`
+		EndPos   uint64 `json:"end_pos,string"`
+		RowCount int    `json:"row_count,string"`
+	}); ok {
+		v.StartPos = 1000
+		v.EndPos = 2000
+		v.RowCount = 5
+		return nil
+	}
+
+	// Return other mock results if available
 	if m.resultIndex < len(m.mockResults) {
 		// Simple type assertion - in real tests you'd handle this better
 		switch v := result.(type) {
@@ -756,15 +1079,6 @@ func (m *queryCapturingClient) QueryOne(_ context.Context, query string, result 
 			LastPos uint64 `json:"last_pos,string"`
 		}:
 			v.LastPos = 1500 // Default value
-		case *struct {
-			StartPos uint64 `json:"start_pos,string"`
-			EndPos   uint64 `json:"end_pos,string"`
-			RowCount int    `json:"row_count,string"`
-		}:
-			// For consolidation query
-			v.StartPos = 1000
-			v.EndPos = 2000
-			v.RowCount = 5
 		}
 		m.resultIndex++
 	}

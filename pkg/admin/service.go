@@ -478,74 +478,43 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 	database := parts[0]
 	table := parts[1]
 
-	// Find contiguous/overlapping ranges that can be consolidated
-	// This merges both overlapping and contiguous ranges into single consolidated ranges
-	// Uses window functions compatible with ClickHouse v25
+	// Find contiguous/overlapping ranges that can be consolidated using a 3-CTE approach
+	// Uses window functions to detect "islands" of contiguous/overlapping ranges
+	// Each island is consolidated into a single row spanning the full range
 	rangeQuery := fmt.Sprintf(`
 		WITH ordered_rows AS (
 			SELECT
 				position,
-				interval,
 				position + interval as end_pos,
-				row_number() OVER (ORDER BY position) as rn
+				MAX(position + interval) OVER (
+					ORDER BY position
+					ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+				) as prev_max_end
 			FROM `+"`%s`.`%s`"+` FINAL
 			WHERE database = '%s' AND table = '%s'
-			ORDER BY position
 		),
-		with_lag AS (
-			SELECT 
+		island_groups AS (
+			SELECT
 				position,
-				interval,
 				end_pos,
-				rn,
-				any(end_pos) OVER (ORDER BY position ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) as prev_end
+				SUM(CASE WHEN position > COALESCE(prev_max_end, 0) THEN 1 ELSE 0 END)
+					OVER (ORDER BY position) as island_id
 			FROM ordered_rows
-		),
-		with_max AS (
-			SELECT
-				position,
-				interval,
-				end_pos,
-				rn,
-				prev_end,
-				max(end_pos) OVER (ORDER BY position ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as max_end_so_far
-			FROM with_lag
-		),
-		with_groups AS (
-			SELECT
-				position,
-				interval,
-				end_pos,
-				CASE 
-					WHEN rn = 1 THEN 1
-					WHEN position > any(max_end_so_far) OVER (ORDER BY position ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) THEN 1
-					ELSE 0
-				END as new_group
-			FROM with_max
-		),
-		with_group_ids AS (
-			SELECT
-				position,
-				interval,
-				end_pos,
-				sum(new_group) OVER (ORDER BY position) as group_id
-			FROM with_groups
 		),
 		consolidated_ranges AS (
 			SELECT
-				group_id,
 				MIN(position) as start_pos,
 				MAX(end_pos) as end_pos,
 				COUNT(*) as row_count
-			FROM with_group_ids
-			GROUP BY group_id
+			FROM island_groups
+			GROUP BY island_id
+			HAVING COUNT(*) > 1
 		)
 		SELECT
 			start_pos,
 			end_pos,
 			row_count
 		FROM consolidated_ranges
-		WHERE row_count > 1
 		ORDER BY row_count DESC, start_pos
 		LIMIT 1
 	`, a.adminDatabase, a.adminTable, database, table)
@@ -601,11 +570,15 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 		return 0, fmt.Errorf("failed to insert consolidated row: %w", err)
 	}
 
-	// Delete old rows using timestamp comparison
-	// This is more robust than excluding by position+interval since it:
-	// 1. Leverages the ReplacingMergeTree version column semantically
-	// 2. Handles concurrent consolidations safely
-	// 3. Protects against accidentally deleting the new consolidated row
+	// Delete old rows using interval-based exclusion
+	// This is more robust than timestamp-based deletion because:
+	// 1. No dependency on clock precision or synchronization across cluster nodes
+	// 2. Explicitly excludes the consolidated row by its unique characteristic (larger interval)
+	// 3. Works reliably regardless of ReplacingMergeTree merge timing
+	// 4. Semantically clear: "delete all rows in range except the consolidated one"
+	//
+	// The consolidated row has interval = (end_pos - start_pos), which is larger than
+	// any individual row's interval in the consolidated range
 	var deleteQuery string
 	if a.cluster != "" {
 		// Cluster mode: use local suffix and ON CLUSTER
@@ -613,20 +586,20 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 			DELETE FROM `+"`%s`.`%s%s`"+` ON CLUSTER '%s'
 			WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position < %d
-			  AND updated_date_time < '%s'
+			  AND interval != %d
 		`, a.adminDatabase, a.adminTable, a.localSuffix, a.cluster,
 			database, table, rangeResult.StartPos, rangeResult.EndPos,
-			consolidationTime.Format("2006-01-02 15:04:05.000"))
+			consolidatedInterval)
 	} else {
 		// Non-cluster mode: simple DELETE
 		deleteQuery = fmt.Sprintf(`
 			DELETE FROM `+"`%s`.`%s`"+`
 			WHERE database = '%s' AND table = '%s'
 			  AND position >= %d AND position < %d
-			  AND updated_date_time < '%s'
+			  AND interval != %d
 		`, a.adminDatabase, a.adminTable,
 			database, table, rangeResult.StartPos, rangeResult.EndPos,
-			consolidationTime.Format("2006-01-02 15:04:05.000"))
+			consolidatedInterval)
 	}
 
 	if _, err := a.client.Execute(ctx, deleteQuery); err != nil {
