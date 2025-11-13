@@ -715,7 +715,7 @@ func TestConsolidateHistoricalDataQueryStructure(t *testing.T) {
 				"WHERE database = 'mydb' AND table = 'mytable'",
 				"AND position >=",
 				"AND position <",
-				"AND interval !=", // NEW: interval-based deletion
+				"AND interval !=",
 			},
 			useCluster:  false,
 			clusterName: "",
@@ -733,7 +733,7 @@ func TestConsolidateHistoricalDataQueryStructure(t *testing.T) {
 				"DELETE FROM",
 				"ON CLUSTER 'test_cluster'",
 				"WHERE database = 'mydb' AND table = 'mytable'",
-				"AND interval !=", // NEW: interval-based deletion
+				"AND interval !=",
 			},
 			useCluster:  true,
 			clusterName: "test_cluster",
@@ -767,7 +767,7 @@ func TestConsolidateHistoricalDataQueryStructure(t *testing.T) {
 			_, err := svc.ConsolidateHistoricalData(ctx, tt.modelID)
 			require.NoError(t, err)
 
-			// Should have 3 queries: SELECT (range query), INSERT (consolidated row), DELETE (old rows)
+			// Should have 3 queries: SELECT (range query), INSERT (consolidated row), DELETE (rows in range)
 			require.Len(t, mockClient.queries, 3, "Expected 3 queries: SELECT, INSERT, DELETE")
 
 			consolidationQuery := mockClient.queries[0]
@@ -780,13 +780,13 @@ func TestConsolidateHistoricalDataQueryStructure(t *testing.T) {
 					"Consolidation query should contain: %s", expected)
 			}
 
-			// Verify it's the NEW 3-CTE query (not the old 7-CTE)
+			// Verify it uses the 3-CTE structure
 			assert.NotContains(t, consolidationQuery, "with_lag AS",
-				"Should NOT contain old 7-CTE structure")
+				"Should NOT use lagInFrame approach")
 			assert.NotContains(t, consolidationQuery, "with_max AS",
-				"Should NOT contain old 7-CTE structure")
+				"Should NOT use complex multi-CTE structure")
 			assert.NotContains(t, consolidationQuery, "row_number() OVER",
-				"Should NOT contain old 7-CTE structure")
+				"Should NOT use row numbering approach")
 
 			// Verify INSERT query has consolidated row
 			assert.Contains(t, insertQuery, "INSERT INTO",
@@ -798,11 +798,11 @@ func TestConsolidateHistoricalDataQueryStructure(t *testing.T) {
 					"DELETE query should contain: %s", expected)
 			}
 
-			// CRITICAL: Verify NEW deletion strategy (interval-based, not timestamp-based)
+			// Verify interval-based deletion strategy
 			assert.Contains(t, deleteQuery, "AND interval !=",
-				"DELETE should use interval-based exclusion (NEW method)")
+				"DELETE should use interval-based exclusion")
 			assert.NotContains(t, deleteQuery, "updated_date_time <",
-				"DELETE should NOT use timestamp-based deletion (OLD buggy method)")
+				"DELETE should NOT use timestamp-based deletion")
 		})
 	}
 }

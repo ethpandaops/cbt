@@ -478,9 +478,9 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 	database := parts[0]
 	table := parts[1]
 
-	// Find contiguous/overlapping ranges that can be consolidated
-	// This simplified 3-CTE approach is more efficient and easier to maintain than the previous 7-CTE version
-	// It correctly handles both overlapping and contiguous ranges
+	// Find contiguous/overlapping ranges that can be consolidated using a 3-CTE approach
+	// Uses window functions to detect "islands" of contiguous/overlapping ranges
+	// Each island is consolidated into a single row spanning the full range
 	rangeQuery := fmt.Sprintf(`
 		WITH ordered_rows AS (
 			SELECT
