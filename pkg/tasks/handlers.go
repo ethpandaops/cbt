@@ -191,29 +191,35 @@ func (h *TaskHandler) setupTaskContext(payload TaskPayload) (*taskContextData, e
 
 // validateAndExecute handles dependency validation and task execution
 func (h *TaskHandler) validateAndExecute(ctx context.Context, payload TaskPayload, taskCtx *taskContextData) error {
-	// Validate dependencies
-	h.log.WithField("model_id", payload.GetModelID()).Info("Validating dependencies")
-	depStartTime := time.Now()
-	validationResult, err := h.validator.ValidateDependencies(ctx, payload.GetModelID(), taskCtx.position, taskCtx.interval)
-	depDuration := time.Since(depStartTime).Seconds()
+	// Skip dependency validation for scheduled transformations
+	// Scheduled transformations have metadata-only dependencies and run on time-based schedules
+	if payload.GetType() != TaskTypeScheduled {
+		// Validate dependencies for incremental transformations only
+		h.log.WithField("model_id", payload.GetModelID()).Info("Validating dependencies")
+		depStartTime := time.Now()
+		validationResult, err := h.validator.ValidateDependencies(ctx, payload.GetModelID(), taskCtx.position, taskCtx.interval)
+		depDuration := time.Since(depStartTime).Seconds()
 
-	if err != nil {
-		h.log.WithError(err).Error("Dependency validation error")
-		observability.RecordDependencyValidation(payload.GetModelID(), "error", depDuration)
-		observability.RecordTaskComplete(payload.GetModelID(), taskCtx.workerID, "failed", time.Since(taskCtx.startTime).Seconds())
-		observability.RecordError("task-handler", "dependency_validation_error")
-		return fmt.Errorf("dependency validation error: %w", err)
+		if err != nil {
+			h.log.WithError(err).Error("Dependency validation error")
+			observability.RecordDependencyValidation(payload.GetModelID(), "error", depDuration)
+			observability.RecordTaskComplete(payload.GetModelID(), taskCtx.workerID, "failed", time.Since(taskCtx.startTime).Seconds())
+			observability.RecordError("task-handler", "dependency_validation_error")
+			return fmt.Errorf("dependency validation error: %w", err)
+		}
+
+		if !validationResult.CanProcess {
+			h.log.WithField("model_id", payload.GetModelID()).Warn("Dependencies not satisfied")
+			observability.RecordDependencyValidation(payload.GetModelID(), "not_satisfied", depDuration)
+			observability.RecordTaskComplete(payload.GetModelID(), taskCtx.workerID, "failed", time.Since(taskCtx.startTime).Seconds())
+			return ErrDependenciesNotSatisfied
+		}
+
+		observability.RecordDependencyValidation(payload.GetModelID(), "satisfied", depDuration)
+		h.log.WithField("model_id", payload.GetModelID()).Info("Dependencies satisfied, executing transformation")
+	} else {
+		h.log.WithField("model_id", payload.GetModelID()).Info("Scheduled transformation - skipping dependency validation")
 	}
-
-	if !validationResult.CanProcess {
-		h.log.WithField("model_id", payload.GetModelID()).Warn("Dependencies not satisfied")
-		observability.RecordDependencyValidation(payload.GetModelID(), "not_satisfied", depDuration)
-		observability.RecordTaskComplete(payload.GetModelID(), taskCtx.workerID, "failed", time.Since(taskCtx.startTime).Seconds())
-		return ErrDependenciesNotSatisfied
-	}
-
-	observability.RecordDependencyValidation(payload.GetModelID(), "satisfied", depDuration)
-	h.log.WithField("model_id", payload.GetModelID()).Info("Dependencies satisfied, executing transformation")
 
 	// Execute transformation
 	execCtx := &TaskContext{
