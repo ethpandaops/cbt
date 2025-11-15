@@ -906,12 +906,12 @@ CREATE DATABASE IF NOT EXISTS admin;
 CREATE TABLE IF NOT EXISTS admin.cbt_incremental (
     updated_date_time DateTime(3) CODEC(DoubleDelta, ZSTD(1)),
     database LowCardinality(String) COMMENT 'The database name',
-    table LowCardinality(String) COMMENT 'The table name', 
+    table LowCardinality(String) COMMENT 'The table name',
     position UInt64 COMMENT 'The starting position of the processed interval',
     interval UInt64 COMMENT 'The size of the interval processed',
     INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
 ) ENGINE = ReplacingMergeTree(updated_date_time)
-ORDER BY (database, table, position);
+ORDER BY (database, table, position, interval);
 
 -- Create admin table for scheduled transformations
 CREATE TABLE IF NOT EXISTS admin.cbt_scheduled (
@@ -946,7 +946,7 @@ CREATE TABLE IF NOT EXISTS admin.cbt_incremental_local ON CLUSTER '{cluster}' (
     '{replica}',
     updated_date_time
 )
-ORDER BY (database, table, position);
+ORDER BY (database, table, position, interval);
 
 -- Create distributed table for querying incremental transformations
 CREATE TABLE IF NOT EXISTS admin.cbt_incremental ON CLUSTER '{cluster}' AS admin.cbt_incremental_local
