@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS admin.cbt_incremental (
     INDEX idx_model (database, table) TYPE minmax GRANULARITY 1
 )
 ENGINE = ReplacingMergeTree(updated_date_time)
-ORDER BY (database, table, position);
+ORDER BY (database, table, position, interval);
 
 -- Create admin tracking table for scheduled transformations
 CREATE TABLE IF NOT EXISTS admin.cbt_scheduled (
