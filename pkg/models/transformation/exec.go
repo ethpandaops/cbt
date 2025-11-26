@@ -22,9 +22,6 @@ type Exec struct {
 	Handler Handler `yaml:"-"` // Type-specific handler
 }
 
-// ExecParser parses exec transformation models
-type ExecParser struct{}
-
 // NewTransformationExec creates a new transformation exec model from content
 func NewTransformationExec(content []byte) (*Exec, error) {
 	var config *Exec

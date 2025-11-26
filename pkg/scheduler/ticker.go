@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -48,6 +49,12 @@ func newTickerService(
 	queueClient *asynq.Client,
 	tasks []scheduledTask,
 ) tickerService {
+	// Record metrics for registered tasks
+	for _, task := range tasks {
+		modelID, operation := parseTaskIDForMetrics(task.ID)
+		observability.RecordScheduledTaskRegistered(modelID, operation)
+	}
+
 	return &tickerServiceImpl{
 		log:         log.WithField("component", "ticker"),
 		tracker:     tracker,
@@ -137,6 +144,13 @@ func (t *tickerServiceImpl) enqueueTask(ctx context.Context, task scheduledTask,
 
 func (t *tickerServiceImpl) Stop() error {
 	t.log.Info("Stopping ticker service")
+
+	// Unregister metrics for scheduled tasks
+	for _, task := range t.tasks {
+		modelID, operation := parseTaskIDForMetrics(task.ID)
+		observability.RecordScheduledTaskUnregistered(modelID, operation)
+	}
+
 	close(t.done)
 	return nil
 }
@@ -170,6 +184,30 @@ func parseScheduleInterval(schedule string) (time.Duration, error) {
 	interval := next2.Sub(next1)
 
 	return interval, nil
+}
+
+// parseTaskIDForMetrics extracts model ID and operation from a task ID
+// Task IDs have formats like:
+//   - "transformation:db.table:forward" -> ("db.table", "forward")
+//   - "transformation:db.table:back" -> ("db.table", "back")
+//   - "transformation:db.table:scheduled" -> ("db.table", "scheduled")
+//   - "external:db.table:incremental" -> ("db.table", "incremental")
+//   - "external:db.table:full" -> ("db.table", "full")
+//   - "system:consolidation" -> ("system", "consolidation")
+func parseTaskIDForMetrics(taskID string) (modelID, operation string) {
+	parts := strings.Split(taskID, ":")
+
+	switch len(parts) {
+	case 3:
+		// Standard format: prefix:model:operation (e.g., "transformation:db.table:forward")
+		return parts[1], parts[2]
+	case 2:
+		// System tasks: prefix:operation (e.g., "system:consolidation")
+		return parts[0], parts[1]
+	default:
+		// Fallback for unknown formats
+		return taskID, "unknown"
+	}
 }
 
 // Verify interface compliance at compile time
