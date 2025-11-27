@@ -122,17 +122,22 @@ func (r *redisScheduleTracker) DeleteLastRun(ctx context.Context, taskID string)
 
 func (r *redisScheduleTracker) GetAllTaskIDs(ctx context.Context) ([]string, error) {
 	pattern := scheduleKeyPrefix + "*"
-	keys, err := r.redis.Keys(ctx, pattern).Result()
-	if err != nil {
-		r.log.WithError(err).Error("Failed to get all task IDs from Redis")
-		return nil, fmt.Errorf("failed to get all task IDs: %w", err)
-	}
 
-	// Strip prefix from keys to get task IDs
-	taskIDs := make([]string, 0, len(keys))
-	for _, key := range keys {
+	// Use SCAN instead of Keys() to avoid blocking Redis.
+	// SCAN iterates incrementally and doesn't lock the server.
+	taskIDs := make([]string, 0, 100)
+
+	iter := r.redis.Scan(ctx, 0, pattern, 100).Iterator()
+	for iter.Next(ctx) {
+		key := iter.Val()
 		taskID := key[len(scheduleKeyPrefix):]
 		taskIDs = append(taskIDs, taskID)
+	}
+
+	if err := iter.Err(); err != nil {
+		r.log.WithError(err).Error("Failed to scan task IDs from Redis")
+
+		return nil, fmt.Errorf("failed to scan task IDs: %w", err)
 	}
 
 	r.log.WithField("count", len(taskIDs)).Debug("Retrieved all tracked task IDs")
