@@ -25,8 +25,8 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "cbt",
 	Short: "ClickHouse Build Tool - Manage data transformations in ClickHouse",
-	Long: `CBT (ClickHouse Build Tool) is a simplified, ClickHouse-focused data 
-transformation tool that provides idempotent transformations, DAG-based 
+	Long: `CBT (ClickHouse Build Tool) is a simplified, ClickHouse-focused data
+transformation tool that provides idempotent transformations, DAG-based
 dependency management, and interval-based processing.`,
 	RunE: runEngine,
 }
@@ -40,13 +40,8 @@ func Execute() {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./config.yaml)")
-}
-
-func initConfig() {
 }
 
 func loadConfigFromFile(file string) (*engine.Config, error) {

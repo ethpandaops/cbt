@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
@@ -446,13 +447,8 @@ func findMin(values []uint64) uint64 {
 	if len(values) == 0 {
 		return 0
 	}
-	minVal := values[0]
-	for _, v := range values[1:] {
-		if v < minVal {
-			minVal = v
-		}
-	}
-	return minVal
+
+	return slices.Min(values)
 }
 
 // findMax returns the maximum value from a slice of uint64
@@ -460,13 +456,8 @@ func findMax(values []uint64) uint64 {
 	if len(values) == 0 {
 		return 0
 	}
-	maxVal := values[0]
-	for _, v := range values[1:] {
-		if v > maxVal {
-			maxVal = v
-		}
-	}
-	return maxVal
+
+	return slices.Max(values)
 }
 
 // GetEarliestPosition calculates the earliest position for a model based on its dependencies
