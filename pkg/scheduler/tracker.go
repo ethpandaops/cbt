@@ -125,9 +125,13 @@ func (r *redisScheduleTracker) GetAllTaskIDs(ctx context.Context) ([]string, err
 
 	// Use SCAN instead of Keys() to avoid blocking Redis.
 	// SCAN iterates incrementally and doesn't lock the server.
-	taskIDs := make([]string, 0, 100)
+	// The count hint (100) is keys per iteration, not a total limit -
+	// the iterator continues until all matching keys are retrieved.
+	const scanBatchSize = 100
 
-	iter := r.redis.Scan(ctx, 0, pattern, 100).Iterator()
+	var taskIDs []string
+
+	iter := r.redis.Scan(ctx, 0, pattern, scanBatchSize).Iterator()
 	for iter.Next(ctx) {
 		key := iter.Val()
 		taskID := key[len(scheduleKeyPrefix):]
