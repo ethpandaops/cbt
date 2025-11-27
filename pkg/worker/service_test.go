@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -218,6 +219,307 @@ func TestFilteredTransformations(t *testing.T) {
 			}
 
 			assert.ElementsMatch(t, tt.expected, resultIDs)
+		})
+	}
+}
+
+// TestFilteredTransformations_NoDuplicates verifies that transformations with multiple
+// matching tags are only returned once (regression test for duplicate bug fix).
+func TestFilteredTransformations_NoDuplicates(t *testing.T) {
+	// Transformation has both tag1 and tag2
+	trans := &mockTransformation{
+		id:   "model.multi_tag",
+		tags: []string{"tag1", "tag2", "tag3"},
+	}
+
+	mockModels := &mockModelsService{
+		transformations: []models.Transformation{trans},
+	}
+
+	tests := []struct {
+		name          string
+		tags          []string
+		expectedCount int
+	}{
+		{
+			name:          "single matching tag",
+			tags:          []string{"tag1"},
+			expectedCount: 1,
+		},
+		{
+			name:          "two matching tags - should still return once",
+			tags:          []string{"tag1", "tag2"},
+			expectedCount: 1,
+		},
+		{
+			name:          "all three matching tags - should still return once",
+			tags:          []string{"tag1", "tag2", "tag3"},
+			expectedCount: 1,
+		},
+		{
+			name:          "duplicate tags in filter - should still return once",
+			tags:          []string{"tag1", "tag1", "tag1"},
+			expectedCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := filteredTransformations(mockModels, tt.tags)
+			assert.Len(t, result, tt.expectedCount,
+				"transformation should only appear once regardless of matching tag count")
+		})
+	}
+}
+
+// TestFilteredTransformations_EdgeCases tests edge cases and boundary conditions.
+func TestFilteredTransformations_EdgeCases(t *testing.T) {
+	t.Run("empty transformations list", func(t *testing.T) {
+		mockModels := &mockModelsService{
+			transformations: []models.Transformation{},
+		}
+
+		result := filteredTransformations(mockModels, []string{"tag1"})
+		assert.Empty(t, result)
+	})
+
+	t.Run("nil tags slice", func(t *testing.T) {
+		trans := &mockTransformation{id: "model.test", tags: []string{"tag1"}}
+		mockModels := &mockModelsService{
+			transformations: []models.Transformation{trans},
+		}
+
+		// nil tags should behave like empty tags - return all
+		result := filteredTransformations(mockModels, nil)
+		assert.Len(t, result, 1)
+	})
+
+	t.Run("transformation with nil handler", func(t *testing.T) {
+		trans := &mockTransformation{
+			id:      "model.nil_handler",
+			tags:    []string{"tag1"},
+			handler: nil, // Explicitly nil - GetHandler will return mockHandler with tags
+		}
+		mockModels := &mockModelsService{
+			transformations: []models.Transformation{trans},
+		}
+
+		result := filteredTransformations(mockModels, []string{"tag1"})
+		// Should still work because mockTransformation returns mockHandler when handler is nil
+		assert.Len(t, result, 1)
+	})
+
+	t.Run("transformation with empty tags", func(t *testing.T) {
+		trans := &mockTransformation{
+			id:   "model.no_tags",
+			tags: []string{}, // Empty tags
+		}
+		mockModels := &mockModelsService{
+			transformations: []models.Transformation{trans},
+		}
+
+		result := filteredTransformations(mockModels, []string{"tag1"})
+		assert.Empty(t, result, "transformation with no tags should not match")
+	})
+
+	t.Run("case sensitivity", func(t *testing.T) {
+		trans := &mockTransformation{
+			id:   "model.case_test",
+			tags: []string{"Tag1", "TAG2"},
+		}
+		mockModels := &mockModelsService{
+			transformations: []models.Transformation{trans},
+		}
+
+		// Tags are case-sensitive
+		result := filteredTransformations(mockModels, []string{"tag1"})
+		assert.Empty(t, result, "tag matching should be case-sensitive")
+
+		result = filteredTransformations(mockModels, []string{"Tag1"})
+		assert.Len(t, result, 1, "exact case match should work")
+	})
+
+	t.Run("special characters in tags", func(t *testing.T) {
+		trans := &mockTransformation{
+			id:   "model.special",
+			tags: []string{"tag-with-dashes", "tag_with_underscores", "tag.with.dots"},
+		}
+		mockModels := &mockModelsService{
+			transformations: []models.Transformation{trans},
+		}
+
+		tests := []string{"tag-with-dashes", "tag_with_underscores", "tag.with.dots"}
+		for _, tag := range tests {
+			result := filteredTransformations(mockModels, []string{tag})
+			assert.Len(t, result, 1, "special characters should match exactly: %s", tag)
+		}
+	})
+}
+
+// TestFilteredTransformations_LargeScale tests with many transformations and tags.
+func TestFilteredTransformations_LargeScale(t *testing.T) {
+	t.Run("many transformations few tags", func(t *testing.T) {
+		// 1000 transformations, each with 5 tags
+		transformations := make([]models.Transformation, 1000)
+		for i := 0; i < 1000; i++ {
+			tags := make([]string, 5)
+			for j := 0; j < 5; j++ {
+				tags[j] = fmt.Sprintf("tag_%d_%d", i%10, j) // Creates groups of similar tags
+			}
+			transformations[i] = &mockTransformation{
+				id:   fmt.Sprintf("model.test_%d", i),
+				tags: tags,
+			}
+		}
+
+		mockModels := &mockModelsService{transformations: transformations}
+
+		// Filter by tags that should match ~100 transformations each
+		result := filteredTransformations(mockModels, []string{"tag_0_0", "tag_1_0"})
+
+		// Should match transformations where i%10 == 0 or i%10 == 1
+		assert.Len(t, result, 200)
+	})
+
+	t.Run("few transformations many tags", func(t *testing.T) {
+		trans := &mockTransformation{
+			id:   "model.many_tags",
+			tags: []string{"target_tag"},
+		}
+		mockModels := &mockModelsService{
+			transformations: []models.Transformation{trans},
+		}
+
+		// 100 filter tags, only one matches
+		filterTags := make([]string, 100)
+		for i := 0; i < 100; i++ {
+			filterTags[i] = fmt.Sprintf("filter_tag_%d", i)
+		}
+		filterTags[50] = "target_tag" // One matching tag
+
+		result := filteredTransformations(mockModels, filterTags)
+		assert.Len(t, result, 1)
+	})
+
+	t.Run("many transformations many tags", func(t *testing.T) {
+		// 500 transformations with 10 tags each
+		transformations := make([]models.Transformation, 500)
+		for i := 0; i < 500; i++ {
+			tags := make([]string, 10)
+			for j := 0; j < 10; j++ {
+				tags[j] = fmt.Sprintf("tag_%d", (i*10+j)%100) // 100 unique tags total
+			}
+			transformations[i] = &mockTransformation{
+				id:   fmt.Sprintf("model.test_%d", i),
+				tags: tags,
+			}
+		}
+
+		mockModels := &mockModelsService{transformations: transformations}
+
+		// Filter by 50 tags
+		filterTags := make([]string, 50)
+		for i := 0; i < 50; i++ {
+			filterTags[i] = fmt.Sprintf("tag_%d", i)
+		}
+
+		result := filteredTransformations(mockModels, filterTags)
+		// Result count depends on tag distribution, just verify no panic
+		assert.NotNil(t, result)
+		// With our distribution, most transformations should match
+		assert.Greater(t, len(result), 0)
+	})
+}
+
+// TestFilteredTransformations_OrderPreservation verifies that the original order is preserved.
+func TestFilteredTransformations_OrderPreservation(t *testing.T) {
+	transformations := make([]models.Transformation, 100)
+	for i := 0; i < 100; i++ {
+		transformations[i] = &mockTransformation{
+			id:   fmt.Sprintf("model.test_%03d", i), // Zero-padded for easy sorting verification
+			tags: []string{"common_tag"},
+		}
+	}
+
+	mockModels := &mockModelsService{transformations: transformations}
+
+	result := filteredTransformations(mockModels, []string{"common_tag"})
+
+	require.Len(t, result, 100)
+
+	// Verify order is preserved
+	for i, trans := range result {
+		expectedID := fmt.Sprintf("model.test_%03d", i)
+		assert.Equal(t, expectedID, trans.GetID(),
+			"transformation order should be preserved, expected %s at index %d", expectedID, i)
+	}
+}
+
+// BenchmarkFilteredTransformations benchmarks the filtering performance.
+func BenchmarkFilteredTransformations(b *testing.B) {
+	// Setup: 1000 transformations with 5 tags each, filter by 10 tags
+	transformations := make([]models.Transformation, 1000)
+	for i := 0; i < 1000; i++ {
+		tags := make([]string, 5)
+		for j := 0; j < 5; j++ {
+			tags[j] = fmt.Sprintf("tag_%d_%d", i%50, j)
+		}
+		transformations[i] = &mockTransformation{
+			id:   fmt.Sprintf("model.test_%d", i),
+			tags: tags,
+		}
+	}
+	mockModels := &mockModelsService{transformations: transformations}
+	filterTags := []string{
+		"tag_0_0", "tag_1_0", "tag_2_0", "tag_3_0", "tag_4_0",
+		"tag_5_0", "tag_6_0", "tag_7_0", "tag_8_0", "tag_9_0",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = filteredTransformations(mockModels, filterTags)
+	}
+}
+
+// BenchmarkFilteredTransformations_Scaling benchmarks with different scales.
+func BenchmarkFilteredTransformations_Scaling(b *testing.B) {
+	benchmarks := []struct {
+		name               string
+		numTransformations int
+		tagsPerTrans       int
+		numFilterTags      int
+	}{
+		{"small_10x3x2", 10, 3, 2},
+		{"medium_100x5x10", 100, 5, 10},
+		{"large_1000x5x10", 1000, 5, 10},
+		{"xlarge_1000x10x50", 1000, 10, 50},
+		{"many_tags_100x5x100", 100, 5, 100},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			transformations := make([]models.Transformation, bm.numTransformations)
+			for i := 0; i < bm.numTransformations; i++ {
+				tags := make([]string, bm.tagsPerTrans)
+				for j := 0; j < bm.tagsPerTrans; j++ {
+					tags[j] = fmt.Sprintf("tag_%d_%d", i%50, j)
+				}
+				transformations[i] = &mockTransformation{
+					id:   fmt.Sprintf("model.test_%d", i),
+					tags: tags,
+				}
+			}
+			mockModels := &mockModelsService{transformations: transformations}
+
+			filterTags := make([]string, bm.numFilterTags)
+			for i := 0; i < bm.numFilterTags; i++ {
+				filterTags[i] = fmt.Sprintf("tag_%d_0", i)
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = filteredTransformations(mockModels, filterTags)
+			}
 		})
 	}
 }
