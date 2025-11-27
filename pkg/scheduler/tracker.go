@@ -129,6 +129,7 @@ func (r *redisScheduleTracker) GetAllTaskIDs(ctx context.Context) ([]string, err
 	// the iterator continues until all matching keys are retrieved.
 	const scanBatchSize = 100
 
+	//nolint:prealloc // batch scanning.
 	var taskIDs []string
 
 	iter := r.redis.Scan(ctx, 0, pattern, scanBatchSize).Iterator()
