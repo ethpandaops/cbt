@@ -2,95 +2,33 @@ package scheduler
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	schedulermock "github.com/ethpandaops/cbt/pkg/scheduler/mock"
 	"github.com/hibiken/asynq"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
-
-// mockScheduleTracker implements scheduleTracker for testing
-type mockScheduleTracker struct {
-	mu       sync.RWMutex
-	lastRuns map[string]time.Time
-	setRuns  map[string]time.Time
-}
-
-func newMockScheduleTracker() *mockScheduleTracker {
-	return &mockScheduleTracker{
-		lastRuns: make(map[string]time.Time),
-		setRuns:  make(map[string]time.Time),
-	}
-}
-
-func (m *mockScheduleTracker) GetLastRun(_ context.Context, taskID string) (time.Time, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if lastRun, ok := m.lastRuns[taskID]; ok {
-		return lastRun, nil
-	}
-	return time.Time{}, nil
-}
-
-func (m *mockScheduleTracker) SetLastRun(_ context.Context, taskID string, timestamp time.Time) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.setRuns[taskID] = timestamp
-	m.lastRuns[taskID] = timestamp
-	return nil
-}
-
-func (m *mockScheduleTracker) DeleteLastRun(_ context.Context, taskID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.lastRuns, taskID)
-	delete(m.setRuns, taskID)
-	return nil
-}
-
-func (m *mockScheduleTracker) GetAllTaskIDs(_ context.Context) ([]string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.lastRuns))
-	for id := range m.lastRuns {
-		ids = append(ids, id)
-	}
-	return ids, nil
-}
-
-// getSetRuns returns a copy of the setRuns map (thread-safe)
-func (m *mockScheduleTracker) getSetRuns() map[string]time.Time {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]time.Time, len(m.setRuns))
-	for k, v := range m.setRuns {
-		result[k] = v
-	}
-	return result
-}
-
-// setInitialLastRun sets the initial last run time for a task (thread-safe)
-func (m *mockScheduleTracker) setInitialLastRun(taskID string, timestamp time.Time) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.lastRuns[taskID] = timestamp
-}
 
 func TestTickerService(t *testing.T) {
 	// Start miniredis for all ticker tests
 	mr, err := miniredis.Run()
 	require.NoError(t, err)
+
 	defer mr.Close()
 
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel)
 
 	t.Run("ticker enqueues task when interval elapsed", func(t *testing.T) {
-		mockTracker := newMockScheduleTracker()
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockTracker := schedulermock.NewMockscheduleTracker(ctrl)
 
 		// Create Asynq client connected to miniredis
 		asynqClient := asynq.NewClient(asynq.RedisClientOpt{
@@ -100,7 +38,28 @@ func TestTickerService(t *testing.T) {
 
 		// Task that should run (last run was 2 seconds ago, interval is 1 second)
 		taskID := "test:task1"
-		mockTracker.setInitialLastRun(taskID, time.Now().Add(-2*time.Second))
+		lastRunTime := time.Now().Add(-2 * time.Second)
+
+		// Expect GetLastRun to be called and return the old timestamp
+		mockTracker.EXPECT().
+			GetLastRun(gomock.Any(), taskID).
+			Return(lastRunTime, nil).
+			AnyTimes()
+
+		// Expect SetLastRun to be called when task is enqueued
+		setLastRunCalled := make(chan struct{}, 1)
+
+		mockTracker.EXPECT().
+			SetLastRun(gomock.Any(), taskID, gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ string, _ time.Time) error {
+				select {
+				case setLastRunCalled <- struct{}{}:
+				default:
+				}
+
+				return nil
+			}).
+			AnyTimes()
 
 		tasks := []scheduledTask{
 			{
@@ -120,20 +79,24 @@ func TestTickerService(t *testing.T) {
 
 		go ticker.Start(ctx)
 
-		// Wait for ticker to run
-		time.Sleep(1500 * time.Millisecond)
+		// Wait for SetLastRun to be called
+		select {
+		case <-setLastRunCalled:
+			// Success - task was enqueued
+		case <-time.After(3 * time.Second):
+			t.Fatal("Task should have been enqueued and SetLastRun called")
+		}
 
 		// Stop ticker
 		cancel()
 		ticker.Stop()
-
-		// Verify task was enqueued by checking if SetLastRun was called
-		setRuns := mockTracker.getSetRuns()
-		assert.Contains(t, setRuns, taskID, "Task should have been enqueued and timestamp updated")
 	})
 
 	t.Run("ticker does not enqueue task when interval not elapsed", func(t *testing.T) {
-		mockTracker := newMockScheduleTracker()
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockTracker := schedulermock.NewMockscheduleTracker(ctrl)
 
 		asynqClient := asynq.NewClient(asynq.RedisClientOpt{
 			Addr: mr.Addr(),
@@ -142,7 +105,19 @@ func TestTickerService(t *testing.T) {
 
 		// Task that should NOT run (last run was 500ms ago, interval is 1 minute)
 		taskID := "test:task2"
-		mockTracker.setInitialLastRun(taskID, time.Now().Add(-500*time.Millisecond))
+		lastRunTime := time.Now().Add(-500 * time.Millisecond)
+
+		// Expect GetLastRun to be called and return recent timestamp
+		mockTracker.EXPECT().
+			GetLastRun(gomock.Any(), taskID).
+			Return(lastRunTime, nil).
+			AnyTimes()
+
+		// SetLastRun should NOT be called since interval hasn't elapsed
+		// We use Times(0) to assert it's never called
+		mockTracker.EXPECT().
+			SetLastRun(gomock.Any(), taskID, gomock.Any()).
+			Times(0)
 
 		tasks := []scheduledTask{
 			{
@@ -162,20 +137,19 @@ func TestTickerService(t *testing.T) {
 
 		go ticker.Start(ctx)
 
-		// Wait for ticker to run
+		// Wait for ticker to run a few cycles
 		time.Sleep(1500 * time.Millisecond)
 
 		// Stop ticker
 		cancel()
 		ticker.Stop()
-
-		// Verify task was NOT enqueued
-		setRuns := mockTracker.getSetRuns()
-		assert.NotContains(t, setRuns, taskID, "Task should not have been enqueued")
 	})
 
 	t.Run("ticker enqueues task on first run (zero time)", func(t *testing.T) {
-		mockTracker := newMockScheduleTracker()
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockTracker := schedulermock.NewMockscheduleTracker(ctrl)
 
 		asynqClient := asynq.NewClient(asynq.RedisClientOpt{
 			Addr: mr.Addr(),
@@ -184,7 +158,27 @@ func TestTickerService(t *testing.T) {
 
 		// Task that has never run (zero time)
 		taskID := "test:task3"
-		// Don't set lastRuns - it will return zero time
+
+		// Expect GetLastRun to return zero time (never run before)
+		mockTracker.EXPECT().
+			GetLastRun(gomock.Any(), taskID).
+			Return(time.Time{}, nil).
+			AnyTimes()
+
+		// Expect SetLastRun to be called when task is enqueued
+		setLastRunCalled := make(chan struct{}, 1)
+
+		mockTracker.EXPECT().
+			SetLastRun(gomock.Any(), taskID, gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ string, _ time.Time) error {
+				select {
+				case setLastRunCalled <- struct{}{}:
+				default:
+				}
+
+				return nil
+			}).
+			AnyTimes()
 
 		tasks := []scheduledTask{
 			{
@@ -204,32 +198,48 @@ func TestTickerService(t *testing.T) {
 
 		go ticker.Start(ctx)
 
-		// Wait for ticker to run
-		time.Sleep(1500 * time.Millisecond)
+		// Wait for SetLastRun to be called
+		select {
+		case <-setLastRunCalled:
+			// Success - task was enqueued on first run
+		case <-time.After(3 * time.Second):
+			t.Fatal("Task should be enqueued on first run")
+		}
 
 		// Stop ticker
 		cancel()
 		ticker.Stop()
-
-		// Verify task was enqueued on first run
-		setRuns := mockTracker.getSetRuns()
-		assert.Contains(t, setRuns, taskID, "Task should be enqueued on first run")
 	})
 
 	t.Run("ticker stops gracefully on context cancel", func(t *testing.T) {
-		mockTracker := newMockScheduleTracker()
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockTracker := schedulermock.NewMockscheduleTracker(ctrl)
 
 		asynqClient := asynq.NewClient(asynq.RedisClientOpt{
 			Addr: mr.Addr(),
 		})
 		defer asynqClient.Close()
 
+		taskID := "test:task4"
+
+		// Allow any calls to tracker methods
+		mockTracker.EXPECT().
+			GetLastRun(gomock.Any(), taskID).
+			Return(time.Time{}, nil).
+			AnyTimes()
+		mockTracker.EXPECT().
+			SetLastRun(gomock.Any(), taskID, gomock.Any()).
+			Return(nil).
+			AnyTimes()
+
 		tasks := []scheduledTask{
 			{
-				ID:       "test:task4",
+				ID:       taskID,
 				Schedule: "@every 1s",
 				Interval: 1 * time.Second,
-				Task:     asynq.NewTask("test:task4", nil),
+				Task:     asynq.NewTask(taskID, nil),
 				Queue:    QueueName,
 			},
 		}
@@ -260,19 +270,34 @@ func TestTickerService(t *testing.T) {
 	})
 
 	t.Run("ticker stops gracefully on Stop call", func(t *testing.T) {
-		mockTracker := newMockScheduleTracker()
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockTracker := schedulermock.NewMockscheduleTracker(ctrl)
 
 		asynqClient := asynq.NewClient(asynq.RedisClientOpt{
 			Addr: mr.Addr(),
 		})
 		defer asynqClient.Close()
 
+		taskID := "test:task5"
+
+		// Allow any calls to tracker methods
+		mockTracker.EXPECT().
+			GetLastRun(gomock.Any(), taskID).
+			Return(time.Time{}, nil).
+			AnyTimes()
+		mockTracker.EXPECT().
+			SetLastRun(gomock.Any(), taskID, gomock.Any()).
+			Return(nil).
+			AnyTimes()
+
 		tasks := []scheduledTask{
 			{
-				ID:       "test:task5",
+				ID:       taskID,
 				Schedule: "@every 1s",
 				Interval: 1 * time.Second,
-				Task:     asynq.NewTask("test:task5", nil),
+				Task:     asynq.NewTask(taskID, nil),
 				Queue:    QueueName,
 			},
 		}
