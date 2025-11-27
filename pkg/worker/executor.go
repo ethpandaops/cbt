@@ -68,7 +68,7 @@ func (e *ModelExecutor) UpdateBounds(ctx context.Context, modelID, scanType stri
 		e.log.WithError(err).WithField("model_id", modelID).Warn("Failed to get cache bounds")
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 
 	// Validate scan preconditions
 	if shouldSkipScan(e.log, modelID, scanType, cache, now) {
