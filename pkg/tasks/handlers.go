@@ -30,6 +30,8 @@ var (
 	ErrScanTypeNotFound = errors.New("scan_type not found in payload")
 	// ErrCacheManagerUnavailable is returned when cache manager is not available
 	ErrCacheManagerUnavailable = errors.New("cache manager not available")
+	// ErrUnexpectedExternalType is returned when an external task type appears in transformation payload.
+	ErrUnexpectedExternalType = errors.New("unexpected external task type in transformation payload")
 )
 
 // getWorkerID returns the worker ID based on hostname
@@ -110,19 +112,67 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 	return nil
 }
 
-// parseTaskPayload attempts to unmarshal the task payload
+// parseTaskPayload attempts to unmarshal the task payload using the Type discriminator.
+// For backwards compatibility with payloads that don't have a Type field, it falls back
+// to heuristic-based detection.
 func (h *TaskHandler) parseTaskPayload(data []byte) (TaskPayload, error) {
-	var incPayload IncrementalTaskPayload
-	if err := json.Unmarshal(data, &incPayload); err == nil && (incPayload.Position > 0 || incPayload.Interval > 0) {
-		return incPayload, nil
+	// First, peek at the Type field to determine the payload type
+	var typeCheck struct {
+		Type TaskType `json:"type"`
 	}
 
-	var schPayload ScheduledTaskPayload
-	if err := json.Unmarshal(data, &schPayload); err != nil {
+	if err := json.Unmarshal(data, &typeCheck); err != nil {
 		observability.RecordError("task-handler", "unmarshal_error")
 		return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
-	return schPayload, nil
+
+	// Use explicit Type field if present
+	switch typeCheck.Type {
+	case TaskTypeIncremental:
+		var incPayload IncrementalTaskPayload
+		if err := json.Unmarshal(data, &incPayload); err != nil {
+			observability.RecordError("task-handler", "unmarshal_error")
+
+			return nil, fmt.Errorf("failed to unmarshal incremental payload: %w", err)
+		}
+
+		return incPayload, nil
+
+	case TaskTypeScheduled:
+		var schPayload ScheduledTaskPayload
+		if err := json.Unmarshal(data, &schPayload); err != nil {
+			observability.RecordError("task-handler", "unmarshal_error")
+
+			return nil, fmt.Errorf("failed to unmarshal scheduled payload: %w", err)
+		}
+
+		return schPayload, nil
+
+	case TaskTypeExternal:
+		// External tasks are handled by HandleExternalScan, not this parser
+		// This case is here for exhaustiveness; external payloads use a different format
+		observability.RecordError("task-handler", "unexpected_external_type")
+		return nil, ErrUnexpectedExternalType
+
+	default:
+		// Backwards compatibility: Type field not set, use heuristic detection
+		// This handles payloads created before the Type field was added
+		var incPayload IncrementalTaskPayload
+		if err := json.Unmarshal(data, &incPayload); err == nil {
+			// Check for incremental-specific fields (Direction is most reliable)
+			if incPayload.Direction != "" || incPayload.Position > 0 || incPayload.Interval > 0 {
+				return incPayload, nil
+			}
+		}
+
+		// Default to scheduled payload
+		var schPayload ScheduledTaskPayload
+		if err := json.Unmarshal(data, &schPayload); err != nil {
+			observability.RecordError("task-handler", "unmarshal_error")
+			return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
+		}
+		return schPayload, nil
+	}
 }
 
 // taskContextData holds all the context for task execution
