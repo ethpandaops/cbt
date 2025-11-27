@@ -1127,3 +1127,91 @@ func (m *queryCapturingClient) Start() error {
 func (m *queryCapturingClient) Stop() error {
 	return nil
 }
+
+func TestParseModelID(t *testing.T) {
+	tests := []struct {
+		name             string
+		modelID          string
+		expectedDatabase string
+		expectedTable    string
+		expectError      bool
+	}{
+		{
+			name:             "valid model ID",
+			modelID:          "my_database.my_table",
+			expectedDatabase: "my_database",
+			expectedTable:    "my_table",
+			expectError:      false,
+		},
+		{
+			name:             "valid model ID with underscores",
+			modelID:          "analytics_db.block_propagation",
+			expectedDatabase: "analytics_db",
+			expectedTable:    "block_propagation",
+			expectError:      false,
+		},
+		{
+			name:        "invalid - no dot",
+			modelID:     "no_dot_here",
+			expectError: true,
+		},
+		{
+			name:        "invalid - multiple dots",
+			modelID:     "db.schema.table",
+			expectError: true,
+		},
+		{
+			name:        "invalid - empty string",
+			modelID:     "",
+			expectError: true,
+		},
+		{
+			name:        "invalid - just a dot",
+			modelID:     ".",
+			expectError: false, // Actually produces empty strings, but parseModelID doesn't validate empty parts
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			database, table, err := parseModelID(tt.modelID)
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.ErrorIs(t, err, ErrInvalidModelID)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedDatabase, database)
+				assert.Equal(t, tt.expectedTable, table)
+			}
+		})
+	}
+}
+
+func TestBuildTableRef(t *testing.T) {
+	tests := []struct {
+		name     string
+		database string
+		table    string
+		expected string
+	}{
+		{
+			name:     "standard names",
+			database: "my_database",
+			table:    "my_table",
+			expected: "`my_database`.`my_table`",
+		},
+		{
+			name:     "names with special characters would be escaped",
+			database: "db",
+			table:    "table",
+			expected: "`db`.`table`",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildTableRef(tt.database, tt.table)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

@@ -174,12 +174,12 @@ func RecordArchivedTaskDeleted(queue, model string) {
 	ArchivedTasksDeleted.WithLabelValues(queue, model).Inc()
 }
 
-// RecordScheduledTaskRegistered records when a scheduled task is registered
+// RecordScheduledTaskRegistered records when a scheduled task is registered.
 func RecordScheduledTaskRegistered(model, operation string) {
 	ScheduledTasksRegistered.WithLabelValues(model, operation).Set(1)
 }
 
-// RecordScheduledTaskUnregistered records when a scheduled task is unregistered
+// RecordScheduledTaskUnregistered records when a scheduled task is unregistered.
 func RecordScheduledTaskUnregistered(model, operation string) {
 	ScheduledTasksRegistered.WithLabelValues(model, operation).Set(0)
 }

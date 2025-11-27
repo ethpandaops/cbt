@@ -1803,3 +1803,77 @@ type mockTransformationHandlerWithBuffer struct {
 func (m *mockTransformationHandlerWithBuffer) GetFillBuffer() uint64 {
 	return m.buffer
 }
+
+func TestGetTransformationModel(t *testing.T) {
+	tests := []struct {
+		name      string
+		modelID   string
+		setupMock func(*mockDAGReader)
+		wantErr   bool
+		errType   error
+	}{
+		{
+			name:    "valid transformation model",
+			modelID: "test.model",
+			setupMock: func(dag *mockDAGReader) {
+				dag.nodes = map[string]models.Node{
+					"test.model": {
+						NodeType: models.NodeTypeTransformation,
+						Model:    &mockTransformation{id: "test.model", interval: 100},
+					},
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name:    "model not found",
+			modelID: "missing.model",
+			setupMock: func(dag *mockDAGReader) {
+				dag.nodes = map[string]models.Node{}
+			},
+			wantErr: true,
+			errType: ErrModelNotFound,
+		},
+		{
+			name:    "not a transformation model",
+			modelID: "ext.model",
+			setupMock: func(dag *mockDAGReader) {
+				dag.nodes = map[string]models.Node{
+					"ext.model": {
+						NodeType: models.NodeTypeExternal,
+						Model:    &mockExternal{id: "ext.model"},
+					},
+				}
+			},
+			wantErr: true,
+			errType: ErrNotTransformationModel,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockDAG := newMockDAGReader()
+			tt.setupMock(mockDAG)
+
+			validator := &dependencyValidator{
+				log: logrus.New(),
+				dag: mockDAG,
+			}
+
+			model, err := validator.getTransformationModel(tt.modelID)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				if tt.errType != nil {
+					assert.ErrorIs(t, err, tt.errType)
+				}
+
+				assert.Nil(t, model)
+			} else {
+				require.NoError(t, err)
+				assert.NotNil(t, model)
+				assert.Equal(t, tt.modelID, model.GetID())
+			}
+		})
+	}
+}

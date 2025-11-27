@@ -23,9 +23,6 @@ func (s *service) processBack(trans models.Transformation) {
 		return
 	}
 
-	type scheduleProvider interface {
-		IsBackfillEnabled() bool
-	}
 	if provider, ok := handler.(scheduleProvider); !ok || !provider.IsBackfillEnabled() {
 		return
 	}
@@ -79,9 +76,6 @@ func (s *service) checkBackfillOpportunities(ctx context.Context, trans models.T
 }
 
 func (s *service) getMaxInterval(handler transformation.Handler) uint64 {
-	type intervalProvider interface {
-		GetMaxInterval() uint64
-	}
 	if provider, ok := handler.(intervalProvider); ok {
 		return provider.GetMaxInterval()
 	}
@@ -93,9 +87,6 @@ func (s *service) handleNoDataCase(trans models.Transformation, handler transfor
 		return true
 	}
 
-	type scheduleProvider interface {
-		IsForwardFillEnabled() bool
-	}
 	if provider, ok := handler.(scheduleProvider); ok && provider.IsForwardFillEnabled() {
 		s.log.WithFields(logrus.Fields{
 			"model_id": trans.GetID(),
@@ -302,10 +293,6 @@ func (s *service) calculateBackfillScanRange(ctx context.Context, trans models.T
 
 // applyMinimumLimit applies the configured minimum limit to the initial position
 func (s *service) applyMinimumLimit(modelID string, handler transformation.Handler, initialPos uint64) uint64 {
-	type limitsProvider interface {
-		GetLimits() *struct{ Min, Max uint64 }
-	}
-
 	var minLimit uint64
 	if provider, ok := handler.(limitsProvider); ok {
 		if limits := provider.GetLimits(); limits != nil && limits.Min > 0 {
@@ -344,10 +331,6 @@ func (s *service) applyMinimumLimit(modelID string, handler transformation.Handl
 
 // applyMaximumLimit applies the configured maximum limit to the scan range
 func (s *service) applyMaximumLimit(modelID string, handler transformation.Handler, lastEndPos uint64) uint64 {
-	type limitsProvider interface {
-		GetLimits() *struct{ Min, Max uint64 }
-	}
-
 	var maxLimit uint64
 	if provider, ok := handler.(limitsProvider); ok {
 		if limits := provider.GetLimits(); limits != nil && limits.Max > 0 {
@@ -378,10 +361,6 @@ func (s *service) isGapFillable(ctx context.Context, trans models.Transformation
 	}
 
 	// Get max and min intervals from handler (same logic as processSingleGap)
-	type intervalProvider interface {
-		GetMaxInterval() uint64
-		GetMinInterval() uint64
-	}
 	var maxInterval, minInterval uint64
 	if provider, ok := handler.(intervalProvider); ok {
 		maxInterval = provider.GetMaxInterval()
@@ -392,22 +371,7 @@ func (s *service) isGapFillable(ctx context.Context, trans models.Transformation
 
 	// Determine interval to use (same logic as processSingleGap)
 	// This ensures we validate for the ACTUAL interval that will be processed
-	var intervalToUse uint64
-	switch {
-	case minInterval == 0:
-		// If min interval is 0, use gap size but cap at maxInterval
-		if gapSize > maxInterval {
-			intervalToUse = maxInterval
-		} else {
-			intervalToUse = gapSize
-		}
-	case gapSize < minInterval:
-		intervalToUse = minInterval
-	case gapSize < maxInterval:
-		intervalToUse = gapSize
-	default:
-		intervalToUse = maxInterval
-	}
+	intervalToUse := determineIntervalForGap(gapSize, minInterval, maxInterval)
 
 	// Calculate position (same logic as processSingleGap)
 	pos := gap.EndPos - intervalToUse
@@ -452,10 +416,6 @@ func (s *service) processSingleGap(ctx context.Context, trans models.Transformat
 	gapSize := gap.EndPos - gap.StartPos
 
 	// Get max and min intervals from handler
-	type intervalProvider interface {
-		GetMaxInterval() uint64
-		GetMinInterval() uint64
-	}
 	var maxInterval, minInterval uint64
 	if provider, ok := trans.GetHandler().(intervalProvider); ok {
 		maxInterval = provider.GetMaxInterval()
@@ -463,46 +423,10 @@ func (s *service) processSingleGap(ctx context.Context, trans models.Transformat
 	}
 
 	// Determine interval to use
-	var intervalToUse uint64
-	switch {
-	case minInterval == 0:
-		// If min interval is 0, use gap size but cap at maxInterval
-		if gapSize > maxInterval {
-			intervalToUse = maxInterval
-			s.log.WithFields(logrus.Fields{
-				"model_id":          trans.GetID(),
-				"gap_index":         gapIndex,
-				"gap_size":          gapSize,
-				"max_interval":      maxInterval,
-				"adjusted_interval": intervalToUse,
-			}).Debug("Capped interval at max for large gap (min interval is 0)")
-		} else {
-			intervalToUse = gapSize
-		}
-	case gapSize < minInterval:
-		// If gap is smaller than min interval, use min interval (may overlap)
-		intervalToUse = minInterval
-		s.log.WithFields(logrus.Fields{
-			"model_id":          trans.GetID(),
-			"gap_index":         gapIndex,
-			"gap_size":          gapSize,
-			"min_interval":      minInterval,
-			"adjusted_interval": intervalToUse,
-		}).Debug("Using min interval for small gap (may overlap with existing data)")
-	case gapSize < maxInterval:
-		// If gap is between min and max, use the gap size
-		intervalToUse = gapSize
-		s.log.WithFields(logrus.Fields{
-			"model_id":          trans.GetID(),
-			"gap_index":         gapIndex,
-			"gap_size":          gapSize,
-			"model_interval":    maxInterval,
-			"adjusted_interval": intervalToUse,
-		}).Debug("Adjusted interval for small gap")
-	default:
-		// Use max interval for large gaps
-		intervalToUse = maxInterval
-	}
+	intervalToUse := determineIntervalForGap(gapSize, minInterval, maxInterval)
+
+	// Log interval adjustment details for debugging
+	s.logIntervalAdjustment(trans.GetID(), gapIndex, gapSize, minInterval, maxInterval, intervalToUse)
 
 	// Calculate position - work backwards from gap end to meet forward fill
 	// This fills recent data first (closer to current time) rather than oldest data first
@@ -523,4 +447,34 @@ func (s *service) processSingleGap(ctx context.Context, trans models.Transformat
 	// checkAndEnqueuePositionWithTrigger handles deduplication via IsTaskPendingOrRunning
 	s.checkAndEnqueuePositionWithTrigger(ctx, trans, pos, intervalToUse, string(DirectionBack))
 	return true
+}
+
+// logIntervalAdjustment logs debug info about interval adjustments for gap processing.
+func (s *service) logIntervalAdjustment(modelID string, gapIndex int, gapSize, minInterval, maxInterval, intervalToUse uint64) {
+	switch {
+	case minInterval == 0 && gapSize > maxInterval:
+		s.log.WithFields(logrus.Fields{
+			"model_id":          modelID,
+			"gap_index":         gapIndex,
+			"gap_size":          gapSize,
+			"max_interval":      maxInterval,
+			"adjusted_interval": intervalToUse,
+		}).Debug("Capped interval at max for large gap (min interval is 0)")
+	case gapSize < minInterval:
+		s.log.WithFields(logrus.Fields{
+			"model_id":          modelID,
+			"gap_index":         gapIndex,
+			"gap_size":          gapSize,
+			"min_interval":      minInterval,
+			"adjusted_interval": intervalToUse,
+		}).Debug("Using min interval for small gap (may overlap with existing data)")
+	case gapSize < maxInterval && gapSize != intervalToUse:
+		s.log.WithFields(logrus.Fields{
+			"model_id":          modelID,
+			"gap_index":         gapIndex,
+			"gap_size":          gapSize,
+			"model_interval":    maxInterval,
+			"adjusted_interval": intervalToUse,
+		}).Debug("Adjusted interval for small gap")
+	}
 }
