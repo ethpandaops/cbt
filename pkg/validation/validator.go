@@ -55,6 +55,9 @@ type Result struct {
 	NextValidPos uint64  // Next position where dependencies are available (0 if can process or no next position)
 }
 
+// maxGapQueryLimit is the maximum number of gaps to retrieve in a single query.
+const maxGapQueryLimit = 1000
+
 // Validation-specific errors
 var (
 	ErrModelNotFound               = errors.New("model not found")
@@ -362,7 +365,7 @@ func (v *dependencyValidator) checkSingleDependencyGaps(
 
 	// Query the admin service for ALL gaps across the full range
 	// This prevents false positives when coverage starts before the search window
-	gaps, err := v.admin.FindGaps(ctx, depID, firstPos, lastEndPos, 1000)
+	gaps, err := v.admin.FindGaps(ctx, depID, firstPos, lastEndPos, maxGapQueryLimit)
 	if err != nil {
 		v.log.WithError(err).WithField("dependency_id", depID).Debug("Failed to find gaps in dependency")
 		return 0, false
