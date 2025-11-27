@@ -4,16 +4,7 @@ import (
 	"errors"
 )
 
-const (
-	// DefaultConcurrency is the default number of concurrent workers.
-	DefaultConcurrency = 10
-	// DefaultShutdownTimeoutSeconds is the default shutdown timeout in seconds.
-	DefaultShutdownTimeoutSeconds = 30
-)
-
 var (
-	// ErrNoQueuesConfigured is returned when no queues are configured
-	ErrNoQueuesConfigured = errors.New("at least one queue must be configured")
 	// ErrInvalidConcurrency is returned when concurrency is not positive
 	ErrInvalidConcurrency = errors.New("concurrency must be positive")
 	// ErrWorkerShutdownTimeout is returned when worker shutdown times out
