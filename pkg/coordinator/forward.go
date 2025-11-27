@@ -52,18 +52,12 @@ func (s *service) processForward(trans models.Transformation) {
 
 // isForwardFillEnabled checks if forward fill is enabled for the handler
 func (s *service) isForwardFillEnabled(handler transformation.Handler) bool {
-	type scheduleProvider interface {
-		IsForwardFillEnabled() bool
-	}
 	provider, ok := handler.(scheduleProvider)
 	return ok && provider.IsForwardFillEnabled()
 }
 
 // shouldAllowGapSkipping checks if gap skipping is allowed for the handler
 func (s *service) shouldAllowGapSkipping(handler transformation.Handler) bool {
-	type gapSkippingProvider interface {
-		AllowGapSkipping() bool
-	}
 	provider, ok := handler.(gapSkippingProvider)
 	if !ok {
 		return true // default: allow gap skipping
@@ -107,9 +101,6 @@ func (s *service) getProcessingPosition(ctx context.Context, trans models.Transf
 
 // getMaxLimit extracts the max limit from the handler
 func (s *service) getMaxLimit(handler transformation.Handler) uint64 {
-	type limitsProvider interface {
-		GetLimits() *struct{ Min, Max uint64 }
-	}
 	if provider, ok := handler.(limitsProvider); ok {
 		if limits := provider.GetLimits(); limits != nil && limits.Max > 0 {
 			return limits.Max
@@ -133,14 +124,11 @@ func (s *service) isPositionBeyondLimit(modelID string, position, maxLimit uint6
 
 // calculateProcessingInterval determines the interval to use for processing
 func (s *service) calculateProcessingInterval(ctx context.Context, trans models.Transformation, handler transformation.Handler, nextPos, maxLimit uint64) (uint64, bool) {
-	type intervalProvider interface {
-		GetMaxInterval() uint64
-		AllowsPartialIntervals() bool
-	}
-
 	var interval uint64
+
 	var allowsPartial bool
-	if provider, ok := handler.(intervalProvider); ok {
+
+	if provider, ok := handler.(partialIntervalProvider); ok {
 		interval = provider.GetMaxInterval()
 		allowsPartial = provider.AllowsPartialIntervals()
 	}
@@ -188,9 +176,6 @@ func (s *service) adjustIntervalForDependencies(ctx context.Context, trans model
 	}
 
 	// Dependencies don't have enough data for full interval
-	type minIntervalProvider interface {
-		GetMinInterval() uint64
-	}
 	var minInterval uint64
 	if provider, ok := trans.GetHandler().(minIntervalProvider); ok {
 		minInterval = provider.GetMinInterval()

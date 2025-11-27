@@ -233,9 +233,6 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		// Get interval from handler
 		var interval uint64
 		if handler := model.GetHandler(); handler != nil {
-			type intervalProvider interface {
-				GetMaxInterval() uint64
-			}
 			if provider, ok := handler.(intervalProvider); ok {
 				interval = provider.GetMaxInterval()
 			}

@@ -60,7 +60,14 @@ func (c *Config) SetDefaults(defaultDatabase string) {
 
 // GetID returns the unique identifier for the transformation model
 func (c *Config) GetID() string {
-	return fmt.Sprintf("%s.%s", c.Database, c.Table)
+	return formatModelID(c.Database, c.Table)
+}
+
+// formatModelID creates a standardized model ID from database and table names.
+// Format: "database.table"
+// Note: This is a local copy to avoid circular imports with the models package.
+func formatModelID(database, table string) string {
+	return fmt.Sprintf("%s.%s", database, table)
 }
 
 // IsScheduledType returns true if this is a scheduled transformation

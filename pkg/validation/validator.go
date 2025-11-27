@@ -68,6 +68,26 @@ var (
 	ErrUninitializedTransformation = errors.New("transformation dependency has not been initialized")
 )
 
+// getTransformationModel retrieves and validates a transformation model from the DAG.
+// It performs the common pattern of: get node -> check type -> cast to transformation.
+func (v *dependencyValidator) getTransformationModel(modelID string) (models.Transformation, error) {
+	node, err := v.dag.GetNode(modelID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrModelNotFound, modelID)
+	}
+
+	if node.NodeType != models.NodeTypeTransformation {
+		return nil, fmt.Errorf("%w: %s", ErrNotTransformationModel, modelID)
+	}
+
+	model, ok := node.Model.(models.Transformation)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
+	}
+
+	return model, nil
+}
+
 // NewDependencyValidator creates a new dependency validator
 func NewDependencyValidator(
 	log logrus.FieldLogger,
@@ -465,19 +485,11 @@ func (v *dependencyValidator) GetEarliestPosition(ctx context.Context, modelID s
 	}
 
 	// Get the model's interval for alignment
-	node, err := v.dag.GetNode(modelID)
+	model, err := v.getTransformationModel(modelID)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %s", ErrModelNotFound, modelID)
+		return 0, err
 	}
 
-	if node.NodeType != models.NodeTypeTransformation {
-		return 0, fmt.Errorf("%w: %s", ErrNotTransformationModel, modelID)
-	}
-
-	model, ok := node.Model.(models.Transformation)
-	if !ok {
-		return 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
-	}
 	// Get interval from handler
 	var interval uint64
 	handler := model.GetHandler()
@@ -524,18 +536,9 @@ func (v *dependencyValidator) GetEarliestPosition(ctx context.Context, modelID s
 // Supports both head-first (from most recent data) and tail-first (from oldest data) strategies
 func (v *dependencyValidator) GetInitialPosition(ctx context.Context, modelID string) (uint64, error) {
 	// Get the model's interval and handler
-	node, err := v.dag.GetNode(modelID)
+	model, err := v.getTransformationModel(modelID)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %s", ErrModelNotFound, modelID)
-	}
-
-	if node.NodeType != models.NodeTypeTransformation {
-		return 0, fmt.Errorf("%w: %s", ErrNotTransformationModel, modelID)
-	}
-
-	model, ok := node.Model.(models.Transformation)
-	if !ok {
-		return 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
+		return 0, err
 	}
 
 	// Get interval from handler
@@ -869,21 +872,10 @@ func (v *dependencyValidator) GetValidRange(ctx context.Context, modelID string)
 	v.log.WithField("model_id", modelID).Debug("GetValidRange called")
 
 	// Get the model to check if it's a transformation
-	node, err := v.dag.GetNode(modelID)
+	model, err := v.getTransformationModel(modelID)
 	if err != nil {
-		return 0, 0, fmt.Errorf("%w: %s", ErrModelNotFound, modelID)
+		return 0, 0, err
 	}
-
-	if node.NodeType != models.NodeTypeTransformation {
-		return 0, 0, fmt.Errorf("%w: %s", ErrNotTransformationModel, modelID)
-	}
-
-	model, ok := node.Model.(models.Transformation)
-	if !ok {
-		return 0, 0, fmt.Errorf("%w: %s", ErrFailedModelCast, modelID)
-	}
-
-	// Get the model's configuration (not used directly anymore, dependencies from handler)
 
 	// Check if model has dependencies through handler
 	if !v.hasDependencies(model) {

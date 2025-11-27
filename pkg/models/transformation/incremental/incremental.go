@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strings"
 
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"gopkg.in/yaml.v3"
@@ -123,7 +122,14 @@ func (h *Handler) RecordCompletion(ctx context.Context, adminService any, modelI
 
 // GetID returns the unique identifier for the transformation model
 func (h *Handler) GetID() string {
-	return fmt.Sprintf("%s.%s", h.config.Database, h.config.Table)
+	return formatModelID(h.config.Database, h.config.Table)
+}
+
+// formatModelID creates a standardized model ID from database and table names.
+// Format: "database.table"
+// Note: This is a local copy to avoid circular imports with the models package.
+func formatModelID(database, table string) string {
+	return fmt.Sprintf("%s.%s", database, table)
 }
 
 // GetMaxInterval returns the maximum interval size
@@ -171,44 +177,11 @@ func (h *Handler) GetOriginalDependencies() []transformation.Dependency {
 
 // SubstituteDependencyPlaceholders replaces {{external}} and {{transformation}} placeholders
 func (h *Handler) SubstituteDependencyPlaceholders(externalDefaultDB, transformationDefaultDB string) {
-	// Deep copy original dependencies before substitution
-	h.config.OriginalDependencies = make([]transformation.Dependency, len(h.config.Dependencies))
-	for i := range h.config.Dependencies {
-		origDep := transformation.Dependency{
-			IsGroup:   h.config.Dependencies[i].IsGroup,
-			SingleDep: h.config.Dependencies[i].SingleDep,
-		}
-		if h.config.Dependencies[i].IsGroup {
-			origDep.GroupDeps = make([]string, len(h.config.Dependencies[i].GroupDeps))
-			copy(origDep.GroupDeps, h.config.Dependencies[i].GroupDeps)
-		}
-		h.config.OriginalDependencies[i] = origDep
-	}
-
-	for i := range h.config.Dependencies {
-		h.config.Dependencies[i] = h.substituteDependency(h.config.Dependencies[i], externalDefaultDB, transformationDefaultDB)
-	}
-}
-
-func (h *Handler) substituteDependency(dep transformation.Dependency, externalDB, transformationDB string) transformation.Dependency {
-	if dep.IsGroup {
-		for j := range dep.GroupDeps {
-			dep.GroupDeps[j] = h.substitutePlaceholders(dep.GroupDeps[j], externalDB, transformationDB)
-		}
-	} else {
-		dep.SingleDep = h.substitutePlaceholders(dep.SingleDep, externalDB, transformationDB)
-	}
-	return dep
-}
-
-func (h *Handler) substitutePlaceholders(s, externalDB, transformationDB string) string {
-	if externalDB != "" {
-		s = strings.ReplaceAll(s, "{{external}}", externalDB)
-	}
-	if transformationDB != "" {
-		s = strings.ReplaceAll(s, "{{transformation}}", transformationDB)
-	}
-	return s
+	h.config.OriginalDependencies = transformation.SubstituteDependencyPlaceholders(
+		h.config.Dependencies,
+		externalDefaultDB,
+		transformationDefaultDB,
+	)
 }
 
 // IsForwardFillEnabled returns true if forward fill schedule is configured

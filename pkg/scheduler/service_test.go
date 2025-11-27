@@ -938,3 +938,62 @@ func TestBuildDesiredTasksWithEmptySchedules(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractExternalTaskComponents(t *testing.T) {
+	tests := []struct {
+		name          string
+		taskType      string
+		expectedID    string
+		expectedError bool
+	}{
+		{
+			name:          "valid incremental task",
+			taskType:      "external:db.table:incremental",
+			expectedID:    "db.table",
+			expectedError: false,
+		},
+		{
+			name:          "valid full task",
+			taskType:      "external:analytics.events:full",
+			expectedID:    "analytics.events",
+			expectedError: false,
+		},
+		{
+			name:          "invalid - only two parts",
+			taskType:      "external:db.table",
+			expectedID:    "",
+			expectedError: true,
+		},
+		{
+			name:          "invalid - only one part",
+			taskType:      "external",
+			expectedID:    "",
+			expectedError: true,
+		},
+		{
+			name:          "invalid - four parts",
+			taskType:      "external:db:table:extra:part",
+			expectedID:    "",
+			expectedError: true,
+		},
+		{
+			name:          "invalid - empty string",
+			taskType:      "",
+			expectedID:    "",
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			modelID, err := extractExternalTaskComponents(tt.taskType)
+			if tt.expectedError {
+				assert.Error(t, err)
+				assert.ErrorIs(t, err, ErrInvalidExternalTaskType)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedID, modelID)
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package transformation
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -67,4 +68,58 @@ func (d *Dependency) GetAllDependencies() []string {
 		return d.GroupDeps
 	}
 	return []string{d.SingleDep}
+}
+
+// DeepCopyDependencies creates a deep copy of a slice of dependencies.
+func DeepCopyDependencies(deps []Dependency) []Dependency {
+	result := make([]Dependency, len(deps))
+	for i := range deps {
+		result[i] = Dependency{
+			IsGroup:   deps[i].IsGroup,
+			SingleDep: deps[i].SingleDep,
+		}
+		if deps[i].IsGroup {
+			result[i].GroupDeps = make([]string, len(deps[i].GroupDeps))
+			copy(result[i].GroupDeps, deps[i].GroupDeps)
+		}
+	}
+
+	return result
+}
+
+// SubstituteDependencyPlaceholders replaces {{external}} and {{transformation}} placeholders
+// in all dependencies. It returns the original dependencies (deep copy) and modifies
+// the input slice in place.
+func SubstituteDependencyPlaceholders(deps []Dependency, externalDB, transformationDB string) []Dependency {
+	// Deep copy original dependencies before substitution
+	originalDeps := DeepCopyDependencies(deps)
+
+	// Substitute placeholders in the original slice
+	for i := range deps {
+		substituteDependencyPlaceholders(&deps[i], externalDB, transformationDB)
+	}
+
+	return originalDeps
+}
+
+func substituteDependencyPlaceholders(dep *Dependency, externalDB, transformationDB string) {
+	if dep.IsGroup {
+		for j := range dep.GroupDeps {
+			dep.GroupDeps[j] = substitutePlaceholders(dep.GroupDeps[j], externalDB, transformationDB)
+		}
+	} else {
+		dep.SingleDep = substitutePlaceholders(dep.SingleDep, externalDB, transformationDB)
+	}
+}
+
+func substitutePlaceholders(s, externalDB, transformationDB string) string {
+	if externalDB != "" {
+		s = strings.ReplaceAll(s, "{{external}}", externalDB)
+	}
+
+	if transformationDB != "" {
+		s = strings.ReplaceAll(s, "{{transformation}}", transformationDB)
+	}
+
+	return s
 }

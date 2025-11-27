@@ -711,6 +711,18 @@ func extractModelID(taskType string) string {
 	return ""
 }
 
+// extractExternalTaskComponents extracts the model ID from external task types.
+// External tasks follow the format: external:{model_id}:suffix
+// Returns the model ID and an error if the format is invalid.
+func extractExternalTaskComponents(taskType string) (modelID string, err error) {
+	parts := strings.Split(taskType, ":")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("%w: %s", ErrInvalidExternalTaskType, taskType)
+	}
+
+	return parts[1], nil
+}
+
 // HandleScheduledForward processes scheduled forward fill checks
 func (s *service) HandleScheduledForward(_ context.Context, t *asynq.Task) error {
 	modelID := extractModelID(t.Type())
@@ -735,13 +747,10 @@ func (s *service) HandleScheduledForward(_ context.Context, t *asynq.Task) error
 
 // HandleExternalIncremental processes incremental scan for external model
 func (s *service) HandleExternalIncremental(_ context.Context, t *asynq.Task) error {
-	// Extract model ID from task type: external:{model_id}:incremental
-	taskType := t.Type()
-	parts := strings.Split(taskType, ":")
-	if len(parts) != 3 {
-		return fmt.Errorf("%w: %s", ErrInvalidExternalTaskType, taskType)
+	modelID, err := extractExternalTaskComponents(t.Type())
+	if err != nil {
+		return err
 	}
-	modelID := parts[1]
 
 	s.log.WithField("model_id", modelID).Debug("Running incremental scan for external model")
 
@@ -752,13 +761,10 @@ func (s *service) HandleExternalIncremental(_ context.Context, t *asynq.Task) er
 
 // HandleExternalFull processes full scan for external model
 func (s *service) HandleExternalFull(_ context.Context, t *asynq.Task) error {
-	// Extract model ID from task type: external:{model_id}:full
-	taskType := t.Type()
-	parts := strings.Split(taskType, ":")
-	if len(parts) != 3 {
-		return fmt.Errorf("%w: %s", ErrInvalidExternalTaskType, taskType)
+	modelID, err := extractExternalTaskComponents(t.Type())
+	if err != nil {
+		return err
 	}
-	modelID := parts[1]
 
 	s.log.WithField("model_id", modelID).Debug("Running full scan for external model")
 

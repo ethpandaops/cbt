@@ -20,6 +20,22 @@ var (
 	ErrCacheManagerUnavailable = errors.New("cache manager not available")
 )
 
+// parseModelID splits a model ID into database and table components.
+// Model IDs are expected in the format "database.table".
+func parseModelID(modelID string) (database, table string, err error) {
+	parts := strings.Split(modelID, ".")
+	if len(parts) != 2 {
+		return "", "", ErrInvalidModelID
+	}
+
+	return parts[0], parts[1], nil
+}
+
+// buildTableRef creates a backtick-escaped table reference for SQL queries.
+func buildTableRef(database, table string) string {
+	return fmt.Sprintf("`%s`.`%s`", database, table)
+}
+
 // Service defines the public interface for the admin service
 type Service interface {
 	// Position tracking (for incremental transformations)
@@ -127,9 +143,9 @@ func (a *service) GetScheduledAdminTable() string {
 
 // RecordCompletion records a completed transformation in the admin table
 func (a *service) RecordCompletion(ctx context.Context, modelID string, position, interval uint64) error {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return ErrInvalidModelID
+	database, table, err := parseModelID(modelID)
+	if err != nil {
+		return err
 	}
 
 	// Log what we're recording for better debugging
@@ -144,9 +160,9 @@ func (a *service) RecordCompletion(ctx context.Context, modelID string, position
 	// Using string formatting with proper escaping
 	// In production, consider using parameterized queries for better security
 	query := fmt.Sprintf(`
-		INSERT INTO `+"`%s`.`%s`"+` (updated_date_time, database, table, position, interval)
+		INSERT INTO %s (updated_date_time, database, table, position, interval)
 		VALUES (now(), '%s', '%s', %d, %d)
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1], position, interval)
+	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, position, interval)
 
 	body, err := a.client.Execute(ctx, query)
 	if err != nil {
@@ -173,22 +189,22 @@ func (a *service) RecordCompletion(ctx context.Context, modelID string, position
 
 // GetFirstPosition returns the first processed position for a model
 func (a *service) GetFirstPosition(ctx context.Context, modelID string) (uint64, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return 0, ErrInvalidModelID
+	database, table, err := parseModelID(modelID)
+	if err != nil {
+		return 0, err
 	}
 
 	query := fmt.Sprintf(`
 		SELECT coalesce(min(position), 0) as first_pos
-		FROM `+"`%s`.`%s`"+` FINAL
+		FROM %s FINAL
 		WHERE database = '%s' AND table = '%s'
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
+	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
 
 	var result struct {
 		FirstPos uint64 `json:"first_pos,string"`
 	}
 
-	err := a.client.QueryOne(ctx, query, &result)
+	err = a.client.QueryOne(ctx, query, &result)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil
@@ -202,22 +218,22 @@ func (a *service) GetFirstPosition(ctx context.Context, modelID string) (uint64,
 // GetLastProcessedEndPosition returns the end of the last processed range (max(position + interval))
 // This is the position where forward processing should continue from
 func (a *service) GetLastProcessedEndPosition(ctx context.Context, modelID string) (uint64, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return 0, ErrInvalidModelID
+	database, table, err := parseModelID(modelID)
+	if err != nil {
+		return 0, err
 	}
 
 	query := fmt.Sprintf(`
 		SELECT coalesce(max(position + interval), 0) as last_end_pos
-		FROM `+"`%s`.`%s`"+` FINAL
+		FROM %s FINAL
 		WHERE database = '%s' AND table = '%s'
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
+	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
 
 	var result struct {
 		LastEndPos uint64 `json:"last_end_pos,string"`
 	}
 
-	err := a.client.QueryOne(ctx, query, &result)
+	err = a.client.QueryOne(ctx, query, &result)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil
@@ -237,22 +253,22 @@ func (a *service) GetNextUnprocessedPosition(ctx context.Context, modelID string
 // GetLastProcessedPosition returns the position of the last processed record (max(position))
 // This is useful for understanding the actual last record processed, not where to continue from
 func (a *service) GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return 0, ErrInvalidModelID
+	database, table, err := parseModelID(modelID)
+	if err != nil {
+		return 0, err
 	}
 
 	query := fmt.Sprintf(`
 		SELECT coalesce(max(position), 0) as last_pos
-		FROM `+"`%s`.`%s`"+` FINAL
+		FROM %s FINAL
 		WHERE database = '%s' AND table = '%s'
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
+	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
 
 	var result struct {
 		LastPos uint64 `json:"last_pos,string"`
 	}
 
-	err := a.client.QueryOne(ctx, query, &result)
+	err = a.client.QueryOne(ctx, query, &result)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil
@@ -265,31 +281,31 @@ func (a *service) GetLastProcessedPosition(ctx context.Context, modelID string) 
 
 // GetCoverage checks if a range is fully covered in the admin table
 func (a *service) GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return false, ErrInvalidModelID
+	database, table, err := parseModelID(modelID)
+	if err != nil {
+		return false, err
 	}
 
 	query := fmt.Sprintf(`
 		WITH coverage AS (
 			SELECT position, position + interval as end_pos
-			FROM `+"`%s`.`%s`"+` FINAL
+			FROM %s FINAL
 			WHERE database = '%s' AND table = '%s'
 			  AND position < %d
 			  AND position + interval > %d
 		)
-		SELECT CASE 
-			WHEN min(position) <= %d AND max(end_pos) >= %d 
-			THEN 1 ELSE 0 
+		SELECT CASE
+			WHEN min(position) <= %d AND max(end_pos) >= %d
+			THEN 1 ELSE 0
 		END as fully_covered
 		FROM coverage
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1], endPos, startPos, startPos, endPos)
+	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, endPos, startPos, startPos, endPos)
 
 	var result struct {
 		FullyCovered int `json:"fully_covered"`
 	}
 
-	err := a.client.QueryOne(ctx, query, &result)
+	err = a.client.QueryOne(ctx, query, &result)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
@@ -302,9 +318,9 @@ func (a *service) GetCoverage(ctx context.Context, modelID string, startPos, end
 
 // FindGaps finds all gaps in the processed data for a model
 func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]GapInfo, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return nil, ErrInvalidModelID
+	database, table, err := parseModelID(modelID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Log the gap detection parameters
@@ -328,7 +344,7 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 				interval,
 				position + interval as end_pos,
 				row_number() OVER (ORDER BY position) as rn
-			FROM `+"`%s`.`%s`"+` FINAL
+			FROM %s FINAL
 			WHERE database = '%s' AND table = '%s'
 			  AND position + interval > %d
 			  AND position < %d
@@ -369,14 +385,14 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 			gap_end
 		FROM gaps
 		ORDER BY gap_start DESC
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1], minPos, maxPos)
+	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, minPos, maxPos)
 
 	var gapResults []struct {
 		GapStart uint64 `json:"gap_start,string"`
 		GapEnd   uint64 `json:"gap_end,string"`
 	}
 
-	err := a.client.QueryMany(ctx, query, &gapResults)
+	err = a.client.QueryMany(ctx, query, &gapResults)
 	if err != nil {
 		return nil, err
 	}
@@ -399,10 +415,10 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 	// Also check for a gap at the beginning
 	firstPosQuery := fmt.Sprintf(`
 		SELECT min(position) as first_pos
-		FROM `+"`%s`.`%s`"+` FINAL
+		FROM %s FINAL
 		WHERE database = '%s' AND table = '%s'
 		  AND position >= %d
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1], minPos)
+	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, minPos)
 
 	var firstPosResult struct {
 		FirstPos *uint64 `json:"first_pos,string"`
@@ -442,20 +458,21 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 // GetProcessedRanges returns all processed ranges for a model from the admin table
 // This returns the raw admin_incremental table data with no filtering or aggregation
 func (a *service) GetProcessedRanges(ctx context.Context, modelID string) ([]ProcessedRange, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return nil, ErrInvalidModelID
+	database, table, err := parseModelID(modelID)
+	if err != nil {
+		return nil, err
 	}
 
 	query := fmt.Sprintf(`
 		SELECT position, interval
-		FROM `+"`%s`.`%s`"+` FINAL
+		FROM %s FINAL
 		WHERE database = '%s' AND table = '%s'
 		ORDER BY position DESC
-	`, a.adminDatabase, a.adminTable, parts[0], parts[1])
+	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
 
 	var ranges []ProcessedRange
-	err := a.client.QueryMany(ctx, query, &ranges)
+
+	err = a.client.QueryMany(ctx, query, &ranges)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query processed ranges: %w", err)
 	}
@@ -470,13 +487,10 @@ func (a *service) GetProcessedRanges(ctx context.Context, modelID string) ([]Pro
 
 // ConsolidateHistoricalData consolidates historical admin table rows for a model
 func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string) (int, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return 0, ErrInvalidModelID
+	database, table, err := parseModelID(modelID)
+	if err != nil {
+		return 0, err
 	}
-
-	database := parts[0]
-	table := parts[1]
 
 	// Find contiguous/overlapping ranges that can be consolidated using a 3-CTE approach
 	// Uses window functions to detect "islands" of contiguous/overlapping ranges
@@ -490,7 +504,7 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 					ORDER BY position
 					ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
 				) as prev_max_end
-			FROM `+"`%s`.`%s`"+` FINAL
+			FROM %s FINAL
 			WHERE database = '%s' AND table = '%s'
 		),
 		island_groups AS (
@@ -517,7 +531,7 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 		FROM consolidated_ranges
 		ORDER BY row_count DESC, start_pos
 		LIMIT 1
-	`, a.adminDatabase, a.adminTable, database, table)
+	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
 
 	var rangeResult struct {
 		StartPos uint64 `json:"start_pos,string"`
@@ -525,7 +539,7 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 		RowCount int    `json:"row_count,string"`
 	}
 
-	err := a.client.QueryOne(ctx, rangeQuery, &rangeResult)
+	err = a.client.QueryOne(ctx, rangeQuery, &rangeResult)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil // No contiguous ranges found
@@ -629,9 +643,9 @@ func (a *service) SetExternalBounds(ctx context.Context, cache *BoundsCache) err
 
 // RecordScheduledCompletion records a completed scheduled transformation
 func (a *service) RecordScheduledCompletion(ctx context.Context, modelID string, startDateTime time.Time) error {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return ErrInvalidModelID
+	database, table, err := parseModelID(modelID)
+	if err != nil {
+		return err
 	}
 
 	a.log.WithFields(logrus.Fields{
@@ -640,32 +654,32 @@ func (a *service) RecordScheduledCompletion(ctx context.Context, modelID string,
 	}).Debug("Recording scheduled task completion in admin table")
 
 	query := fmt.Sprintf(`
-		INSERT INTO `+"`%s`.`%s`"+` (updated_date_time, database, table, start_date_time)
+		INSERT INTO %s (updated_date_time, database, table, start_date_time)
 		VALUES (now(), '%s', '%s', '%s')
-	`, a.scheduledAdminDatabase, a.scheduledAdminTable, parts[0], parts[1], startDateTime.Format("2006-01-02 15:04:05.000"))
+	`, buildTableRef(a.scheduledAdminDatabase, a.scheduledAdminTable), database, table, startDateTime.Format("2006-01-02 15:04:05.000"))
 
-	_, err := a.client.Execute(ctx, query)
+	_, err = a.client.Execute(ctx, query)
 	return err
 }
 
 // GetLastScheduledExecution returns the last execution time for a scheduled transformation
 func (a *service) GetLastScheduledExecution(ctx context.Context, modelID string) (*time.Time, error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return nil, ErrInvalidModelID
+	database, table, err := parseModelID(modelID)
+	if err != nil {
+		return nil, err
 	}
 
 	query := fmt.Sprintf(`
 		SELECT max(start_date_time) as last_execution
-		FROM `+"`%s`.`%s`"+` FINAL
+		FROM %s FINAL
 		WHERE database = '%s' AND table = '%s'
-	`, a.scheduledAdminDatabase, a.scheduledAdminTable, parts[0], parts[1])
+	`, buildTableRef(a.scheduledAdminDatabase, a.scheduledAdminTable), database, table)
 
 	var result struct {
 		LastExecution *string `json:"last_execution"`
 	}
 
-	err := a.client.QueryOne(ctx, query, &result)
+	err = a.client.QueryOne(ctx, query, &result)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil

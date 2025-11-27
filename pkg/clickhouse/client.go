@@ -23,6 +23,17 @@ var (
 	ErrClickHouseResponse       = errors.New("clickhouse error")
 )
 
+// clickhouseResponse represents the JSON response from ClickHouse HTTP interface.
+type clickhouseResponse struct {
+	Data []json.RawMessage `json:"data"`
+	Meta []struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+	} `json:"meta"`
+	Rows     int `json:"rows"`
+	RowsRead int `json:"rows_read"` //nolint:tagliatelle // ClickHouse API uses snake_case
+}
+
 // ClientInterface defines the methods for interacting with ClickHouse
 type ClientInterface interface {
 	// QueryOne executes a query and returns a single result
@@ -121,16 +132,7 @@ func (c *client) QueryOne(ctx context.Context, query string, dest interface{}) e
 	}
 
 	// Parse response
-	var result struct {
-		Data []json.RawMessage `json:"data"`
-		Meta []struct {
-			Name string `json:"name"`
-			Type string `json:"type"`
-		} `json:"meta"`
-		Rows     int `json:"rows"`
-		RowsRead int `json:"rows_read"`
-	}
-
+	var result clickhouseResponse
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
@@ -164,16 +166,7 @@ func (c *client) QueryMany(ctx context.Context, query string, dest interface{}) 
 	}
 
 	// Parse response
-	var result struct {
-		Data []json.RawMessage `json:"data"`
-		Meta []struct {
-			Name string `json:"name"`
-			Type string `json:"type"`
-		} `json:"meta"`
-		Rows     int `json:"rows"`
-		RowsRead int `json:"rows_read"`
-	}
-
+	var result clickhouseResponse
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
 	}
