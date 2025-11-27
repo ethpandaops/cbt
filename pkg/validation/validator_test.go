@@ -1958,3 +1958,125 @@ func TestGetTransformationModel(t *testing.T) {
 		})
 	}
 }
+
+func TestFindMin(t *testing.T) {
+	tests := []struct {
+		name     string
+		values   []uint64
+		expected uint64
+	}{
+		{
+			name:     "empty slice returns 0",
+			values:   []uint64{},
+			expected: 0,
+		},
+		{
+			name:     "single element",
+			values:   []uint64{42},
+			expected: 42,
+		},
+		{
+			name:     "multiple elements - min at start",
+			values:   []uint64{1, 5, 10, 20},
+			expected: 1,
+		},
+		{
+			name:     "multiple elements - min at end",
+			values:   []uint64{20, 10, 5, 1},
+			expected: 1,
+		},
+		{
+			name:     "multiple elements - min in middle",
+			values:   []uint64{10, 1, 20, 5},
+			expected: 1,
+		},
+		{
+			name:     "all same values",
+			values:   []uint64{7, 7, 7, 7},
+			expected: 7,
+		},
+		{
+			name:     "two elements",
+			values:   []uint64{100, 50},
+			expected: 50,
+		},
+		{
+			name:     "includes zero",
+			values:   []uint64{10, 0, 5},
+			expected: 0,
+		},
+		{
+			name:     "large values",
+			values:   []uint64{18446744073709551615, 1000, 500}, // max uint64
+			expected: 500,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := findMin(tt.values)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestFindMax(t *testing.T) {
+	tests := []struct {
+		name     string
+		values   []uint64
+		expected uint64
+	}{
+		{
+			name:     "empty slice returns 0",
+			values:   []uint64{},
+			expected: 0,
+		},
+		{
+			name:     "single element",
+			values:   []uint64{42},
+			expected: 42,
+		},
+		{
+			name:     "multiple elements - max at start",
+			values:   []uint64{20, 10, 5, 1},
+			expected: 20,
+		},
+		{
+			name:     "multiple elements - max at end",
+			values:   []uint64{1, 5, 10, 20},
+			expected: 20,
+		},
+		{
+			name:     "multiple elements - max in middle",
+			values:   []uint64{10, 20, 1, 5},
+			expected: 20,
+		},
+		{
+			name:     "all same values",
+			values:   []uint64{7, 7, 7, 7},
+			expected: 7,
+		},
+		{
+			name:     "two elements",
+			values:   []uint64{50, 100},
+			expected: 100,
+		},
+		{
+			name:     "includes zero",
+			values:   []uint64{0, 10, 5},
+			expected: 10,
+		},
+		{
+			name:     "large values",
+			values:   []uint64{1000, 18446744073709551615, 500}, // max uint64
+			expected: 18446744073709551615,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := findMax(tt.values)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

@@ -3,7 +3,6 @@ package validation
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -30,30 +29,25 @@ type FlexUint64 uint64
 
 // UnmarshalJSON implements json.Unmarshaler for FlexUint64
 func (f *FlexUint64) UnmarshalJSON(data []byte) error {
+	s := string(data)
+
 	// Check for null value first
-	if string(data) == "null" {
+	if s == "null" {
 		return fmt.Errorf("%w: received null value, which likely indicates missing data", ErrInvalidUint64)
 	}
 
-	// Try to unmarshal as number first
-	var num uint64
-	if err := json.Unmarshal(data, &num); err == nil {
-		*f = FlexUint64(num)
-		return nil
+	// Remove quotes if present (handles both "123" and 123)
+	s = strings.Trim(s, `"`)
+
+	// Parse as uint64
+	parsed, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return fmt.Errorf("%w: failed to parse %q as uint64: %w", ErrInvalidUint64, s, err)
 	}
 
-	// Try to unmarshal as string
-	var str string
-	if err := json.Unmarshal(data, &str); err == nil {
-		parsed, err := strconv.ParseUint(str, 10, 64)
-		if err != nil {
-			return fmt.Errorf("failed to parse string value %q as uint64: %w", str, err)
-		}
-		*f = FlexUint64(parsed)
-		return nil
-	}
+	*f = FlexUint64(parsed)
 
-	return fmt.Errorf("%w: expected number or string, got %s", ErrInvalidUint64, string(data))
+	return nil
 }
 
 // ExternalModelValidator implements the ExternalModelExecutor interface
