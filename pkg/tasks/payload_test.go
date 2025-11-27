@@ -1,10 +1,12 @@
 package tasks
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Test TaskPayload UniqueID
@@ -266,4 +268,99 @@ func BenchmarkTaskPayload_QueueName(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = payload.QueueName()
 	}
+}
+
+// Test TaskPayload JSON serialization with Type field
+func TestIncrementalTaskPayload_JSONSerialization(t *testing.T) {
+	now := time.Now().Truncate(time.Second) // Truncate for JSON round-trip
+
+	payload := IncrementalTaskPayload{
+		Type:       TaskTypeIncremental,
+		ModelID:    "test.model",
+		Position:   12345,
+		Interval:   100,
+		Direction:  DirectionForward,
+		EnqueuedAt: now,
+	}
+
+	// Marshal to JSON
+	data, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	// Verify Type field is present in JSON
+	var jsonMap map[string]interface{}
+
+	err = json.Unmarshal(data, &jsonMap)
+	require.NoError(t, err)
+	assert.Equal(t, "incremental", jsonMap["type"])
+
+	// Unmarshal back
+	var decoded IncrementalTaskPayload
+
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, TaskTypeIncremental, decoded.Type)
+	assert.Equal(t, payload.ModelID, decoded.ModelID)
+	assert.Equal(t, payload.Position, decoded.Position)
+	assert.Equal(t, payload.Interval, decoded.Interval)
+	assert.Equal(t, payload.Direction, decoded.Direction)
+}
+
+func TestScheduledTaskPayload_JSONSerialization(t *testing.T) {
+	now := time.Now().Truncate(time.Second) // Truncate for JSON round-trip
+	execTime := now.Add(time.Hour)
+
+	payload := ScheduledTaskPayload{
+		Type:          TaskTypeScheduled,
+		ModelID:       "test.model",
+		ExecutionTime: execTime,
+		EnqueuedAt:    now,
+	}
+
+	// Marshal to JSON
+	data, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	// Verify Type field is present in JSON
+	var jsonMap map[string]interface{}
+
+	err = json.Unmarshal(data, &jsonMap)
+	require.NoError(t, err)
+	assert.Equal(t, "scheduled", jsonMap["type"])
+
+	// Unmarshal back
+	var decoded ScheduledTaskPayload
+
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, TaskTypeScheduled, decoded.Type)
+	assert.Equal(t, payload.ModelID, decoded.ModelID)
+}
+
+// Test that Type field doesn't break existing GetType() behavior
+func TestTaskPayload_GetType_WithTypeField(t *testing.T) {
+	incPayload := IncrementalTaskPayload{
+		Type:      TaskTypeIncremental,
+		ModelID:   "test.model",
+		Position:  100,
+		Interval:  50,
+		Direction: DirectionForward,
+	}
+
+	schPayload := ScheduledTaskPayload{
+		Type:          TaskTypeScheduled,
+		ModelID:       "test.model",
+		ExecutionTime: time.Now(),
+	}
+
+	// GetType() should still return the correct constant regardless of Type field
+	assert.Equal(t, TaskTypeIncremental, incPayload.GetType())
+	assert.Equal(t, TaskTypeScheduled, schPayload.GetType())
+
+	// Even with wrong Type field value, GetType() returns the hardcoded type
+	// (This is intentional - GetType() is authoritative, Type field is for JSON discrimination)
+	incPayload.Type = TaskTypeScheduled
+	assert.Equal(t, TaskTypeIncremental, incPayload.GetType())
 }

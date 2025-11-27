@@ -901,6 +901,7 @@ func (s *service) HandleScheduledTransformation(_ context.Context, t *asynq.Task
 
 	// For scheduled transformations, we create a scheduled task payload
 	taskPayload := tasks.ScheduledTaskPayload{
+		Type:          tasks.TaskTypeScheduled,
 		ModelID:       modelID,
 		ExecutionTime: currentTime,
 		EnqueuedAt:    currentTime,

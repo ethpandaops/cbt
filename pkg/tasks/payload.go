@@ -35,6 +35,7 @@ type TaskPayload interface {
 
 // IncrementalTaskPayload represents a position-based incremental task
 type IncrementalTaskPayload struct {
+	Type       TaskType  `json:"type"`
 	ModelID    string    `json:"model_id"`
 	Position   uint64    `json:"position"`
 	Interval   uint64    `json:"interval"`
@@ -64,6 +65,7 @@ func (p IncrementalTaskPayload) UniqueID() string {
 
 // ScheduledTaskPayload represents a scheduled cron-based task
 type ScheduledTaskPayload struct {
+	Type          TaskType  `json:"type"`
 	ModelID       string    `json:"model_id"`
 	ExecutionTime time.Time `json:"execution_time"`
 	EnqueuedAt    time.Time `json:"enqueued_at"`

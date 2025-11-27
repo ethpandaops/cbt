@@ -22,6 +22,7 @@ type taskOperation struct {
 func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64, direction string) {
 	// Create task payload
 	payload := tasks.IncrementalTaskPayload{
+		Type:       tasks.TaskTypeIncremental,
 		ModelID:    trans.GetID(),
 		Position:   position,
 		Interval:   interval,
