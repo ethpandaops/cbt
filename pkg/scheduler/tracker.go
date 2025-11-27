@@ -1,5 +1,7 @@
 package scheduler
 
+//go:generate mockgen -package mock -destination mock/tracker.mock.go -source tracker.go scheduleTracker
+
 import (
 	"context"
 	"errors"
@@ -34,6 +36,9 @@ type scheduleTracker interface {
 	// GetAllTaskIDs returns all task IDs currently tracked in Redis
 	// Used for debugging and observability
 	GetAllTaskIDs(ctx context.Context) ([]string, error)
+
+	// Close releases resources held by the tracker
+	Close() error
 }
 
 type redisScheduleTracker struct {
@@ -129,7 +134,6 @@ func (r *redisScheduleTracker) GetAllTaskIDs(ctx context.Context) ([]string, err
 	// the iterator continues until all matching keys are retrieved.
 	const scanBatchSize = 100
 
-	//nolint:prealloc // batch scanning.
 	var taskIDs []string
 
 	iter := r.redis.Scan(ctx, 0, pattern, scanBatchSize).Iterator()
@@ -148,6 +152,14 @@ func (r *redisScheduleTracker) GetAllTaskIDs(ctx context.Context) ([]string, err
 	r.log.WithField("count", len(taskIDs)).Debug("Retrieved all tracked task IDs")
 
 	return taskIDs, nil
+}
+
+func (r *redisScheduleTracker) Close() error {
+	if r.redis != nil {
+		return r.redis.Close()
+	}
+
+	return nil
 }
 
 // Verify interface compliance at compile time

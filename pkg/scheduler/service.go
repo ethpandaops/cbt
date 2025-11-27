@@ -217,6 +217,13 @@ func (s *service) Stop() error {
 		}
 	}
 
+	// Close schedule tracker's Redis client
+	if s.tracker != nil {
+		if err := s.tracker.Close(); err != nil {
+			s.log.WithError(err).Warn("Failed to close schedule tracker")
+		}
+	}
+
 	s.log.Info("Scheduler service stopped successfully")
 
 	return nil
