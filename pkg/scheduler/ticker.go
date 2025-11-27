@@ -87,7 +87,7 @@ func (t *tickerServiceImpl) Start(ctx context.Context) error {
 }
 
 func (t *tickerServiceImpl) checkSchedules(ctx context.Context) {
-	now := time.Now()
+	now := time.Now().UTC()
 
 	for i := range t.tasks {
 		task := &t.tasks[i]
@@ -137,7 +137,6 @@ func (t *tickerServiceImpl) checkSchedules(ctx context.Context) {
 			t.log.WithError(err).
 				WithField("task_id", task.ID).
 				Error("Failed to update last run timestamp")
-			// Don't continue - task was enqueued, this is just a tracking issue
 		}
 
 		// Update cached next run time based on successful enqueue
