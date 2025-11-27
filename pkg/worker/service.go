@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	_ "net/http/pprof" //nolint:gosec // pprof is intentionally exposed when pprofAddr is configured
-	"slices"
 	"sync"
 	"time"
 
@@ -18,6 +17,9 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
+
+// Ensure service implements the interface
+var _ Service = (*service)(nil)
 
 // Service defines the public interface for the worker service
 type Service interface {
@@ -144,6 +146,11 @@ func (s *service) Stop() error {
 	return nil
 }
 
+// tagsProvider is an interface for handlers that provide tags.
+type tagsProvider interface {
+	GetTags() []string
+}
+
 func filteredTransformations(modelsService models.Service, tags []string) []models.Transformation {
 	dag := modelsService.GetDAG()
 
@@ -154,27 +161,35 @@ func filteredTransformations(modelsService models.Service, tags []string) []mode
 		return transformationNodes
 	}
 
-	filteredTransformations := make([]models.Transformation, 0, len(transformationNodes))
-
+	// Build tag set for O(1) lookup.
+	tagSet := make(map[string]struct{}, len(tags))
 	for _, tag := range tags {
-		for _, transformation := range transformationNodes {
-			// Get tags from handler if it provides them
-			handler := transformation.GetHandler()
-			if handler != nil {
-				type tagsProvider interface {
-					GetTags() []string
-				}
-				if provider, ok := handler.(tagsProvider); ok {
-					if slices.Contains(provider.GetTags(), tag) {
-						filteredTransformations = append(filteredTransformations, transformation)
-					}
-				}
+		tagSet[tag] = struct{}{}
+	}
+
+	// Single pass through transformations
+	filtered := make([]models.Transformation, 0, len(transformationNodes))
+
+	for _, transformation := range transformationNodes {
+		handler := transformation.GetHandler()
+		if handler == nil {
+			continue
+		}
+
+		provider, ok := handler.(tagsProvider)
+		if !ok {
+			continue
+		}
+
+		// Check if any of the transformation's tags match our filter set
+		for _, transformationTag := range provider.GetTags() {
+			if _, exists := tagSet[transformationTag]; exists {
+				filtered = append(filtered, transformation)
+
+				break
 			}
 		}
 	}
 
-	return filteredTransformations
+	return filtered
 }
-
-// Ensure service implements the interface
-var _ Service = (*service)(nil)
