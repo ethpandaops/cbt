@@ -1173,7 +1173,9 @@ func (m *mockExternalModelValidator) GetMinMax(_ context.Context, model models.E
 	// Use firstPositions as min and lastPositions as max for testing
 	minPos = m.admin.firstPositions[model.GetID()]
 	maxPos = m.admin.lastPositions[model.GetID()]
-	if maxPos == 0 {
+	// Only apply default range if lastPositions wasn't explicitly set to 0
+	// (i.e., if the key doesn't exist, we use default; if it exists with value 0, we keep 0)
+	if _, exists := m.admin.lastPositions[model.GetID()]; !exists && maxPos == 0 {
 		maxPos = minPos + 10000 // Default range for testing
 	}
 	return minPos, maxPos, nil
@@ -1696,6 +1698,85 @@ func TestGetValidRangeWithORGroups(t *testing.T) {
 			},
 			expectedMin: 100,  // Uses external since transformation is uninitialized
 			expectedMax: 5000, // Uses external's max
+			wantErr:     false,
+		},
+		{
+			name:    "OR group with all external deps having no data - should error",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				// All external models have (0, 0) bounds - no data indexed yet
+				// This reproduces the bug where backfill would scan from 0 forever
+				orDeps := []transformation.Dependency{
+					{
+						IsGroup: true,
+						GroupDeps: []string{
+							"ext.data_column_sidecar",
+							"ext.blob_sidecar",
+							"ext.gossip_data_column",
+							"ext.gossip_blob",
+						},
+					},
+				}
+				dag.nodes = map[string]models.Node{
+					"model.test":              models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, orDependencies: orDeps}},
+					"ext.data_column_sidecar": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.data_column_sidecar"}},
+					"ext.blob_sidecar":        models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.blob_sidecar"}},
+					"ext.gossip_data_column":  models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.gossip_data_column"}},
+					"ext.gossip_blob":         models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.gossip_blob"}},
+				}
+				// All external models have no data indexed yet
+				admin.firstPositions = map[string]uint64{
+					"ext.data_column_sidecar": 0,
+					"ext.blob_sidecar":        0,
+					"ext.gossip_data_column":  0,
+					"ext.gossip_blob":         0,
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.data_column_sidecar": 0,
+					"ext.blob_sidecar":        0,
+					"ext.gossip_data_column":  0,
+					"ext.gossip_blob":         0,
+				}
+			},
+			expectedMin: 0,
+			expectedMax: 0,
+			wantErr:     true,
+			errMessage:  "no dependencies in OR group are available",
+		},
+		{
+			name:    "OR group with one external having data - uses that one",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				// Only one external has data, others have (0, 0)
+				orDeps := []transformation.Dependency{
+					{
+						IsGroup: true,
+						GroupDeps: []string{
+							"ext.no_data_1",
+							"ext.has_data",
+							"ext.no_data_2",
+						},
+					},
+				}
+				dag.nodes = map[string]models.Node{
+					"model.test":    models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, orDependencies: orDeps}},
+					"ext.no_data_1": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.no_data_1"}},
+					"ext.has_data":  models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.has_data"}},
+					"ext.no_data_2": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.no_data_2"}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"ext.no_data_1": 0,
+					"ext.has_data":  1000, // Only this one has data
+					"ext.no_data_2": 0,
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.no_data_1": 0,
+					"ext.has_data":  5000, // Only this one has data
+					"ext.no_data_2": 0,
+				}
+			},
+			expectedMin: 1000, // Uses the one with data
+			expectedMax: 5000, // Uses the one with data
 			wantErr:     false,
 		},
 	}

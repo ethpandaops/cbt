@@ -730,13 +730,15 @@ func (v *dependencyValidator) processORGroup(ctx context.Context, dep transforma
 			continue
 		}
 
-		// For transformations, skip if no data (not initialized)
-		if depNode.NodeType == models.NodeTypeTransformation && (minDep == 0 && maxDep == 0) {
+		// Skip any dependency with no data (not initialized / no data indexed)
+		// This applies to both transformations and external models
+		if minDep == 0 && maxDep == 0 {
 			v.log.WithFields(logrus.Fields{
 				"dependency": depID,
+				"node_type":  depNode.NodeType,
 				"min":        minDep,
 				"max":        maxDep,
-			}).Debug("Skipping uninitialized transformation dependency in OR group")
+			}).Debug("Skipping dependency with no data in OR group")
 			continue
 		}
 
