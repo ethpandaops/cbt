@@ -106,6 +106,7 @@ func (m *MockValidator) Reset() {
 	m.ValidateCalls = make([]ValidateCall, 0)
 	m.InitialCalls = make([]string, 0)
 	m.EarliestCalls = make([]string, 0)
+	m.ValidRangeCalls = make([]string, 0)
 }
 
 // AssertValidateCalledWith checks if ValidateDependencies was called with specific args

@@ -100,7 +100,6 @@ func TestServiceInitialization(t *testing.T) {
 	serviceCast := svc.(*service)
 
 	// Verify internal structures are initialized
-	assert.NotNil(t, serviceCast.done)
 	assert.NotNil(t, serviceCast.log)
 	assert.NotNil(t, serviceCast.config)
 	assert.Equal(t, cfg, serviceCast.config)

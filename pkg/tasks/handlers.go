@@ -57,7 +57,6 @@ type TaskContext struct {
 	Position       uint64
 	Interval       uint64
 	StartTime      time.Time
-	Variables      map[string]interface{}
 }
 
 // Executor defines the interface for task executors

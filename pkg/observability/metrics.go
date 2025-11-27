@@ -87,7 +87,7 @@ var (
 			Name: "cbt_scheduled_tasks_registered",
 			Help: "Number of scheduled tasks currently registered",
 		},
-		[]string{"model", "operation"}, // operation: forward/backfill
+		[]string{"model", "operation"}, // operation: forward/backfill/scheduled
 	)
 
 	// ScheduledTaskExecutions tracks scheduled task executions
@@ -172,6 +172,16 @@ func RecordExternalCacheMiss(model string) {
 // RecordArchivedTaskDeleted records an archived task being deleted
 func RecordArchivedTaskDeleted(queue, model string) {
 	ArchivedTasksDeleted.WithLabelValues(queue, model).Inc()
+}
+
+// RecordScheduledTaskRegistered records when a scheduled task is registered
+func RecordScheduledTaskRegistered(model, operation string) {
+	ScheduledTasksRegistered.WithLabelValues(model, operation).Set(1)
+}
+
+// RecordScheduledTaskUnregistered records when a scheduled task is unregistered
+func RecordScheduledTaskUnregistered(model, operation string) {
+	ScheduledTasksRegistered.WithLabelValues(model, operation).Set(0)
 }
 
 // RecordScheduledTaskExecution records when a scheduled task is executed

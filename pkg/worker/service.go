@@ -34,8 +34,7 @@ type service struct {
 	log    logrus.FieldLogger
 
 	// Synchronization - per ethPandaOps standards
-	done chan struct{}  // Signal shutdown
-	wg   sync.WaitGroup // Track goroutines
+	wg sync.WaitGroup // Track goroutines
 
 	chClient  clickhouse.ClientInterface
 	admin     admin.Service
@@ -55,7 +54,6 @@ func NewService(log logrus.FieldLogger, cfg *Config, chClient clickhouse.ClientI
 	return &service{
 		log:       log.WithField("service", "worker"),
 		config:    cfg,
-		done:      make(chan struct{}),
 		chClient:  chClient,
 		admin:     adminService,
 		models:    modelsService,
@@ -123,9 +121,6 @@ func (s *service) Start(_ context.Context) error {
 
 // Stop gracefully shuts down the worker application
 func (s *service) Stop() error {
-	// Signal all goroutines to stop
-	close(s.done)
-
 	if s.server != nil {
 		s.server.Shutdown()
 	}

@@ -24,9 +24,6 @@ type SQL struct {
 	Content string `yaml:"-"`
 }
 
-// SQLParser parses SQL external models
-type SQLParser struct{}
-
 // NewExternalSQL creates a new external SQL model from content
 func NewExternalSQL(content []byte) (*SQL, error) {
 	parts := bytes.SplitN(content, []byte("\n---\n"), 2)

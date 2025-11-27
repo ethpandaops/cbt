@@ -64,7 +64,6 @@ var (
 	ErrInvalidDependencyType       = errors.New("invalid dependency type")
 	ErrInvalidModelType            = errors.New("invalid dependency model type")
 	ErrFailedModelCast             = errors.New("failed to cast model to transformation")
-	ErrInsufficientRange           = errors.New("insufficient dependency range for interval")
 	ErrNoORDependencyAvailable     = errors.New("no dependencies in OR group are available")
 	ErrUninitializedTransformation = errors.New("transformation dependency has not been initialized")
 )
