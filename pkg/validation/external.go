@@ -7,21 +7,19 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
-	"github.com/ethpandaops/cbt/pkg/models/external"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/sirupsen/logrus"
 )
 
 var (
-	// ErrNotSQLModel is returned when external model is not a SQL model
-	ErrNotSQLModel = errors.New("external model is not a SQL model")
 	// ErrInvalidUint64 is returned when a value cannot be unmarshaled as uint64
 	ErrInvalidUint64 = errors.New("failed to unmarshal value as uint64")
+	// ErrExternalNotInitialized is returned when external model bounds cache is not yet populated
+	ErrExternalNotInitialized = errors.New("external model bounds not initialized")
 )
 
 // FlexUint64 is a custom type that can unmarshal from both string and number JSON values
@@ -123,75 +121,22 @@ func (e *ExternalModelValidator) tryGetFromCache(ctx context.Context, model mode
 	return cached.Min, cached.Max, true
 }
 
-// storeInCache stores bounds in cache (persistent, no TTL)
-func (e *ExternalModelValidator) storeInCache(ctx context.Context, model models.External, minPos, maxPos uint64) error {
-	cache := &admin.BoundsCache{
-		ModelID:   model.GetID(),
-		Min:       minPos,
-		Max:       maxPos,
-		UpdatedAt: time.Now(),
-		// Note: LastIncrementalScan and LastFullScan will be set by the bounds update task
-	}
-
-	err := e.admin.SetExternalBounds(ctx, cache)
-	if err != nil {
-		e.log.WithError(err).WithField("model", model.GetID()).Warn("Failed to cache external model bounds")
-		return err
-	}
-
-	e.log.WithField("model", model.GetID()).Debug("Cached external model bounds")
-	return nil
-}
-
 // GetMinMax retrieves the min and max position values for an external model
 func (e *ExternalModelValidator) GetMinMax(ctx context.Context, model models.External) (minPos, maxPos uint64, err error) {
 	modelID := model.GetID()
 
 	// Try to get from cache
-	if cachedMin, cachedMax, found := e.tryGetFromCache(ctx, model); found {
-		// Record the raw bounds in metrics
-		observability.RecordModelBounds(modelID, cachedMin, cachedMax)
-		minPos, maxPos = e.applyLag(model, cachedMin, cachedMax, true)
-		return minPos, maxPos, nil
-	}
-
-	if model.GetType() != external.ExternalTypeSQL {
-		return 0, 0, fmt.Errorf("%w: %s", ErrNotSQLModel, modelID)
-	}
-
-	// Pass nil cache state for validation queries (not checking bounds)
-	query, err := e.models.RenderExternal(model, nil)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to render external model %s: %w", modelID, err)
-	}
-
-	var result struct {
-		MinPos FlexUint64 `json:"min"`
-		MaxPos FlexUint64 `json:"max"`
-	}
-
-	// Split by semicolon and take the first query statement
-	// This handles cases where there might be newlines or multiple statements
-	parts := strings.Split(query, ";")
-	if len(parts) > 0 {
-		query = strings.TrimSpace(parts[0])
-	}
-
-	if err := e.chClient.QueryOne(ctx, query, &result); err != nil {
-		return 0, 0, fmt.Errorf("failed to get min/max for external model %s.%s: %w",
-			model.GetConfig().Database, model.GetConfig().Table, err)
-	}
-
-	// Store in cache (store original values before lag adjustment)
-	if err := e.storeInCache(ctx, model, uint64(result.MinPos), uint64(result.MaxPos)); err != nil {
-		// Log error but don't fail the operation - cache is not critical
-		e.log.WithError(err).WithField("model_id", model.GetID()).Debug("Failed to store in cache")
+	cachedMin, cachedMax, found := e.tryGetFromCache(ctx, model)
+	if !found {
+		// No cache - wait for executor's scheduled full scan to populate it
+		return 0, 0, fmt.Errorf("%w: %s (waiting for initial scan)", ErrExternalNotInitialized, modelID)
 	}
 
 	// Record the raw bounds in metrics
-	observability.RecordModelBounds(modelID, uint64(result.MinPos), uint64(result.MaxPos))
+	observability.RecordModelBounds(modelID, cachedMin, cachedMax)
 
 	// Apply lag if configured
-	minPos, maxPos = e.applyLag(model, uint64(result.MinPos), uint64(result.MaxPos), false)
+	minPos, maxPos = e.applyLag(model, cachedMin, cachedMax, true)
+
 	return minPos, maxPos, nil
 }
