@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -28,6 +29,7 @@ type tickerServiceImpl struct {
 	tracker     scheduleTracker
 	queueClient *asynq.Client
 	tasks       []scheduledTask // Populated from DAG config
+	tasksMu     sync.RWMutex    // Protects tasks slice (specifically nextRun field)
 	ticker      *time.Ticker
 	done        chan struct{}
 }
@@ -39,6 +41,7 @@ type scheduledTask struct {
 	Interval time.Duration // Parsed interval from schedule
 	Task     *asynq.Task   // Asynq task to enqueue
 	Queue    string        // Asynq queue name
+	nextRun  *time.Time    // Cached next run time to avoid Redis lookups
 }
 
 // newTickerService creates a new ticker service
@@ -84,28 +87,48 @@ func (t *tickerServiceImpl) Start(ctx context.Context) error {
 }
 
 func (t *tickerServiceImpl) checkSchedules(ctx context.Context) {
-	now := time.Now()
+	now := time.Now().UTC()
 
-	for _, task := range t.tasks {
-		// Get last run time
-		lastRun, err := t.tracker.GetLastRun(ctx, task.ID)
-		if err != nil {
-			t.log.WithError(err).WithField("task_id", task.ID).Error("Failed to get last run")
+	for i := range t.tasks {
+		task := &t.tasks[i]
+
+		// Fast path: skip if we already know the task isn't due yet.
+		// This avoids a Redis call for tasks that are clearly not ready.
+		t.tasksMu.RLock()
+		cachedNextRun := task.nextRun
+		t.tasksMu.RUnlock()
+
+		if cachedNextRun != nil && now.Before(*cachedNextRun) {
 			continue
 		}
 
+		// Get last run time from Redis (only when task might be due)
+		lastRun, err := t.tracker.GetLastRun(ctx, task.ID)
+		if err != nil {
+			t.log.WithError(err).WithField("task_id", task.ID).Error("Failed to get last run")
+
+			continue
+		}
+
+		// Calculate next run time and cache it
+		nextRun := lastRun.Add(task.Interval)
+
+		t.tasksMu.Lock()
+		task.nextRun = &nextRun
+		t.tasksMu.Unlock()
+
 		// Check if interval has elapsed
-		elapsed := now.Sub(lastRun)
-		if elapsed < task.Interval {
+		if now.Before(nextRun) {
 			// Not due yet
 			continue
 		}
 
 		// Task is due, enqueue it
-		if err := t.enqueueTask(ctx, task, now); err != nil {
+		if err := t.enqueueTask(ctx, *task, now); err != nil {
 			t.log.WithError(err).
 				WithField("task_id", task.ID).
 				Error("Failed to enqueue task")
+
 			continue
 		}
 
@@ -114,8 +137,14 @@ func (t *tickerServiceImpl) checkSchedules(ctx context.Context) {
 			t.log.WithError(err).
 				WithField("task_id", task.ID).
 				Error("Failed to update last run timestamp")
-			// Don't continue - task was enqueued, this is just a tracking issue
 		}
+
+		// Update cached next run time based on successful enqueue
+		updatedNextRun := now.Add(task.Interval)
+
+		t.tasksMu.Lock()
+		task.nextRun = &updatedNextRun
+		t.tasksMu.Unlock()
 	}
 }
 
@@ -146,10 +175,12 @@ func (t *tickerServiceImpl) Stop() error {
 	t.log.Info("Stopping ticker service")
 
 	// Unregister metrics for scheduled tasks
+	t.tasksMu.RLock()
 	for _, task := range t.tasks {
 		modelID, operation := parseTaskIDForMetrics(task.ID)
 		observability.RecordScheduledTaskUnregistered(modelID, operation)
 	}
+	t.tasksMu.RUnlock()
 
 	close(t.done)
 	return nil
