@@ -3,6 +3,7 @@ project_name: cbt
 before:
   hooks:
     - go mod tidy
+    - go install go.uber.org/mock/mockgen@latest
     - go generate ./...
     - make build-frontend
 
