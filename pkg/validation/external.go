@@ -42,7 +42,7 @@ func (f *FlexUint64) UnmarshalJSON(data []byte) error {
 	// Parse as uint64
 	parsed, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
-		return fmt.Errorf("%w: failed to parse %q as uint64: %v", ErrInvalidUint64, s, err)
+		return fmt.Errorf("%w: failed to parse %q as uint64: %w", ErrInvalidUint64, s, err)
 	}
 
 	*f = FlexUint64(parsed)
