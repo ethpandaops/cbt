@@ -2,10 +2,9 @@ package scheduler
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/big"
+	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +32,8 @@ const (
 	QueueName = "scheduler"
 	// TransformationTypeScheduled is the transformation type for scheduled transformations
 	TransformationTypeScheduled = "scheduled"
+	// maxJitterSeconds is the maximum jitter in seconds to prevent thundering herd.
+	maxJitterSeconds = 10
 )
 
 var (
@@ -822,9 +823,8 @@ func (s *service) triggerInitialExternalScans(ctx context.Context) {
 			s.log.WithFields(logFields).Debug("Checked external model bounds")
 
 			if bounds == nil || !bounds.InitialScanComplete {
-				// Add jitter to prevent thundering herd (0-10 seconds)
-				jitterBig, _ := rand.Int(rand.Reader, big.NewInt(10))
-				jitter := time.Duration(jitterBig.Int64()) * time.Second
+				// Add jitter to prevent thundering herd
+				jitter := time.Duration(rand.IntN(maxJitterSeconds)) * time.Second //nolint:gosec // G404: jitter doesn't need cryptographic randomness
 
 				s.log.WithFields(logrus.Fields{
 					"model_id": modelID,

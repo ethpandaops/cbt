@@ -12,6 +12,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// maxProcessedTaskEntries is the maximum number of task entries to track before clearing.
+// This prevents unbounded memory growth in the task tracker.
+const maxProcessedTaskEntries = 10000
+
 // taskOperation represents an operation on the processed tasks tracker
 type taskOperation struct {
 	taskID   string
@@ -132,7 +136,7 @@ func (s *service) taskTracker() {
 			// Mark task as processed
 			processedTasks[taskID] = true
 			// Clean up old entries if map gets too large
-			if len(processedTasks) > 10000 {
+			if len(processedTasks) > maxProcessedTaskEntries {
 				// Keep recent entries only
 				newMap := make(map[string]bool, 100)
 				processedTasks = newMap

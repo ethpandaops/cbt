@@ -5,8 +5,6 @@ import (
 )
 
 var (
-	// ErrNoQueuesConfigured is returned when no queues are configured
-	ErrNoQueuesConfigured = errors.New("at least one queue must be configured")
 	// ErrInvalidConcurrency is returned when concurrency is not positive
 	ErrInvalidConcurrency = errors.New("concurrency must be positive")
 	// ErrWorkerShutdownTimeout is returned when worker shutdown times out

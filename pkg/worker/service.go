@@ -18,6 +18,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// defaultQueuePriority is the priority assigned to model queues in asynq.
+const defaultQueuePriority = 10
+
 // Ensure service implements the interface
 var _ Service = (*service)(nil)
 
@@ -76,7 +79,7 @@ func (s *service) Start(_ context.Context) error {
 	// Configure queues with capacity hint
 	queues := make(map[string]int, len(transformations))
 	for _, transformation := range transformations {
-		queues[transformation.GetID()] = 10
+		queues[transformation.GetID()] = defaultQueuePriority
 	}
 
 	// Add queues for external models (for bounds cache tasks)
@@ -84,7 +87,7 @@ func (s *service) Start(_ context.Context) error {
 	externalNodes := dag.GetExternalNodes()
 	for _, node := range externalNodes {
 		if external, ok := node.Model.(models.External); ok {
-			queues[external.GetID()] = 10
+			queues[external.GetID()] = defaultQueuePriority
 		}
 	}
 
