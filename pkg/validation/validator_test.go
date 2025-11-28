@@ -637,25 +637,7 @@ func newMockAdmin() *mockAdmin {
 	}
 }
 
-func (m *mockAdmin) GetLastProcessedEndPosition(ctx context.Context, modelID string) (uint64, error) {
-	if m.slowOperation {
-		select {
-		case <-time.After(m.operationDelay):
-			// Operation completed
-		case <-ctx.Done():
-			return 0, ctx.Err()
-		}
-	}
-
-	pos, ok := m.lastPositions[modelID]
-	if !ok {
-		return 0, nil
-	}
-	return pos, nil
-}
-
 func (m *mockAdmin) GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error) {
-	// For mock purposes, this is the same as GetLastProcessedEndPosition
 	if m.slowOperation {
 		select {
 		case <-time.After(m.operationDelay):

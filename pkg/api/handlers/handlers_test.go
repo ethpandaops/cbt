@@ -144,10 +144,6 @@ func (m *mockModelsService) GetTransformationEnvironmentVariables(_ models.Trans
 // mockAdminService implements admin.Service for testing
 type mockAdminService struct{}
 
-func (m *mockAdminService) GetLastProcessedEndPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-
 func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
 	return 0, nil
 }

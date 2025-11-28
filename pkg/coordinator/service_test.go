@@ -239,17 +239,7 @@ type mockAdminService struct {
 	mu             sync.RWMutex
 }
 
-func (m *mockAdminService) GetLastProcessedEndPosition(_ context.Context, modelID string) (uint64, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if pos, ok := m.lastPositions[modelID]; ok {
-		return pos, nil
-	}
-	return 0, nil
-}
-
 func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, modelID string) (uint64, error) {
-	// For mock purposes, this is the same as GetLastProcessedEndPosition
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if pos, ok := m.lastPositions[modelID]; ok {

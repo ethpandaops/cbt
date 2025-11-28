@@ -249,7 +249,7 @@ func (s *service) logProcessingSummary(modelID string, stats *gapProcessingStats
 
 // getBackfillBounds retrieves the last processed positions for backfill scanning
 func (s *service) getBackfillBounds(ctx context.Context, modelID string) (lastPos, lastEndPos uint64, hasData bool) {
-	lastEndPos, err := s.admin.GetLastProcessedEndPosition(ctx, modelID)
+	lastEndPos, err := s.admin.GetNextUnprocessedPosition(ctx, modelID)
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", modelID).Debug("Failed to get last processed end position for gap scan")
 		return 0, 0, false

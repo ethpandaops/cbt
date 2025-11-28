@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
-	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -133,8 +132,8 @@ func TestServiceCreation(t *testing.T) {
 		LocalSuffix: "_local",
 	}
 
-	// Create service (without actual Redis connection for unit test)
-	svc, err := NewService(log, cfg, (*redis.Client)(nil), clickhouseCfg)
+	// Create service
+	svc, err := NewService(log, cfg, clickhouseCfg)
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 
@@ -231,7 +230,7 @@ exec: "echo test"`
 		},
 	}
 
-	svc, err := NewService(log, config, nil, clickhouseCfg)
+	svc, err := NewService(log, config, clickhouseCfg)
 	require.NoError(t, err)
 
 	err = svc.Start()
@@ -364,7 +363,7 @@ exec: "echo test"`
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc, err := NewService(log, tt.config, nil, clickhouseCfg)
+			svc, err := NewService(log, tt.config, clickhouseCfg)
 			require.NoError(t, err)
 
 			err = svc.Start()

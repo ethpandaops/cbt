@@ -221,7 +221,7 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		}
 
 		// Calculate next position for dependent
-		lastPos, err := s.admin.GetLastProcessedEndPosition(ctx, depModelID)
+		lastPos, err := s.admin.GetNextUnprocessedPosition(ctx, depModelID)
 		if err != nil {
 			continue
 		}

@@ -767,7 +767,7 @@ func (s *Server) buildModelCoverageInfo(ctx context.Context, modelID string, pos
 		return info, err
 	}
 
-	lastEndPos, err := s.adminService.GetLastProcessedEndPosition(ctx, modelID)
+	lastEndPos, err := s.adminService.GetNextUnprocessedPosition(ctx, modelID)
 	if err != nil {
 		return info, err
 	}
@@ -1095,7 +1095,7 @@ func (s *Server) getTransformationBounds(ctx context.Context, depID string) (fir
 		s.log.WithError(err).WithField("dep_id", depID).Debug("Failed to get first position")
 	}
 
-	lastEndPos, err = s.adminService.GetLastProcessedEndPosition(ctx, depID)
+	lastEndPos, err = s.adminService.GetNextUnprocessedPosition(ctx, depID)
 	if err != nil {
 		s.log.WithError(err).WithField("dep_id", depID).Debug("Failed to get last end position")
 	}
@@ -1330,7 +1330,7 @@ func (s *Server) autoDetectInterval(ctx context.Context, modelID string, positio
 		return defaultInterval
 	}
 
-	lastEndPos, err := s.adminService.GetLastProcessedEndPosition(ctx, modelID)
+	lastEndPos, err := s.adminService.GetNextUnprocessedPosition(ctx, modelID)
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", modelID).Debug("Failed to get last end position for auto-detect")
 		return defaultInterval

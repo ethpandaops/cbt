@@ -106,8 +106,8 @@ func TestRecordCompletion(t *testing.T) {
 	}
 }
 
-// Test GetLastProcessedEndPosition
-func TestGetLastProcessedEndPosition(t *testing.T) {
+// Test GetNextUnprocessedPosition
+func TestGetNextUnprocessedPosition(t *testing.T) {
 	tests := []struct {
 		name        string
 		modelID     string
@@ -155,7 +155,7 @@ func TestGetLastProcessedEndPosition(t *testing.T) {
 			svc := NewService(log, mockClient, "", "", config, nil)
 
 			ctx := context.Background()
-			pos, err := svc.GetLastProcessedEndPosition(ctx, tt.modelID)
+			pos, err := svc.GetNextUnprocessedPosition(ctx, tt.modelID)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -217,16 +217,7 @@ func TestPositionTrackingFunctions(t *testing.T) {
 
 			ctx := context.Background()
 
-			// Test GetLastProcessedEndPosition
-			endPos, err := svc.GetLastProcessedEndPosition(ctx, tt.modelID)
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.expectedPos, endPos)
-			}
-
-			// Test GetNextUnprocessedPosition (should be same as GetLastProcessedEndPosition)
+			// Test GetNextUnprocessedPosition
 			nextPos, err := svc.GetNextUnprocessedPosition(ctx, tt.modelID)
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1019,8 +1010,8 @@ func TestHyphenatedDatabaseNamesInQueries(t *testing.T) {
 			// Reset queries
 			mockClient.queries = []string{}
 
-			// Test GetLastProcessedEndPosition
-			_, err = svc.GetLastProcessedEndPosition(ctx, tt.modelID)
+			// Test GetNextUnprocessedPosition
+			_, err = svc.GetNextUnprocessedPosition(ctx, tt.modelID)
 			require.NoError(t, err)
 
 			require.Len(t, mockClient.queries, 1, "Expected one SELECT query")

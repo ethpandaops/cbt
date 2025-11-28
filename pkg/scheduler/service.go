@@ -16,6 +16,7 @@ import (
 	"github.com/ethpandaops/cbt/pkg/observability"
 	r "github.com/ethpandaops/cbt/pkg/redis"
 	"github.com/ethpandaops/cbt/pkg/tasks"
+	"github.com/ethpandaops/cbt/pkg/worker"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -517,7 +518,7 @@ func (s *service) registerTransformationHandlers(transformation models.Transform
 	handler := transformation.GetHandler()
 
 	// Handle scheduled transformations
-	if config.Type == "scheduled" {
+	if config.Type == TransformationTypeScheduled {
 		scheduledTask := fmt.Sprintf("%s%s:scheduled", TransformationTaskPrefix, modelID)
 		s.mux.HandleFunc(scheduledTask, s.HandleScheduledTransformation)
 		s.log.WithField("model_id", modelID).Debug("Registered scheduled transformation handler")
@@ -643,7 +644,7 @@ func (s *service) HandleExternalIncremental(_ context.Context, t *asynq.Task) er
 	s.log.WithField("model_id", modelID).Debug("Running incremental scan for external model")
 
 	// Process the incremental scan
-	s.coordinator.ProcessExternalScan(modelID, "incremental")
+	s.coordinator.ProcessExternalScan(modelID, worker.ScanTypeIncremental)
 	return nil
 }
 
@@ -657,7 +658,7 @@ func (s *service) HandleExternalFull(_ context.Context, t *asynq.Task) error {
 	s.log.WithField("model_id", modelID).Debug("Running full scan for external model")
 
 	// Process the full scan
-	s.coordinator.ProcessExternalScan(modelID, "full")
+	s.coordinator.ProcessExternalScan(modelID, worker.ScanTypeFull)
 	return nil
 }
 
@@ -715,7 +716,7 @@ func (s *service) triggerInitialExternalScans(ctx context.Context) {
 				time.Sleep(jitter)
 
 				// Trigger full scan immediately
-				s.coordinator.ProcessExternalScan(modelID, "full")
+				s.coordinator.ProcessExternalScan(modelID, worker.ScanTypeFull)
 			}
 		} else {
 			s.log.Debug("Admin service is nil, cannot check external bounds")

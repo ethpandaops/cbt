@@ -591,10 +591,6 @@ func newMockAdminService() *mockAdminService {
 	}
 }
 
-func (m *mockAdminService) GetLastProcessedEndPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-
 func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
 	return 0, nil
 }
