@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/ethpandaops/cbt/pkg/admin"
-	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/sirupsen/logrus"
@@ -50,20 +49,15 @@ func (f *FlexUint64) UnmarshalJSON(data []byte) error {
 
 // ExternalModelValidator implements the ExternalModelExecutor interface
 type ExternalModelValidator struct {
-	log      logrus.FieldLogger
-	admin    admin.Service
-	chClient clickhouse.ClientInterface
-	models   models.Service
+	log   logrus.FieldLogger
+	admin admin.Service
 }
 
 // NewExternalModelExecutor creates a new external model executor
-// The cacheManager can be nil if caching is not desired
-func NewExternalModelExecutor(log logrus.FieldLogger, chClient clickhouse.ClientInterface, adminService admin.Service, modelsService models.Service) *ExternalModelValidator {
+func NewExternalModelExecutor(log logrus.FieldLogger, adminService admin.Service) *ExternalModelValidator {
 	return &ExternalModelValidator{
-		chClient: chClient,
-		log:      log,
-		admin:    adminService,
-		models:   modelsService,
+		log:   log,
+		admin: adminService,
 	}
 }
 

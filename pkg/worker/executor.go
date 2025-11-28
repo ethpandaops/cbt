@@ -24,7 +24,6 @@ var (
 	ErrInvalidTaskContext        = errors.New("invalid task context type")
 	ErrInvalidTransformationType = errors.New("invalid transformation type")
 	ErrTableDoesNotExist         = errors.New("table does not exist")
-	ErrCacheManagerUnavailable   = errors.New("cache manager not available")
 )
 
 const (

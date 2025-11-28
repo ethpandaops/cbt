@@ -99,7 +99,7 @@ func NewDependencyValidator(
 	adminService admin.Service,
 	modelsService models.Service,
 ) Validator {
-	externalManager := NewExternalModelExecutor(log, chClient, adminService, modelsService)
+	externalManager := NewExternalModelExecutor(log, adminService)
 
 	return &dependencyValidator{
 		log:             log.WithField("service", "validator"),

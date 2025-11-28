@@ -33,10 +33,6 @@ type scheduleTracker interface {
 	// Used for cleanup when tasks are removed from config
 	DeleteLastRun(ctx context.Context, taskID string) error
 
-	// GetAllTaskIDs returns all task IDs currently tracked in Redis
-	// Used for debugging and observability
-	GetAllTaskIDs(ctx context.Context) ([]string, error)
-
 	// Close releases resources held by the tracker
 	Close() error
 }
@@ -123,35 +119,6 @@ func (r *redisScheduleTracker) DeleteLastRun(ctx context.Context, taskID string)
 	r.log.WithField("task_id", taskID).Debug("Deleted last run for task")
 
 	return nil
-}
-
-func (r *redisScheduleTracker) GetAllTaskIDs(ctx context.Context) ([]string, error) {
-	pattern := scheduleKeyPrefix + "*"
-
-	// Use SCAN instead of Keys() to avoid blocking Redis.
-	// SCAN iterates incrementally and doesn't lock the server.
-	// The count hint (100) is keys per iteration, not a total limit -
-	// the iterator continues until all matching keys are retrieved.
-	const scanBatchSize = 100
-
-	var taskIDs []string
-
-	iter := r.redis.Scan(ctx, 0, pattern, scanBatchSize).Iterator()
-	for iter.Next(ctx) {
-		key := iter.Val()
-		taskID := key[len(scheduleKeyPrefix):]
-		taskIDs = append(taskIDs, taskID)
-	}
-
-	if err := iter.Err(); err != nil {
-		r.log.WithError(err).Error("Failed to scan task IDs from Redis")
-
-		return nil, fmt.Errorf("failed to scan task IDs: %w", err)
-	}
-
-	r.log.WithField("count", len(taskIDs)).Debug("Retrieved all tracked task IDs")
-
-	return taskIDs, nil
 }
 
 func (r *redisScheduleTracker) Close() error {
