@@ -318,14 +318,5 @@ func (h *Handler) applyLimitsOverride(v reflect.Value) {
 }
 
 func (h *Handler) applyTagsOverride(v reflect.Value) {
-	tagsField := v.FieldByName("Tags")
-	if !tagsField.IsValid() || tagsField.Len() == 0 {
-		return
-	}
-
-	// Append override tags to existing tags
-	for i := 0; i < tagsField.Len(); i++ {
-		tag := tagsField.Index(i).String()
-		h.config.Tags = append(h.config.Tags, tag)
-	}
+	h.config.Tags = transformation.ApplyTagsOverride(h.config.Tags, v)
 }

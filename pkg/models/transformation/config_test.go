@@ -1,6 +1,7 @@
 package transformation
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -158,4 +159,71 @@ func TestConfigIsScheduledType(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.config.IsScheduledType())
 		})
 	}
+}
+
+func TestApplyTagsOverride(t *testing.T) {
+	// Test struct that mimics the override structure used in handlers
+	type override struct {
+		Tags []string
+	}
+
+	tests := []struct {
+		name         string
+		existingTags []string
+		override     override
+		expected     []string
+	}{
+		{
+			name:         "empty override tags returns existing",
+			existingTags: []string{"tag1", "tag2"},
+			override:     override{Tags: []string{}},
+			expected:     []string{"tag1", "tag2"},
+		},
+		{
+			name:         "nil existing tags with override",
+			existingTags: nil,
+			override:     override{Tags: []string{"new1", "new2"}},
+			expected:     []string{"new1", "new2"},
+		},
+		{
+			name:         "appends override tags to existing",
+			existingTags: []string{"existing1"},
+			override:     override{Tags: []string{"override1", "override2"}},
+			expected:     []string{"existing1", "override1", "override2"},
+		},
+		{
+			name:         "empty existing and empty override",
+			existingTags: []string{},
+			override:     override{Tags: []string{}},
+			expected:     []string{},
+		},
+		{
+			name:         "multiple existing with single override",
+			existingTags: []string{"a", "b", "c"},
+			override:     override{Tags: []string{"d"}},
+			expected:     []string{"a", "b", "c", "d"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := reflect.ValueOf(tt.override)
+			result := ApplyTagsOverride(tt.existingTags, v)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestApplyTagsOverride_InvalidReflectValue(t *testing.T) {
+	existingTags := []string{"tag1", "tag2"}
+
+	// Test with struct that has no Tags field
+	type noTagsStruct struct {
+		Other string
+	}
+
+	v := reflect.ValueOf(noTagsStruct{Other: "value"})
+	result := ApplyTagsOverride(existingTags, v)
+
+	assert.Equal(t, existingTags, result)
 }

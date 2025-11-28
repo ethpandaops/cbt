@@ -3,6 +3,7 @@ package transformation
 import (
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/ethpandaops/cbt/pkg/models/modelid"
 )
@@ -73,4 +74,21 @@ func (c *Config) IsScheduledType() bool {
 // IsIncrementalType returns true if this is an incremental transformation
 func (c *Config) IsIncrementalType() bool {
 	return c.Type == TypeIncremental
+}
+
+// ApplyTagsOverride appends override tags to existing tags using reflection.
+// This is shared between incremental and scheduled transformation handlers.
+func ApplyTagsOverride(existingTags []string, v reflect.Value) []string {
+	tagsField := v.FieldByName("Tags")
+	if !tagsField.IsValid() || tagsField.Len() == 0 {
+		return existingTags
+	}
+
+	result := existingTags
+	for i := 0; i < tagsField.Len(); i++ {
+		tag := tagsField.Index(i).String()
+		result = append(result, tag)
+	}
+
+	return result
 }
