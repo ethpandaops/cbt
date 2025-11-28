@@ -47,7 +47,7 @@ func (f *FlexUint64) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ExternalModelValidator implements the ExternalModelExecutor interface
+// ExternalModelValidator implements the ExternalValidator interface
 type ExternalModelValidator struct {
 	log   logrus.FieldLogger
 	admin admin.Service

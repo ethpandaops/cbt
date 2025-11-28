@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -56,7 +55,6 @@ type client struct {
 	httpClient    *http.Client
 	baseURL       string
 	debug         bool
-	lock          sync.RWMutex
 	queryTimeout  time.Duration
 	insertTimeout time.Duration
 }
@@ -110,9 +108,6 @@ func (c *client) Start() error {
 }
 
 func (c *client) Stop() error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
 	if c.httpClient != nil {
 		c.httpClient.CloseIdleConnections()
 	}

@@ -56,7 +56,9 @@ type TaskContext struct {
 	Transformation models.Transformation
 	Position       uint64
 	Interval       uint64
-	StartTime      time.Time
+	ExecutionTime  time.Time // Time the task should execute for (from payload or start time)
+	StartTime      time.Time // When the handler started processing
+	WorkerID       string
 }
 
 // Executor defines the interface for task executors
@@ -173,18 +175,8 @@ func (h *TaskHandler) parseTaskPayload(data []byte) (TaskPayload, error) {
 	}
 }
 
-// taskContextData holds all the context for task execution
-type taskContextData struct {
-	transformation models.Transformation
-	position       uint64
-	interval       uint64
-	executionTime  time.Time
-	startTime      time.Time
-	workerID       string
-}
-
 // setupTaskContext prepares the task execution context
-func (h *TaskHandler) setupTaskContext(payload TaskPayload) (*taskContextData, error) {
+func (h *TaskHandler) setupTaskContext(payload TaskPayload) (*TaskContext, error) {
 	// Log task start
 	switch p := payload.(type) {
 	case IncrementalTaskPayload:
@@ -226,31 +218,31 @@ func (h *TaskHandler) setupTaskContext(payload TaskPayload) (*taskContextData, e
 		executionTime = startTime
 	}
 
-	return &taskContextData{
-		transformation: transformationModel,
-		position:       position,
-		interval:       interval,
-		executionTime:  executionTime,
-		startTime:      startTime,
-		workerID:       workerID,
+	return &TaskContext{
+		Transformation: transformationModel,
+		Position:       position,
+		Interval:       interval,
+		ExecutionTime:  executionTime,
+		StartTime:      startTime,
+		WorkerID:       workerID,
 	}, nil
 }
 
 // validateAndExecute handles dependency validation and task execution
-func (h *TaskHandler) validateAndExecute(ctx context.Context, payload TaskPayload, taskCtx *taskContextData) error {
+func (h *TaskHandler) validateAndExecute(ctx context.Context, payload TaskPayload, taskCtx *TaskContext) error {
 	// Skip dependency validation for scheduled transformations
 	// Scheduled transformations have metadata-only dependencies and run on time-based schedules
 	if payload.GetType() != TaskTypeScheduled {
 		// Validate dependencies for incremental transformations only
 		h.log.WithField("model_id", payload.GetModelID()).Info("Validating dependencies")
 		depStartTime := time.Now()
-		validationResult, err := h.validator.ValidateDependencies(ctx, payload.GetModelID(), taskCtx.position, taskCtx.interval)
+		validationResult, err := h.validator.ValidateDependencies(ctx, payload.GetModelID(), taskCtx.Position, taskCtx.Interval)
 		depDuration := time.Since(depStartTime).Seconds()
 
 		if err != nil {
 			h.log.WithError(err).Error("Dependency validation error")
 			observability.RecordDependencyValidation(payload.GetModelID(), "error", depDuration)
-			observability.RecordTaskComplete(payload.GetModelID(), taskCtx.workerID, "failed", time.Since(taskCtx.startTime).Seconds())
+			observability.RecordTaskComplete(payload.GetModelID(), taskCtx.WorkerID, "failed", time.Since(taskCtx.StartTime).Seconds())
 			observability.RecordError("task-handler", "dependency_validation_error")
 			return fmt.Errorf("dependency validation error: %w", err)
 		}
@@ -258,7 +250,7 @@ func (h *TaskHandler) validateAndExecute(ctx context.Context, payload TaskPayloa
 		if !validationResult.CanProcess {
 			h.log.WithField("model_id", payload.GetModelID()).Warn("Dependencies not satisfied")
 			observability.RecordDependencyValidation(payload.GetModelID(), "not_satisfied", depDuration)
-			observability.RecordTaskComplete(payload.GetModelID(), taskCtx.workerID, "failed", time.Since(taskCtx.startTime).Seconds())
+			observability.RecordTaskComplete(payload.GetModelID(), taskCtx.WorkerID, "failed", time.Since(taskCtx.StartTime).Seconds())
 			return ErrDependenciesNotSatisfied
 		}
 
@@ -269,17 +261,10 @@ func (h *TaskHandler) validateAndExecute(ctx context.Context, payload TaskPayloa
 	}
 
 	// Execute transformation
-	execCtx := &TaskContext{
-		Transformation: taskCtx.transformation,
-		Position:       taskCtx.position,
-		Interval:       taskCtx.interval,
-		StartTime:      taskCtx.executionTime,
-	}
-
 	h.log.WithField("model_id", payload.GetModelID()).Info("Calling modelExecutor.Execute")
-	if err := h.modelExecutor.Execute(ctx, execCtx); err != nil {
+	if err := h.modelExecutor.Execute(ctx, taskCtx); err != nil {
 		h.log.WithError(err).WithField("model_id", payload.GetModelID()).Error("Model execution failed")
-		observability.RecordTaskComplete(payload.GetModelID(), taskCtx.workerID, "failed", time.Since(taskCtx.startTime).Seconds())
+		observability.RecordTaskComplete(payload.GetModelID(), taskCtx.WorkerID, "failed", time.Since(taskCtx.StartTime).Seconds())
 		observability.RecordError("task-handler", "execution_error")
 		return fmt.Errorf("execution error: %w", err)
 	}
@@ -288,9 +273,9 @@ func (h *TaskHandler) validateAndExecute(ctx context.Context, payload TaskPayloa
 }
 
 // recordTaskSuccess records metrics for successful task completion
-func (h *TaskHandler) recordTaskSuccess(ctx context.Context, payload TaskPayload, taskCtx *taskContextData) {
+func (h *TaskHandler) recordTaskSuccess(ctx context.Context, payload TaskPayload, taskCtx *TaskContext) {
 	// Record completion in admin table using the transformation handler
-	handler := taskCtx.transformation.GetHandler()
+	handler := taskCtx.Transformation.GetHandler()
 	if handler != nil {
 		// Build task info from the payload
 		var direction string
@@ -299,9 +284,9 @@ func (h *TaskHandler) recordTaskSuccess(ctx context.Context, payload TaskPayload
 		}
 
 		taskInfo := transformation.TaskInfo{
-			Position:  taskCtx.position,
-			Interval:  taskCtx.interval,
-			Timestamp: taskCtx.executionTime,
+			Position:  taskCtx.Position,
+			Interval:  taskCtx.Interval,
+			Timestamp: taskCtx.ExecutionTime,
 			Direction: direction,
 		}
 
@@ -312,7 +297,7 @@ func (h *TaskHandler) recordTaskSuccess(ctx context.Context, payload TaskPayload
 	}
 
 	// Record transformation bounds in metrics (only for incremental transformations)
-	if !taskCtx.transformation.GetConfig().IsScheduledType() {
+	if !taskCtx.Transformation.GetConfig().IsScheduledType() {
 		minPos, _ := h.admin.GetFirstPosition(ctx, payload.GetModelID())
 		maxPos, _ := h.admin.GetNextUnprocessedPosition(ctx, payload.GetModelID())
 		if minPos > 0 && maxPos > 0 {
@@ -321,13 +306,13 @@ func (h *TaskHandler) recordTaskSuccess(ctx context.Context, payload TaskPayload
 	}
 
 	// Record successful completion
-	observability.RecordTaskComplete(payload.GetModelID(), taskCtx.workerID, "success", time.Since(taskCtx.startTime).Seconds())
+	observability.RecordTaskComplete(payload.GetModelID(), taskCtx.WorkerID, "success", time.Since(taskCtx.StartTime).Seconds())
 
 	h.log.WithFields(logrus.Fields{
 		"model_id": payload.GetModelID(),
-		"position": taskCtx.position,
-		"interval": taskCtx.interval,
-		"duration": time.Since(taskCtx.startTime),
+		"position": taskCtx.Position,
+		"interval": taskCtx.Interval,
+		"duration": time.Since(taskCtx.StartTime),
 	}).Info("Task completed successfully")
 }
 
