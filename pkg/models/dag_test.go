@@ -551,6 +551,8 @@ func TestConcurrentAccess(t *testing.T) {
 			_ = dg.GetDependencies("db.trans2")
 			_ = dg.GetDependents("db.trans1")
 			_ = dg.IsPathBetween("db.trans1", "db.trans2")
+			_ = dg.GetTransformationNodes()
+			_ = dg.GetExternalNodes()
 		}()
 	}
 
