@@ -398,12 +398,12 @@ func TestApplySchedulesOverride(t *testing.T) {
 	newString := func(s string) *string { return &s }
 
 	tests := []struct {
-		name               string
-		existingForward    string
-		existingBackfill   string
-		override           override
-		wantForward        string
-		wantBackfill       string
+		name             string
+		existingForward  string
+		existingBackfill string
+		override         override
+		wantForward      string
+		wantBackfill     string
 	}{
 		{
 			name:             "nil override returns existing",
