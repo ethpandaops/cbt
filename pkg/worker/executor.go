@@ -169,9 +169,10 @@ func (e *ModelExecutor) queryExternalBounds(ctx context.Context, modelID string,
 	}
 
 	// Execute the query to get bounds
+	// Use FlexUint64 to handle cases where SQL returns string literals (e.g., cached values)
 	var result struct {
-		Min validation.FlexUint64 `json:"min"`
-		Max validation.FlexUint64 `json:"max"`
+		Min validation.FlexUint64 `ch:"min"`
+		Max validation.FlexUint64 `ch:"max"`
 	}
 
 	e.log.WithFields(logrus.Fields{
@@ -347,7 +348,7 @@ func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskConte
 			"sql_preview":   logSQL,
 		}).Info("Executing SQL statement")
 
-		if _, err := e.chClient.Execute(ctx, stmt); err != nil {
+		if err := e.chClient.Execute(ctx, stmt); err != nil {
 			e.log.WithFields(logrus.Fields{
 				"statement": i + 1,
 				"sql":       logSQL,

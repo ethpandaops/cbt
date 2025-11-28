@@ -22,6 +22,7 @@ var (
 )
 
 // FlexUint64 is a custom type that can unmarshal from both string and number JSON values
+// and scan from string or numeric database columns
 type FlexUint64 uint64
 
 // UnmarshalJSON implements json.Unmarshaler for FlexUint64
@@ -43,6 +44,46 @@ func (f *FlexUint64) UnmarshalJSON(data []byte) error {
 	}
 
 	*f = FlexUint64(parsed)
+
+	return nil
+}
+
+// Scan implements sql.Scanner for FlexUint64 to handle database values
+// This allows scanning from string columns (e.g., when SQL returns '123' as min)
+// as well as numeric columns
+func (f *FlexUint64) Scan(src interface{}) error {
+	if src == nil {
+		return fmt.Errorf("%w: received nil value", ErrInvalidUint64)
+	}
+
+	switch v := src.(type) {
+	case int64:
+		*f = FlexUint64(v) //nolint:gosec // bounds checked by caller context
+	case uint64:
+		*f = FlexUint64(v)
+	case int:
+		*f = FlexUint64(v) //nolint:gosec // bounds checked by caller context
+	case int32:
+		*f = FlexUint64(v) //nolint:gosec // bounds checked by caller context
+	case uint32:
+		*f = FlexUint64(v)
+	case float64:
+		*f = FlexUint64(v) //nolint:gosec // bounds checked by caller context
+	case string:
+		parsed, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("%w: failed to parse string %q as uint64: %w", ErrInvalidUint64, v, err)
+		}
+		*f = FlexUint64(parsed)
+	case []byte:
+		parsed, err := strconv.ParseUint(string(v), 10, 64)
+		if err != nil {
+			return fmt.Errorf("%w: failed to parse bytes %q as uint64: %w", ErrInvalidUint64, string(v), err)
+		}
+		*f = FlexUint64(parsed)
+	default:
+		return fmt.Errorf("%w: unsupported type %T", ErrInvalidUint64, src)
+	}
 
 	return nil
 }

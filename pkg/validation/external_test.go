@@ -13,41 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Simple mock for testing query parsing
-type testClickHouseClient struct {
-	expectedQuery string
-	mockResponse  string
-}
-
-func (m *testClickHouseClient) QueryOne(_ context.Context, query string, dest interface{}) error {
-	// Check that the query was cleaned properly
-	if query != m.expectedQuery {
-		return assert.AnError
-	}
-	// Unmarshal mock response into dest
-	return json.Unmarshal([]byte(m.mockResponse), dest)
-}
-
-func (m *testClickHouseClient) QueryMany(_ context.Context, _ string, _ interface{}) error {
-	return nil
-}
-
-func (m *testClickHouseClient) Execute(_ context.Context, _ string) ([]byte, error) {
-	return nil, nil
-}
-
-func (m *testClickHouseClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
-	return nil
-}
-
-func (m *testClickHouseClient) Start() error {
-	return nil
-}
-
-func (m *testClickHouseClient) Stop() error {
-	return nil
-}
-
 // Simple mock admin service
 type testAdminService struct {
 	externalBounds *admin.BoundsCache
@@ -308,6 +273,96 @@ func TestFlexUint64(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var f FlexUint64
 			err := json.Unmarshal([]byte(tt.input), &f)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, uint64(f))
+			}
+		})
+	}
+}
+
+func TestFlexUint64Scan(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       interface{}
+		expected    uint64
+		expectError bool
+	}{
+		{
+			name:        "int64 value",
+			input:       int64(12345),
+			expected:    12345,
+			expectError: false,
+		},
+		{
+			name:        "uint64 value",
+			input:       uint64(67890),
+			expected:    67890,
+			expectError: false,
+		},
+		{
+			name:        "int value",
+			input:       int(111),
+			expected:    111,
+			expectError: false,
+		},
+		{
+			name:        "int32 value",
+			input:       int32(222),
+			expected:    222,
+			expectError: false,
+		},
+		{
+			name:        "uint32 value",
+			input:       uint32(333),
+			expected:    333,
+			expectError: false,
+		},
+		{
+			name:        "float64 value",
+			input:       float64(444),
+			expected:    444,
+			expectError: false,
+		},
+		{
+			name:        "string value",
+			input:       "12345",
+			expected:    12345,
+			expectError: false,
+		},
+		{
+			name:        "[]byte value",
+			input:       []byte("67890"),
+			expected:    67890,
+			expectError: false,
+		},
+		{
+			name:        "nil value",
+			input:       nil,
+			expected:    0,
+			expectError: true,
+		},
+		{
+			name:        "invalid string",
+			input:       "not_a_number",
+			expected:    0,
+			expectError: true,
+		},
+		{
+			name:        "unsupported type",
+			input:       true,
+			expected:    0,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var f FlexUint64
+			err := f.Scan(tt.input)
 
 			if tt.expectError {
 				assert.Error(t, err)

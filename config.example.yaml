@@ -16,33 +16,42 @@ healthCheckAddr: ":8081"
 # ClickHouse configuration
 clickhouse:
   # Connection URL (required)
-  url: http://localhost:8123
-  
+  # Supports multiple formats:
+  # - Native protocol (recommended): clickhouse://user:pass@localhost:9000
+  # - HTTP protocol: http://user:pass@localhost:8123
+  # - HTTPS protocol: https://user:pass@localhost:8443
+  url: "clickhouse://localhost:9000"
+
   # Cluster configuration (optional, for distributed deployments)
   # cluster: "default"
   # localSuffix: "_local"
-  
-  # Admin table configuration (required)
+
+  # Admin table configuration (optional)
   # Each transformation type requires its own admin table
   # admin:
   #   incremental:
   #     database: admin          # Database for incremental transformations
   #     table: cbt_incremental   # Table for incremental transformations
   #   scheduled:
-  #     database: admin          # Database for scheduled transformations 
+  #     database: admin          # Database for scheduled transformations
   #     table: cbt_scheduled     # Table for scheduled transformations
-  
+
   # Query timeout
   queryTimeout: 30s
-  
+
   # Insert timeout
   insertTimeout: 60s
-  
+
   # Enable debug logging for queries
   debug: false
-  
-  # Keep-alive interval
-  keepAlive: 30s
+
+  # Connection pool settings (optional)
+  # maxOpenConns: 10
+  # maxIdleConns: 5
+  # connMaxLifetime: 1h
+
+  # TLS settings (optional, for secure connections)
+  # insecureSkipVerify: false
 
 # Redis configuration
 redis:
@@ -53,7 +62,7 @@ redis:
 scheduler:
   # Maximum number of concurrent scheduling operations
   concurrency: 10
-  
+
   # Admin table consolidation schedule (optional)
   # Controls how often the admin table is consolidated to optimize storage
   # Uses asynq cron format: @every duration, @hourly, @daily, or cron expression
@@ -64,7 +73,7 @@ scheduler:
 worker:
   # Number of concurrent tasks to process
   concurrency: 10
-  
+
   # Model tags for filtering which models this instance processes (optional)
   # Useful for running specialized instances for specific model types
   # tags:

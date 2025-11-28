@@ -1,90 +1,83 @@
 package clickhouse
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/sirupsen/logrus"
 )
 
-// Define static errors
+// Protocol constants for URL parsing.
+const (
+	SchemeClickHouse        = "clickhouse"
+	SchemeHTTPS             = "https"
+	SchemeHTTP              = "http"
+	PortClickHouseNative    = "9000"
+	PortClickHouseNativeTLS = "9440"
+)
+
+// Define static errors.
 var (
 	ErrDestMustBePointerToSlice = errors.New("dest must be a pointer to a slice")
+	ErrDestMustBePointer        = errors.New("dest must be a pointer")
 	ErrDataMustBeSlice          = errors.New("data must be a slice")
 	ErrClickHouseResponse       = errors.New("clickhouse error")
 )
 
-// clickhouseResponse represents the JSON response from ClickHouse HTTP interface.
-type clickhouseResponse struct {
-	Data []json.RawMessage `json:"data"`
-	Meta []struct {
-		Name string `json:"name"`
-		Type string `json:"type"`
-	} `json:"meta"`
-	Rows     int `json:"rows"`
-	RowsRead int `json:"rows_read"` //nolint:tagliatelle // ClickHouse API uses snake_case
-}
-
-// ClientInterface defines the methods for interacting with ClickHouse
+// ClientInterface defines the methods for interacting with ClickHouse.
 type ClientInterface interface {
 	// QueryOne executes a query and returns a single result
-	QueryOne(ctx context.Context, query string, dest interface{}) error
+	QueryOne(ctx context.Context, query string, dest any) error
 	// QueryMany executes a query and returns multiple results
-	QueryMany(ctx context.Context, query string, dest interface{}) error
-	// Execute runs a query and returns the raw response body
-	Execute(ctx context.Context, query string) ([]byte, error)
+	QueryMany(ctx context.Context, query string, dest any) error
+	// Execute runs a query without returning results (INSERT, ALTER, etc.)
+	Execute(ctx context.Context, query string) error
 	// BulkInsert performs a bulk insert operation
-	BulkInsert(ctx context.Context, table string, data interface{}) error
+	BulkInsert(ctx context.Context, table string, data any) error
 	// Start initializes the client
 	Start() error
 	// Stop closes the client
 	Stop() error
 }
 
-// client implements the ClientInterface using HTTP
+// client implements the ClientInterface using the official ClickHouse driver.
 type client struct {
 	log           logrus.FieldLogger
-	httpClient    *http.Client
-	baseURL       string
+	conn          driver.Conn
 	debug         bool
 	queryTimeout  time.Duration
 	insertTimeout time.Duration
 }
 
-// NewClient creates a new HTTP-based ClickHouse client
+// NewClient creates a new ClickHouse client using the official Go driver.
 func NewClient(logger *logrus.Logger, cfg *Config) (ClientInterface, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	// Set defaults
 	cfg.SetDefaults()
 
-	// Create HTTP client with keep-alive settings
-	transport := &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 10,
-		IdleConnTimeout:     cfg.KeepAlive,
-		DisableKeepAlives:   false,
+	options, err := createClickHouseOptions(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create options: %w", err)
 	}
 
-	httpClient := &http.Client{
-		Transport: transport,
-		Timeout:   0, // We'll set per-request timeouts
+	conn, err := clickhouse.Open(options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
 
 	c := &client{
-		log:           logger.WithField("component", "clickhouse-http"),
-		httpClient:    httpClient,
-		baseURL:       strings.TrimRight(cfg.URL, "/"),
+		log:           logger.WithField("component", "clickhouse"),
+		conn:          conn,
 		debug:         cfg.Debug,
 		queryTimeout:  cfg.QueryTimeout,
 		insertTimeout: cfg.InsertTimeout,
@@ -94,223 +87,201 @@ func NewClient(logger *logrus.Logger, cfg *Config) (ClientInterface, error) {
 }
 
 func (c *client) Start() error {
-	// Test connectivity
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if _, err := c.Execute(ctx, "SELECT 1"); err != nil {
+	if err := c.conn.Ping(ctx); err != nil {
 		return fmt.Errorf("failed to connect to ClickHouse: %w", err)
 	}
 
-	c.log.Info("Connected to ClickHouse HTTP interface")
+	c.log.Info("Connected to ClickHouse")
 
 	return nil
 }
 
 func (c *client) Stop() error {
-	if c.httpClient != nil {
-		c.httpClient.CloseIdleConnections()
+	if c.conn != nil {
+		if err := c.conn.Close(); err != nil {
+			c.log.WithError(err).Warn("Failed to close ClickHouse connection")
+
+			return err
+		}
 	}
 
-	c.log.Info("Closed ClickHouse HTTP client")
+	c.log.Info("Closed ClickHouse connection")
 
 	return nil
 }
 
-func (c *client) QueryOne(ctx context.Context, query string, dest interface{}) error {
-	// Add FORMAT JSON to query
-	formattedQuery := query + " FORMAT JSON"
+func (c *client) QueryOne(ctx context.Context, query string, dest any) error {
+	ctx, cancel := context.WithTimeout(ctx, c.queryTimeout)
+	defer cancel()
 
-	resp, err := c.executeHTTPRequest(ctx, formattedQuery, c.getTimeout(ctx, "query"))
-	if err != nil {
-		return fmt.Errorf("query execution failed: %w", err)
+	if c.debug {
+		c.log.WithField("query", truncateQuery(query)).Debug("Executing query")
 	}
 
-	// Parse response
-	var result clickhouseResponse
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
+	destVal := reflect.ValueOf(dest)
+	if destVal.Kind() != reflect.Ptr {
+		return ErrDestMustBePointer
 	}
 
-	if len(result.Data) == 0 {
-		// No rows found, return without error but don't unmarshal
-		return nil
+	// Create a slice of the destination type to use with Select
+	elemType := destVal.Elem().Type()
+	sliceType := reflect.SliceOf(elemType)
+	slicePtr := reflect.New(sliceType)
+
+	if err := c.conn.Select(ctx, slicePtr.Interface(), query); err != nil {
+		return fmt.Errorf("query failed: %w", err)
 	}
 
-	// Unmarshal the first row into dest
-	if err := json.Unmarshal(result.Data[0], dest); err != nil {
-		return fmt.Errorf("failed to unmarshal result: %w", err)
+	resultSlice := slicePtr.Elem()
+	if resultSlice.Len() > 0 {
+		destVal.Elem().Set(resultSlice.Index(0))
 	}
 
 	return nil
 }
 
-func (c *client) QueryMany(ctx context.Context, query string, dest interface{}) error {
-	// Validate that dest is a pointer to a slice
+func (c *client) QueryMany(ctx context.Context, query string, dest any) error {
 	destValue := reflect.ValueOf(dest)
 	if destValue.Kind() != reflect.Ptr || destValue.Elem().Kind() != reflect.Slice {
 		return ErrDestMustBePointerToSlice
 	}
 
-	// Add FORMAT JSON to query
-	formattedQuery := query + " FORMAT JSON"
+	ctx, cancel := context.WithTimeout(ctx, c.queryTimeout)
+	defer cancel()
 
-	resp, err := c.executeHTTPRequest(ctx, formattedQuery, c.getTimeout(ctx, "query"))
-	if err != nil {
-		return fmt.Errorf("query execution failed: %w", err)
+	if c.debug {
+		c.log.WithField("query", truncateQuery(query)).Debug("Executing query")
 	}
 
-	// Parse response
-	var result clickhouseResponse
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
+	if err := c.conn.Select(ctx, dest, query); err != nil {
+		return fmt.Errorf("query failed: %w", err)
 	}
-
-	// Create a slice of the appropriate type
-	sliceType := destValue.Elem().Type()
-	elemType := sliceType.Elem()
-	newSlice := reflect.MakeSlice(sliceType, len(result.Data), len(result.Data))
-
-	// Unmarshal each row
-	for i, data := range result.Data {
-		elem := reflect.New(elemType)
-		if err := json.Unmarshal(data, elem.Interface()); err != nil {
-			return fmt.Errorf("failed to unmarshal row %d: %w", i, err)
-		}
-
-		newSlice.Index(i).Set(elem.Elem())
-	}
-
-	// Set the result
-	destValue.Elem().Set(newSlice)
 
 	return nil
 }
 
-func (c *client) Execute(ctx context.Context, query string) ([]byte, error) {
-	body, err := c.executeHTTPRequest(ctx, query, c.getTimeout(ctx, "query"))
-	if err != nil {
-		return nil, fmt.Errorf("execution failed: %w", err)
+func (c *client) Execute(ctx context.Context, query string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.queryTimeout)
+	defer cancel()
+
+	if c.debug {
+		c.log.WithField("query", truncateQuery(query)).Debug("Executing query")
 	}
 
-	return body, nil
+	if err := c.conn.Exec(ctx, query); err != nil {
+		return fmt.Errorf("execution failed: %w", err)
+	}
+
+	return nil
 }
 
-func (c *client) BulkInsert(ctx context.Context, table string, data interface{}) error {
-	// Convert data to slice via reflection
-	dataValue := reflect.ValueOf(data)
-	if dataValue.Kind() != reflect.Slice {
+func (c *client) BulkInsert(ctx context.Context, table string, data any) error {
+	dataVal := reflect.ValueOf(data)
+	if dataVal.Kind() != reflect.Slice {
 		return ErrDataMustBeSlice
 	}
 
-	if dataValue.Len() == 0 {
-		return nil // Nothing to insert
+	if dataVal.Len() == 0 {
+		return nil
 	}
 
-	// Build INSERT query with JSONEachRow format
-	var buf bytes.Buffer
+	ctx, cancel := context.WithTimeout(ctx, c.insertTimeout)
+	defer cancel()
 
-	buf.WriteString(fmt.Sprintf("INSERT INTO %s FORMAT JSONEachRow\n", table))
-
-	// Marshal each item as JSON
-	for i := 0; i < dataValue.Len(); i++ {
-		item := dataValue.Index(i).Interface()
-
-		jsonData, err := json.Marshal(item)
-		if err != nil {
-			return fmt.Errorf("failed to marshal row %d: %w", i, err)
-		}
-
-		buf.Write(jsonData)
-		buf.WriteByte('\n')
+	if c.debug {
+		c.log.WithFields(logrus.Fields{
+			"table": table,
+			"rows":  dataVal.Len(),
+		}).Debug("Executing bulk insert")
 	}
 
-	// Execute the insert
-	_, err := c.executeHTTPRequest(ctx, buf.String(), c.getTimeout(ctx, "insert"))
+	batch, err := c.conn.PrepareBatch(ctx, fmt.Sprintf("INSERT INTO %s", table))
 	if err != nil {
-		return fmt.Errorf("bulk insert failed: %w", err)
+		return fmt.Errorf("failed to prepare batch: %w", err)
+	}
+
+	for i := 0; i < dataVal.Len(); i++ {
+		item := dataVal.Index(i).Interface()
+		if err := batch.AppendStruct(item); err != nil {
+			return fmt.Errorf("failed to append row %d: %w", i, err)
+		}
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("failed to send batch: %w", err)
 	}
 
 	return nil
 }
 
-func (c *client) executeHTTPRequest(ctx context.Context, query string, timeout time.Duration) ([]byte, error) {
-	// Create request with timeout
-	reqCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(reqCtx, "POST", c.baseURL, strings.NewReader(query))
+// createClickHouseOptions builds connection options from config.
+func createClickHouseOptions(cfg *Config) (*clickhouse.Options, error) {
+	parsedURL, err := url.Parse(cfg.URL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 
-	// Set headers
-	req.Header.Set("Content-Type", "text/plain")
-	req.Header.Set("X-ClickHouse-Format", "JSON")
+	// Determine protocol based on scheme
+	protocol := clickhouse.Native
+	if parsedURL.Scheme == SchemeHTTP || parsedURL.Scheme == SchemeHTTPS {
+		protocol = clickhouse.HTTP
+	}
 
-	// Debug logging
-	if c.debug {
-		// For large inserts, truncate the query
-		logQuery := query
-		if len(query) > 1000 && strings.Contains(query, "INSERT") {
-			logQuery = query[:1000] + "... (truncated)"
+	// Extract auth from URL
+	auth := clickhouse.Auth{}
+	if parsedURL.User != nil {
+		auth.Username = parsedURL.User.Username()
+		if pw, ok := parsedURL.User.Password(); ok {
+			auth.Password = pw
 		}
-
-		c.log.WithField("query", logQuery).Debug("Executing ClickHouse query")
 	}
 
-	// Execute request
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+	// Database from URL path (optional, CBT uses fully-qualified table names)
+	auth.Database = strings.TrimPrefix(parsedURL.Path, "/")
+
+	options := &clickhouse.Options{
+		Addr:     []string{parsedURL.Host},
+		Auth:     auth,
+		Protocol: protocol,
+		Settings: clickhouse.Settings{
+			"max_execution_time": int(cfg.QueryTimeout.Seconds()),
+		},
+		DialTimeout: 10 * time.Second,
+		ReadTimeout: cfg.QueryTimeout,
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			c.log.WithError(closeErr).Debug("Failed to close response body")
+
+	// Connection pool settings
+	if cfg.MaxOpenConns > 0 {
+		options.MaxOpenConns = cfg.MaxOpenConns
+	}
+
+	if cfg.MaxIdleConns > 0 {
+		options.MaxIdleConns = cfg.MaxIdleConns
+	}
+
+	if cfg.ConnMaxLifetime > 0 {
+		options.ConnMaxLifetime = cfg.ConnMaxLifetime
+	}
+
+	// TLS for HTTPS or native TLS port (9440)
+	if parsedURL.Scheme == SchemeHTTPS || parsedURL.Port() == PortClickHouseNativeTLS {
+		options.TLS = &tls.Config{
+			InsecureSkipVerify: cfg.InsecureSkipVerify, //nolint:gosec // configurable for dev environments
 		}
-	}()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		// Try to parse error message
-		var errorResp struct {
-			Exception string `json:"exception"`
-		}
-
-		if jsonErr := json.Unmarshal(body, &errorResp); jsonErr == nil && errorResp.Exception != "" {
-			return nil, fmt.Errorf("%w (status %d): %s", ErrClickHouseResponse, resp.StatusCode, errorResp.Exception)
-		}
-
-		return nil, fmt.Errorf("%w (status %d): %s", ErrClickHouseResponse, resp.StatusCode, string(body))
-	}
-
-	// Debug logging
-	if c.debug && len(body) < 1000 {
-		c.log.WithField("response", string(body)).Debug("ClickHouse response")
-	}
-
-	return body, nil
+	return options, nil
 }
 
-func (c *client) getTimeout(ctx context.Context, operation string) time.Duration {
-	// Check if context already has a deadline
-	if deadline, ok := ctx.Deadline(); ok {
-		return time.Until(deadline)
+// truncateQuery truncates long queries for logging.
+func truncateQuery(query string) string {
+	const maxLen = 500
+	if len(query) > maxLen {
+		return query[:maxLen] + "..."
 	}
 
-	// Use default timeouts based on operation type
-	switch operation {
-	case "insert":
-		return c.insertTimeout
-	case "query":
-		return c.queryTimeout
-	default:
-		return c.queryTimeout
-	}
+	return query
 }
