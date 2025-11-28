@@ -3,6 +3,7 @@ package transformation
 import (
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/ethpandaops/cbt/pkg/models/modelid"
 )
@@ -73,4 +74,81 @@ func (c *Config) IsScheduledType() bool {
 // IsIncrementalType returns true if this is an incremental transformation
 func (c *Config) IsIncrementalType() bool {
 	return c.Type == TypeIncremental
+}
+
+// ApplyTagsOverride appends override tags to existing tags using reflection.
+// This is shared between incremental and scheduled transformation handlers.
+func ApplyTagsOverride(existingTags []string, v reflect.Value) []string {
+	tagsField := v.FieldByName("Tags")
+	if !tagsField.IsValid() || tagsField.Len() == 0 {
+		return existingTags
+	}
+
+	result := existingTags
+	for i := 0; i < tagsField.Len(); i++ {
+		tag := tagsField.Index(i).String()
+		result = append(result, tag)
+	}
+
+	return result
+}
+
+// ApplyScheduleOverride extracts a schedule override from a reflect.Value and returns
+// the new schedule if present, or the existing schedule if not.
+// This is shared between transformation handlers that support schedule overrides.
+func ApplyScheduleOverride(existingSchedule string, v reflect.Value) string {
+	scheduleField := v.FieldByName("Schedule")
+	if !scheduleField.IsValid() || scheduleField.IsNil() {
+		return existingSchedule
+	}
+
+	return scheduleField.Elem().String()
+}
+
+// ApplyMinMaxOverride extracts Min/Max uint64 overrides from a named nested struct field.
+// Returns the updated min and max values, and whether any override was found.
+// Used for Interval and Limits overrides in incremental transformations.
+func ApplyMinMaxOverride(fieldName string, existingMin, existingMax uint64, v reflect.Value) (minVal, maxVal uint64, found bool) {
+	field := v.FieldByName(fieldName)
+	if !field.IsValid() || field.IsNil() {
+		return existingMin, existingMax, false
+	}
+
+	minVal, maxVal = existingMin, existingMax
+	fieldVal := field.Elem()
+
+	if minField := fieldVal.FieldByName("Min"); minField.IsValid() && !minField.IsNil() {
+		minVal = minField.Elem().Uint()
+		found = true
+	}
+
+	if maxField := fieldVal.FieldByName("Max"); maxField.IsValid() && !maxField.IsNil() {
+		maxVal = maxField.Elem().Uint()
+		found = true
+	}
+
+	return minVal, maxVal, found
+}
+
+// ApplySchedulesOverride extracts ForwardFill/Backfill schedule overrides from a reflect.Value.
+// Returns the updated forwardFill and backfill values.
+// Used for incremental transformation schedule overrides.
+func ApplySchedulesOverride(existingForwardFill, existingBackfill string, v reflect.Value) (forwardFill, backfill string) {
+	schedulesField := v.FieldByName("Schedules")
+	if !schedulesField.IsValid() || schedulesField.IsNil() {
+		return existingForwardFill, existingBackfill
+	}
+
+	forwardFill, backfill = existingForwardFill, existingBackfill
+	schedulesVal := schedulesField.Elem()
+
+	if ffField := schedulesVal.FieldByName("ForwardFill"); ffField.IsValid() && !ffField.IsNil() {
+		forwardFill = ffField.Elem().String()
+	}
+
+	if bfField := schedulesVal.FieldByName("Backfill"); bfField.IsValid() && !bfField.IsNil() {
+		backfill = bfField.Elem().String()
+	}
+
+	return forwardFill, backfill
 }
