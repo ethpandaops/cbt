@@ -5,31 +5,18 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
+	"github.com/ethpandaops/cbt/pkg/models/modelid"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
 
 var (
-	// ErrInvalidModelID is returned when model ID format is invalid
-	ErrInvalidModelID = errors.New("invalid model ID format: expected database.table")
 	// ErrCacheManagerUnavailable is returned when cache manager is not available
 	ErrCacheManagerUnavailable = errors.New("cache manager not available")
 )
-
-// parseModelID splits a model ID into database and table components.
-// Model IDs are expected in the format "database.table".
-func parseModelID(modelID string) (database, table string, err error) {
-	parts := strings.Split(modelID, ".")
-	if len(parts) != 2 {
-		return "", "", ErrInvalidModelID
-	}
-
-	return parts[0], parts[1], nil
-}
 
 // buildTableRef creates a backtick-escaped table reference for SQL queries.
 func buildTableRef(database, table string) string {
@@ -142,7 +129,7 @@ func (a *service) GetScheduledAdminTable() string {
 
 // RecordCompletion records a completed transformation in the admin table
 func (a *service) RecordCompletion(ctx context.Context, modelID string, position, interval uint64) error {
-	database, table, err := parseModelID(modelID)
+	database, table, err := modelid.Parse(modelID)
 	if err != nil {
 		return err
 	}
@@ -188,7 +175,7 @@ func (a *service) RecordCompletion(ctx context.Context, modelID string, position
 
 // GetFirstPosition returns the first processed position for a model
 func (a *service) GetFirstPosition(ctx context.Context, modelID string) (uint64, error) {
-	database, table, err := parseModelID(modelID)
+	database, table, err := modelid.Parse(modelID)
 	if err != nil {
 		return 0, err
 	}
@@ -217,7 +204,7 @@ func (a *service) GetFirstPosition(ctx context.Context, modelID string) (uint64,
 // GetNextUnprocessedPosition returns the next position to process for forward fill
 // This is the end of the last processed range: max(position + interval)
 func (a *service) GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error) {
-	database, table, err := parseModelID(modelID)
+	database, table, err := modelid.Parse(modelID)
 	if err != nil {
 		return 0, err
 	}
@@ -246,7 +233,7 @@ func (a *service) GetNextUnprocessedPosition(ctx context.Context, modelID string
 // GetLastProcessedPosition returns the position of the last processed record (max(position))
 // This is useful for understanding the actual last record processed, not where to continue from
 func (a *service) GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error) {
-	database, table, err := parseModelID(modelID)
+	database, table, err := modelid.Parse(modelID)
 	if err != nil {
 		return 0, err
 	}
@@ -274,7 +261,7 @@ func (a *service) GetLastProcessedPosition(ctx context.Context, modelID string) 
 
 // GetCoverage checks if a range is fully covered in the admin table
 func (a *service) GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error) {
-	database, table, err := parseModelID(modelID)
+	database, table, err := modelid.Parse(modelID)
 	if err != nil {
 		return false, err
 	}
@@ -311,7 +298,7 @@ func (a *service) GetCoverage(ctx context.Context, modelID string, startPos, end
 
 // FindGaps finds all gaps in the processed data for a model
 func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]GapInfo, error) {
-	database, table, err := parseModelID(modelID)
+	database, table, err := modelid.Parse(modelID)
 	if err != nil {
 		return nil, err
 	}
@@ -451,7 +438,7 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 // GetProcessedRanges returns all processed ranges for a model from the admin table
 // This returns the raw admin_incremental table data with no filtering or aggregation
 func (a *service) GetProcessedRanges(ctx context.Context, modelID string) ([]ProcessedRange, error) {
-	database, table, err := parseModelID(modelID)
+	database, table, err := modelid.Parse(modelID)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +467,7 @@ func (a *service) GetProcessedRanges(ctx context.Context, modelID string) ([]Pro
 
 // ConsolidateHistoricalData consolidates historical admin table rows for a model
 func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string) (int, error) {
-	database, table, err := parseModelID(modelID)
+	database, table, err := modelid.Parse(modelID)
 	if err != nil {
 		return 0, err
 	}
@@ -636,7 +623,7 @@ func (a *service) SetExternalBounds(ctx context.Context, cache *BoundsCache) err
 
 // RecordScheduledCompletion records a completed scheduled transformation
 func (a *service) RecordScheduledCompletion(ctx context.Context, modelID string, startDateTime time.Time) error {
-	database, table, err := parseModelID(modelID)
+	database, table, err := modelid.Parse(modelID)
 	if err != nil {
 		return err
 	}
@@ -657,7 +644,7 @@ func (a *service) RecordScheduledCompletion(ctx context.Context, modelID string,
 
 // GetLastScheduledExecution returns the last execution time for a scheduled transformation
 func (a *service) GetLastScheduledExecution(ctx context.Context, modelID string) (*time.Time, error) {
-	database, table, err := parseModelID(modelID)
+	database, table, err := modelid.Parse(modelID)
 	if err != nil {
 		return nil, err
 	}
