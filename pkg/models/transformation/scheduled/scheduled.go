@@ -59,7 +59,7 @@ func (h *Handler) Validate() error {
 		return ErrScheduleRequired
 	}
 
-	if err := ValidateScheduleFormat(h.config.Schedule); err != nil {
+	if err := transformation.ValidateScheduleFormat(h.config.Schedule); err != nil {
 		return fmt.Errorf("invalid schedule: %w", err)
 	}
 

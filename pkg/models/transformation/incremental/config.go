@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
-	"github.com/robfig/cron/v3"
 )
 
 var (
@@ -95,13 +94,13 @@ func (c *IntervalConfig) Validate() error {
 // Validate checks if the schedules configuration is valid
 func (c *SchedulesConfig) Validate() error {
 	if c.ForwardFill != "" {
-		if err := ValidateScheduleFormat(c.ForwardFill); err != nil {
+		if err := transformation.ValidateScheduleFormat(c.ForwardFill); err != nil {
 			return fmt.Errorf("invalid forwardfill schedule: %w", err)
 		}
 	}
 
 	if c.Backfill != "" {
-		if err := ValidateScheduleFormat(c.Backfill); err != nil {
+		if err := transformation.ValidateScheduleFormat(c.Backfill); err != nil {
 			return fmt.Errorf("invalid backfill schedule: %w", err)
 		}
 	}
@@ -121,15 +120,6 @@ func (c *LimitsConfig) Validate() error {
 func (c *FillConfig) Validate() error {
 	if c.Direction != "" && c.Direction != "head" && c.Direction != "tail" {
 		return ErrInvalidFillDirection
-	}
-	return nil
-}
-
-// ValidateScheduleFormat validates a cron schedule expression
-func ValidateScheduleFormat(schedule string) error {
-	_, err := cron.ParseStandard(schedule)
-	if err != nil {
-		return fmt.Errorf("invalid cron expression: %w", err)
 	}
 	return nil
 }

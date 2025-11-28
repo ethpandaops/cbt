@@ -3,10 +3,8 @@ package scheduled
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
-	"github.com/robfig/cron/v3"
 )
 
 var (
@@ -34,13 +32,4 @@ type Config struct {
 
 	// OriginalDependencies stores the dependencies before placeholder substitution
 	OriginalDependencies []transformation.Dependency `yaml:"-"`
-}
-
-// ValidateScheduleFormat validates a cron schedule expression
-func ValidateScheduleFormat(schedule string) error {
-	_, err := cron.ParseStandard(schedule)
-	if err != nil {
-		return fmt.Errorf("invalid cron expression: %w", err)
-	}
-	return nil
 }

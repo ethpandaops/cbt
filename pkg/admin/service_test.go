@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
+	"github.com/ethpandaops/cbt/pkg/models/modelid"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -66,7 +67,7 @@ func TestRecordCompletion(t *testing.T) {
 			position: 1000,
 			interval: 100,
 			wantErr:  true,
-			errMatch: ErrInvalidModelID,
+			errMatch: modelid.ErrInvalidModelID,
 		},
 		{
 			name:     "invalid model ID - multiple dots",
@@ -74,7 +75,7 @@ func TestRecordCompletion(t *testing.T) {
 			position: 1000,
 			interval: 100,
 			wantErr:  true,
-			errMatch: ErrInvalidModelID,
+			errMatch: modelid.ErrInvalidModelID,
 		},
 	}
 
@@ -642,7 +643,7 @@ func TestConsolidateHistoricalData(t *testing.T) {
 			modelID:             "invalid",
 			expectedRowsDeleted: 0,
 			wantErr:             true,
-			errMatch:            ErrInvalidModelID,
+			errMatch:            modelid.ErrInvalidModelID,
 		},
 	}
 
@@ -1159,16 +1160,16 @@ func TestParseModelID(t *testing.T) {
 		{
 			name:        "invalid - just a dot",
 			modelID:     ".",
-			expectError: false, // Actually produces empty strings, but parseModelID doesn't validate empty parts
+			expectError: false, // Actually produces empty strings, but modelid.Parse doesn't validate empty parts
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			database, table, err := parseModelID(tt.modelID)
+			database, table, err := modelid.Parse(tt.modelID)
 			if tt.expectError {
 				assert.Error(t, err)
-				assert.ErrorIs(t, err, ErrInvalidModelID)
+				assert.ErrorIs(t, err, modelid.ErrInvalidModelID)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expectedDatabase, database)
