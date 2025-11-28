@@ -476,6 +476,9 @@ func (d *DependencyGraph) IsPathBetween(fromModelID, toModelID string) bool {
 
 // GetTransformationNodes returns all transformation nodes from the dependency graph
 func (d *DependencyGraph) GetTransformationNodes() []Transformation {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
 	vertices := d.dag.GetVertices()
 
 	transformationNodes := make([]Transformation, 0, len(vertices))
@@ -497,6 +500,9 @@ func (d *DependencyGraph) GetTransformationNodes() []Transformation {
 
 // GetExternalNodes returns all external nodes from the dependency graph
 func (d *DependencyGraph) GetExternalNodes() []Node {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
 	vertices := d.dag.GetVertices()
 
 	externalNodes := make([]Node, 0, len(vertices))
