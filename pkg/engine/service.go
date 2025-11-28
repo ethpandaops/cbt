@@ -70,7 +70,7 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 		ScheduledTable:      cfg.ClickHouse.Admin.Scheduled.Table,
 	}, redisClient)
 
-	modelsService, err := models.NewService(log, &cfg.Models, redisClient, &cfg.ClickHouse)
+	modelsService, err := models.NewService(log, &cfg.Models, &cfg.ClickHouse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create models service: %w", err)
 	}

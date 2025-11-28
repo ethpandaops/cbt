@@ -536,9 +536,6 @@ type mockExecutorAdminService struct {
 	setBoundsErr   error
 }
 
-func (m *mockExecutorAdminService) GetLastProcessedEndPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
 func (m *mockExecutorAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
 	return 0, nil
 }

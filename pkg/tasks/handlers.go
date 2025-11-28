@@ -314,7 +314,7 @@ func (h *TaskHandler) recordTaskSuccess(ctx context.Context, payload TaskPayload
 	// Record transformation bounds in metrics (only for incremental transformations)
 	if !taskCtx.transformation.GetConfig().IsScheduledType() {
 		minPos, _ := h.admin.GetFirstPosition(ctx, payload.GetModelID())
-		maxPos, _ := h.admin.GetLastProcessedEndPosition(ctx, payload.GetModelID())
+		maxPos, _ := h.admin.GetNextUnprocessedPosition(ctx, payload.GetModelID())
 		if minPos > 0 && maxPos > 0 {
 			observability.RecordModelBounds(payload.GetModelID(), minPos, maxPos)
 		}

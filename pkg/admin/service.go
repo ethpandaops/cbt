@@ -39,9 +39,8 @@ func buildTableRef(database, table string) string {
 // Service defines the public interface for the admin service
 type Service interface {
 	// Position tracking (for incremental transformations)
-	GetLastProcessedEndPosition(ctx context.Context, modelID string) (uint64, error) // Returns end of last processed range
-	GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error)  // Returns next position for forward fill
-	GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error)    // Returns position of last record
+	GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error) // Returns next position for forward fill
+	GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error)   // Returns position of last record
 	GetFirstPosition(ctx context.Context, modelID string) (uint64, error)
 	RecordCompletion(ctx context.Context, modelID string, position, interval uint64) error
 
@@ -215,9 +214,9 @@ func (a *service) GetFirstPosition(ctx context.Context, modelID string) (uint64,
 	return result.FirstPos, nil
 }
 
-// GetLastProcessedEndPosition returns the end of the last processed range (max(position + interval))
-// This is the position where forward processing should continue from
-func (a *service) GetLastProcessedEndPosition(ctx context.Context, modelID string) (uint64, error) {
+// GetNextUnprocessedPosition returns the next position to process for forward fill
+// This is the end of the last processed range: max(position + interval)
+func (a *service) GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error) {
 	database, table, err := parseModelID(modelID)
 	if err != nil {
 		return 0, err
@@ -242,12 +241,6 @@ func (a *service) GetLastProcessedEndPosition(ctx context.Context, modelID strin
 	}
 
 	return result.LastEndPos, nil
-}
-
-// GetNextUnprocessedPosition returns the next position to process for forward fill
-// This is equivalent to GetLastProcessedEndPosition but with clearer naming
-func (a *service) GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error) {
-	return a.GetLastProcessedEndPosition(ctx, modelID)
 }
 
 // GetLastProcessedPosition returns the position of the last processed record (max(position))

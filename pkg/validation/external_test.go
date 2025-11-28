@@ -53,10 +53,6 @@ type testAdminService struct {
 	externalBounds *admin.BoundsCache
 }
 
-func (m *testAdminService) GetLastProcessedEndPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-
 func (m *testAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
 	return 0, nil
 }

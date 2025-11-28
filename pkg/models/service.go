@@ -8,7 +8,6 @@ import (
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models/transformation/incremental"
 	"github.com/ethpandaops/cbt/pkg/models/transformation/scheduled"
-	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
 
@@ -44,7 +43,7 @@ type service struct {
 }
 
 // NewService creates a new worker application
-func NewService(log logrus.FieldLogger, cfg *Config, _ *redis.Client, clickhouseCfg *clickhouse.Config) (Service, error) {
+func NewService(log logrus.FieldLogger, cfg *Config, clickhouseCfg *clickhouse.Config) (Service, error) {
 	dag := NewDependencyGraph()
 	templateEngine := NewTemplateEngine(clickhouseCfg, dag, cfg.Env)
 

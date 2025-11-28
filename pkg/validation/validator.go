@@ -310,10 +310,7 @@ func (v *dependencyValidator) checkORGroupGaps(
 	groupDeps []string,
 	position, endPos uint64,
 ) (nextValidPos uint64, hasGaps bool) {
-	var (
-		allMembersHaveGaps = true
-		minNextValid       = uint64(0)
-	)
+	var minNextValid uint64
 
 	// Check each member of the OR group
 	for _, depID := range groupDeps {
@@ -325,18 +322,13 @@ func (v *dependencyValidator) checkORGroupGaps(
 		}
 
 		// This member has gaps, track the earliest next valid position
-		allMembersHaveGaps = true
 		if minNextValid == 0 || nextValid < minNextValid {
 			minNextValid = nextValid
 		}
 	}
 
-	// If all members have gaps, the OR group blocks processing
-	if allMembersHaveGaps {
-		return minNextValid, true
-	}
-
-	return 0, false
+	// All members have gaps, the OR group blocks processing
+	return minNextValid, true
 }
 
 // checkSingleDependencyGaps checks a single dependency for gaps
@@ -357,7 +349,7 @@ func (v *dependencyValidator) checkSingleDependencyGaps(
 		return 0, false
 	}
 
-	lastEndPos, err := v.admin.GetLastProcessedEndPosition(ctx, depID)
+	lastEndPos, err := v.admin.GetNextUnprocessedPosition(ctx, depID)
 	if err != nil {
 		v.log.WithError(err).WithField("dependency_id", depID).Debug("Failed to get last end position")
 		return 0, false
@@ -628,7 +620,7 @@ func (v *dependencyValidator) collectTransformationBounds(ctx context.Context, d
 		return 0, 0, fmt.Errorf("failed to get first position for %s: %w", depID, err)
 	}
 
-	maxDep, err = v.admin.GetLastProcessedEndPosition(ctx, depID)
+	maxDep, err = v.admin.GetNextUnprocessedPosition(ctx, depID)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get last position for %s: %w", depID, err)
 	}
@@ -888,7 +880,7 @@ func (v *dependencyValidator) GetValidRange(ctx context.Context, modelID string)
 	finalMin, finalMax := v.calculateFinalRange(bounds)
 
 	// Apply configured limits from handler if any
-	finalMin, finalMax = v.applyLimitsFromHandler(model.GetHandler(), modelID, finalMin, finalMax)
+	finalMin, finalMax = v.applyLimitsFromHandler(model.GetHandler(), finalMin, finalMax)
 
 	// Apply fill.buffer if configured (stays behind dependency max)
 	finalMax = v.applyFillBuffer(model.GetHandler(), modelID, finalMin, finalMax)
@@ -932,7 +924,7 @@ func (v *dependencyValidator) hasDependencies(model models.Transformation) bool 
 }
 
 // applyLimitsFromHandler applies configured limits from handler if available
-func (v *dependencyValidator) applyLimitsFromHandler(handler transformation.Handler, _ string, finalMin, finalMax uint64) (adjustedMin, adjustedMax uint64) {
+func (v *dependencyValidator) applyLimitsFromHandler(handler transformation.Handler, finalMin, finalMax uint64) (adjustedMin, adjustedMax uint64) {
 	if handler == nil {
 		return finalMin, finalMax
 	}
