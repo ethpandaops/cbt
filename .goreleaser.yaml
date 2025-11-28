@@ -28,7 +28,7 @@ builds:
       - goos: windows
         goarch: arm64
     ldflags:
-      - -s -w -X github.com/ethpandaops/cbt/pkg/proto/cbt.Release={{.Tag}} -X github.com/ethpandaops/cbt/pkg/proto/cbt.GitCommit={{.ShortCommit}}
+      - -s -w -X github.com/ethpandaops/cbt/cmd.Release={{.Tag}} -X github.com/ethpandaops/cbt/cmd.GitCommit={{.ShortCommit}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 checksum:

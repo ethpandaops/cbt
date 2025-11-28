@@ -29,4 +29,3 @@ func (s *service) RunConsolidation(ctx context.Context) {
 		}
 	}
 }
-

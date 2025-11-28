@@ -220,7 +220,7 @@ func (m *mockDAGReader) GetExternalNode(_ string) (models.External, error) {
 	return nil, errNotImplemented
 }
 
-func (m *mockDAGReader) GetDependencies(_ string) []string               { return []string{} }
+func (m *mockDAGReader) GetDependencies(_ string) []string { return []string{} }
 func (m *mockDAGReader) GetStructuredDependencies(_ string) []transformation.Dependency {
 	return nil
 }
