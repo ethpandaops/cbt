@@ -384,9 +384,7 @@ func populateSchedules(model *generated.TransformationModel, incrementalHandler 
 }
 
 func populateLimits(model *generated.TransformationModel, handler interface{}) {
-	limitsProvider, ok := handler.(interface {
-		GetLimits() *struct{ Min, Max uint64 }
-	})
+	limitsProvider, ok := handler.(transformation.LimitsHandler)
 	if !ok {
 		return
 	}
@@ -406,23 +404,8 @@ func populateLimits(model *generated.TransformationModel, handler interface{}) {
 }
 
 func populateFill(model *generated.TransformationModel, handler interface{}) {
-	// Check if handler provides fill direction
-	directionProvider, hasDirection := handler.(interface {
-		GetFillDirection() string
-	})
-
-	// Check if handler provides gap skipping setting
-	gapSkippingProvider, hasGapSkipping := handler.(interface {
-		AllowGapSkipping() bool
-	})
-
-	// Check if handler provides buffer setting
-	bufferProvider, hasBuffer := handler.(interface {
-		GetFillBuffer() uint64
-	})
-
-	// Only populate if at least one fill property is available
-	if !hasDirection && !hasGapSkipping && !hasBuffer {
+	fillHandler, ok := handler.(transformation.FillHandler)
+	if !ok {
 		return
 	}
 
@@ -432,22 +415,16 @@ func populateFill(model *generated.TransformationModel, handler interface{}) {
 		Direction        *generated.TransformationModelFillDirection `json:"direction,omitempty"`
 	}{}
 
-	if hasDirection {
-		if direction := directionProvider.GetFillDirection(); direction != "" {
-			dir := generated.TransformationModelFillDirection(direction)
-			fill.Direction = &dir
-		}
+	if direction := fillHandler.GetFillDirection(); direction != "" {
+		dir := generated.TransformationModelFillDirection(direction)
+		fill.Direction = &dir
 	}
 
-	if hasGapSkipping {
-		allowGapSkipping := gapSkippingProvider.AllowGapSkipping()
-		fill.AllowGapSkipping = &allowGapSkipping
-	}
+	allowGapSkipping := fillHandler.AllowGapSkipping()
+	fill.AllowGapSkipping = &allowGapSkipping
 
-	if hasBuffer {
-		if buffer := bufferProvider.GetFillBuffer(); buffer > 0 {
-			fill.Buffer = intPtr(int(buffer)) // nolint:gosec
-		}
+	if buffer := fillHandler.GetFillBuffer(); buffer > 0 {
+		fill.Buffer = intPtr(int(buffer)) // nolint:gosec
 	}
 
 	model.Fill = fill

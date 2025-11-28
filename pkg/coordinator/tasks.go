@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/ethpandaops/cbt/pkg/tasks"
 	"github.com/hibiken/asynq"
@@ -238,7 +239,7 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		// Get interval from handler
 		var interval uint64
 		if handler := model.GetHandler(); handler != nil {
-			if provider, ok := handler.(intervalProvider); ok {
+			if provider, ok := handler.(transformation.IntervalHandler); ok {
 				interval = provider.GetMaxInterval()
 			}
 		}

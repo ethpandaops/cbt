@@ -52,13 +52,13 @@ func (s *service) processForward(trans models.Transformation) {
 
 // isForwardFillEnabled checks if forward fill is enabled for the handler
 func (s *service) isForwardFillEnabled(handler transformation.Handler) bool {
-	provider, ok := handler.(scheduleProvider)
+	provider, ok := handler.(transformation.ScheduleHandler)
 	return ok && provider.IsForwardFillEnabled()
 }
 
 // shouldAllowGapSkipping checks if gap skipping is allowed for the handler
 func (s *service) shouldAllowGapSkipping(handler transformation.Handler) bool {
-	provider, ok := handler.(gapSkippingProvider)
+	provider, ok := handler.(transformation.IntervalHandler)
 	if !ok {
 		return true // default: allow gap skipping
 	}
@@ -101,7 +101,7 @@ func (s *service) getProcessingPosition(ctx context.Context, trans models.Transf
 
 // getMaxLimit extracts the max limit from the handler
 func (s *service) getMaxLimit(handler transformation.Handler) uint64 {
-	if provider, ok := handler.(limitsProvider); ok {
+	if provider, ok := handler.(transformation.ScheduleHandler); ok {
 		if limits := provider.GetLimits(); limits != nil && limits.Max > 0 {
 			return limits.Max
 		}
@@ -128,7 +128,7 @@ func (s *service) calculateProcessingInterval(ctx context.Context, trans models.
 
 	var allowsPartial bool
 
-	if provider, ok := handler.(partialIntervalProvider); ok {
+	if provider, ok := handler.(transformation.IntervalHandler); ok {
 		interval = provider.GetMaxInterval()
 		allowsPartial = provider.AllowsPartialIntervals()
 	}
@@ -177,7 +177,7 @@ func (s *service) adjustIntervalForDependencies(ctx context.Context, trans model
 
 	// Dependencies don't have enough data for full interval
 	var minInterval uint64
-	if provider, ok := trans.GetHandler().(minIntervalProvider); ok {
+	if provider, ok := trans.GetHandler().(transformation.IntervalHandler); ok {
 		minInterval = provider.GetMinInterval()
 	}
 
