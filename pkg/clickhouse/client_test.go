@@ -129,10 +129,9 @@ func TestCreateClickHouseOptions_NativeTLSPort(t *testing.T) {
 	assert.False(t, options.TLS.InsecureSkipVerify)
 }
 
-func TestCreateClickHouseOptions_DatabaseFromConfig(t *testing.T) {
+func TestCreateClickHouseOptions_DatabaseFromURL(t *testing.T) {
 	cfg := &Config{
-		URL:          "clickhouse://localhost:9000",
-		Database:     "mydb",
+		URL:          "clickhouse://localhost:9000/mydb",
 		QueryTimeout: 30 * time.Second,
 	}
 
@@ -142,18 +141,17 @@ func TestCreateClickHouseOptions_DatabaseFromConfig(t *testing.T) {
 	assert.Equal(t, "mydb", options.Auth.Database)
 }
 
-func TestCreateClickHouseOptions_DatabaseFromURL(t *testing.T) {
+func TestCreateClickHouseOptions_NoDatabaseInURL(t *testing.T) {
 	cfg := &Config{
-		URL:          "clickhouse://localhost:9000/urldb",
-		Database:     "configdb", // URL should take precedence
+		URL:          "clickhouse://localhost:9000",
 		QueryTimeout: 30 * time.Second,
 	}
 
 	options, err := createClickHouseOptions(cfg)
 	require.NoError(t, err)
 
-	// URL database takes precedence
-	assert.Equal(t, "urldb", options.Auth.Database)
+	// No database specified - CBT uses fully-qualified table names
+	assert.Equal(t, "", options.Auth.Database)
 }
 
 func TestCreateClickHouseOptions_ConnectionPool(t *testing.T) {

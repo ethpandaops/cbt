@@ -13,41 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// Simple mock for testing query parsing
-type testClickHouseClient struct {
-	expectedQuery string
-	mockResponse  string
-}
-
-func (m *testClickHouseClient) QueryOne(_ context.Context, query string, dest interface{}) error {
-	// Check that the query was cleaned properly
-	if query != m.expectedQuery {
-		return assert.AnError
-	}
-	// Unmarshal mock response into dest
-	return json.Unmarshal([]byte(m.mockResponse), dest)
-}
-
-func (m *testClickHouseClient) QueryMany(_ context.Context, _ string, _ interface{}) error {
-	return nil
-}
-
-func (m *testClickHouseClient) Execute(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *testClickHouseClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
-	return nil
-}
-
-func (m *testClickHouseClient) Start() error {
-	return nil
-}
-
-func (m *testClickHouseClient) Stop() error {
-	return nil
-}
-
 // Simple mock admin service
 type testAdminService struct {
 	externalBounds *admin.BoundsCache

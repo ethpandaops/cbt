@@ -17,9 +17,9 @@ healthCheckAddr: ":8081"
 clickhouse:
   # Connection URL (required)
   # Supports multiple formats:
-  # - Native protocol (recommended): clickhouse://user:pass@localhost:9000/database
-  # - HTTP protocol: http://user:pass@localhost:8123/database
-  # - HTTPS protocol: https://user:pass@localhost:8443/database
+  # - Native protocol (recommended): clickhouse://user:pass@localhost:9000
+  # - HTTP protocol: http://user:pass@localhost:8123
+  # - HTTPS protocol: https://user:pass@localhost:8443
   url: "clickhouse://localhost:9000"
 
   # Cluster configuration (optional, for distributed deployments)
