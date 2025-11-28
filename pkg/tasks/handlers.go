@@ -28,8 +28,6 @@ var (
 	ErrModelIDNotFound = errors.New("model_id not found in payload")
 	// ErrScanTypeNotFound is returned when scan_type is not found in payload
 	ErrScanTypeNotFound = errors.New("scan_type not found in payload")
-	// ErrCacheManagerUnavailable is returned when cache manager is not available
-	ErrCacheManagerUnavailable = errors.New("cache manager not available")
 	// ErrUnexpectedExternalType is returned when an external task type appears in transformation payload.
 	ErrUnexpectedExternalType = errors.New("unexpected external task type in transformation payload")
 )

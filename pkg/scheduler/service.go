@@ -510,30 +510,6 @@ func (s *service) registerAllHandlers() {
 	s.registerSystemHandlers()
 }
 
-// buildDesiredTasks builds the map of desired scheduled tasks (without registering handlers)
-func (s *service) buildDesiredTasks() map[string]string {
-	transformations := s.dag.GetTransformationNodes()
-	externalModels := s.dag.GetExternalNodes()
-	desiredTasks := make(map[string]string, len(transformations)*2+len(externalModels)*2) // taskType -> schedule
-
-	// Build transformation task schedules
-	for _, transformation := range transformations {
-		s.buildTransformationTasks(transformation, desiredTasks)
-	}
-
-	// Build external model task schedules
-	for _, node := range externalModels {
-		if model, ok := node.Model.(models.External); ok {
-			s.buildExternalTasks(model, desiredTasks)
-		}
-	}
-
-	// Build system task schedules
-	s.buildSystemTasks(desiredTasks)
-
-	return desiredTasks
-}
-
 // registerTransformationHandlers registers task handlers for a single transformation
 func (s *service) registerTransformationHandlers(transformation models.Transformation) {
 	config := transformation.GetConfig()
@@ -570,73 +546,6 @@ func (s *service) registerTransformationHandlers(transformation models.Transform
 	}
 }
 
-// buildTransformationTasks builds desired task schedules for a single transformation
-func (s *service) buildTransformationTasks(transformation models.Transformation, desiredTasks map[string]string) {
-	config := transformation.GetConfig()
-	modelID := transformation.GetID()
-	handler := transformation.GetHandler()
-
-	// Handle scheduled transformations
-	if config.Type == "scheduled" {
-		s.buildScheduledTransformationTasks(modelID, handler, desiredTasks)
-		return
-	}
-
-	// Handle incremental transformations
-	s.buildIncrementalTransformationTasks(modelID, handler, desiredTasks)
-}
-
-// buildScheduledTransformationTasks builds tasks for scheduled transformations
-func (s *service) buildScheduledTransformationTasks(modelID string, handler interface{}, desiredTasks map[string]string) {
-	if handler == nil {
-		return
-	}
-
-	type scheduleProvider interface {
-		GetSchedule() string
-	}
-	provider, ok := handler.(scheduleProvider)
-	if !ok {
-		return
-	}
-
-	schedule := provider.GetSchedule()
-	if schedule != "" {
-		scheduledTask := fmt.Sprintf("%s%s:scheduled", TransformationTaskPrefix, modelID)
-		desiredTasks[scheduledTask] = schedule
-	}
-}
-
-// buildIncrementalTransformationTasks builds tasks for incremental transformations
-func (s *service) buildIncrementalTransformationTasks(modelID string, handler interface{}, desiredTasks map[string]string) {
-	if handler == nil {
-		return
-	}
-
-	// Type assert handler to get config
-	type configProvider interface {
-		Config() interface{}
-	}
-	provider, ok := handler.(configProvider)
-	if !ok {
-		return
-	}
-
-	cfg, ok := provider.Config().(*incremental.Config)
-	if !ok || cfg.Schedules == nil {
-		return
-	}
-
-	if cfg.Schedules.ForwardFill != "" {
-		forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
-		desiredTasks[forwardTask] = cfg.Schedules.ForwardFill
-	}
-	if cfg.Schedules.Backfill != "" {
-		backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
-		desiredTasks[backfillTask] = cfg.Schedules.Backfill
-	}
-}
-
 // registerExternalHandlers registers task handlers for a single external model
 func (s *service) registerExternalHandlers(model models.External) {
 	config := model.GetConfig()
@@ -659,40 +568,11 @@ func (s *service) registerExternalHandlers(model models.External) {
 	}
 }
 
-// buildExternalTasks builds desired task schedules for a single external model
-func (s *service) buildExternalTasks(model models.External, desiredTasks map[string]string) {
-	config := model.GetConfig()
-	modelID := model.GetID()
-
-	if config.Cache == nil {
-		return
-	}
-
-	if config.Cache.IncrementalScanInterval > 0 {
-		incrementalTask := fmt.Sprintf("%s%s:incremental", ExternalTaskPrefix, modelID)
-		schedule := fmt.Sprintf("@every %s", config.Cache.IncrementalScanInterval.String())
-		desiredTasks[incrementalTask] = schedule
-	}
-
-	if config.Cache.FullScanInterval > 0 {
-		fullTask := fmt.Sprintf("%s%s:full", ExternalTaskPrefix, modelID)
-		schedule := fmt.Sprintf("@every %s", config.Cache.FullScanInterval.String())
-		desiredTasks[fullTask] = schedule
-	}
-}
-
 // registerSystemHandlers registers system task handlers
 func (s *service) registerSystemHandlers() {
 	if s.cfg.Consolidation != "" {
 		s.mux.HandleFunc(ConsolidationTaskType, s.HandleConsolidation)
 		s.log.Debug("Registered consolidation handler")
-	}
-}
-
-// buildSystemTasks builds desired task schedules for system tasks
-func (s *service) buildSystemTasks(desiredTasks map[string]string) {
-	if s.cfg.Consolidation != "" {
-		desiredTasks[ConsolidationTaskType] = s.cfg.Consolidation
 	}
 }
 
