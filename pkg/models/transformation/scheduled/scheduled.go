@@ -157,20 +157,6 @@ func (h *Handler) ApplyOverrides(override interface{}) {
 		return
 	}
 
-	h.applyScheduleOverride(v)
-	h.applyTagsOverride(v)
-}
-
-func (h *Handler) applyScheduleOverride(v reflect.Value) {
-	scheduleField := v.FieldByName("Schedule")
-	if !scheduleField.IsValid() || scheduleField.IsNil() {
-		return
-	}
-
-	newSchedule := scheduleField.Elem().String()
-	h.config.Schedule = newSchedule
-}
-
-func (h *Handler) applyTagsOverride(v reflect.Value) {
+	h.config.Schedule = transformation.ApplyScheduleOverride(h.config.Schedule, v)
 	h.config.Tags = transformation.ApplyTagsOverride(h.config.Tags, v)
 }
