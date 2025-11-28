@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/ethpandaops/cbt/pkg/models/modelid"
 )
 
 var (
@@ -106,12 +108,5 @@ func (c *Config) SetDefaults(defaultCluster, defaultDatabase string) {
 
 // GetID returns the unique identifier for the external model
 func (c *Config) GetID() string {
-	return formatModelID(c.Database, c.Table)
-}
-
-// formatModelID creates a standardized model ID from database and table names.
-// Format: "database.table"
-// Note: This is a local copy to avoid circular imports with the models package.
-func formatModelID(database, table string) string {
-	return fmt.Sprintf("%s.%s", database, table)
+	return modelid.Format(c.Database, c.Table)
 }

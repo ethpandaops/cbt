@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/ethpandaops/cbt/pkg/models/modelid"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"gopkg.in/yaml.v3"
 )
@@ -122,14 +123,7 @@ func (h *Handler) RecordCompletion(ctx context.Context, adminService any, modelI
 
 // GetID returns the unique identifier for the transformation model
 func (h *Handler) GetID() string {
-	return formatModelID(h.config.Database, h.config.Table)
-}
-
-// formatModelID creates a standardized model ID from database and table names.
-// Format: "database.table"
-// Note: This is a local copy to avoid circular imports with the models package.
-func formatModelID(database, table string) string {
-	return fmt.Sprintf("%s.%s", database, table)
+	return modelid.Format(h.config.Database, h.config.Table)
 }
 
 // GetMaxInterval returns the maximum interval size
