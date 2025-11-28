@@ -11,11 +11,13 @@ import (
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
+	transformationmock "github.com/ethpandaops/cbt/pkg/models/transformation/mock"
 	"github.com/ethpandaops/cbt/pkg/validation"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 // Test errors
@@ -348,78 +350,42 @@ func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]ad
 	return []admin.ProcessedRange{}, nil
 }
 
-// Mock handler for testing
-type mockHandler struct {
-	interval               uint64
-	minInterval            uint64
-	forwardFillEnabled     bool
-	backfillEnabled        bool
-	allowsPartialIntervals bool
-	dependencies           []string
-	limits                 *struct{ Min, Max uint64 }
+// compositeHandler combines generated mocks to satisfy type assertions for
+// transformation.Handler, IntervalHandler, and ScheduleHandler interfaces.
+// This allows the coordinator's type assertions to work with gomock.
+type compositeHandler struct {
+	*transformationmock.MockHandler
+	*transformationmock.MockIntervalHandler
+	*transformationmock.MockScheduleHandler
 }
 
-func (m *mockHandler) Type() transformation.Type {
-	return transformation.TypeIncremental
+// newCompositeHandler creates a composite handler with all mocks configured.
+// The ctrl parameter is used to create all underlying mocks.
+func newCompositeHandler(ctrl *gomock.Controller) *compositeHandler {
+	return &compositeHandler{
+		MockHandler:         transformationmock.NewMockHandler(ctrl),
+		MockIntervalHandler: transformationmock.NewMockIntervalHandler(ctrl),
+		MockScheduleHandler: transformationmock.NewMockScheduleHandler(ctrl),
+	}
 }
 
-func (m *mockHandler) Config() any {
-	return &transformation.Config{
+// setupDefaultExpectations configures common expectations for tests.
+// This is a convenience method to reduce boilerplate in tests.
+func (c *compositeHandler) setupDefaultExpectations() {
+	c.MockHandler.EXPECT().Type().Return(transformation.TypeIncremental).AnyTimes()
+	c.MockHandler.EXPECT().Config().Return(&transformation.Config{
 		Type:     transformation.TypeIncremental,
 		Database: "test",
 		Table:    "test",
-	}
-}
-
-func (m *mockHandler) Validate() error {
-	return nil
-}
-
-func (m *mockHandler) ShouldTrackPosition() bool {
-	return true
-}
-
-func (m *mockHandler) GetMaxInterval() uint64 {
-	return m.interval
-}
-
-func (m *mockHandler) GetMinInterval() uint64 {
-	return m.minInterval
-}
-
-func (m *mockHandler) AllowsPartialIntervals() bool {
-	return m.allowsPartialIntervals
-}
-
-func (m *mockHandler) IsForwardFillEnabled() bool {
-	return m.forwardFillEnabled
-}
-
-func (m *mockHandler) IsBackfillEnabled() bool {
-	return m.backfillEnabled
-}
-
-func (m *mockHandler) GetFlattenedDependencies() []string {
-	return m.dependencies
-}
-
-func (m *mockHandler) GetLimits() *struct{ Min, Max uint64 } {
-	return m.limits
-}
-
-func (m *mockHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
-	return map[string]any{}
-}
-
-func (m *mockHandler) GetAdminTable() transformation.AdminTable {
-	return transformation.AdminTable{
+	}).AnyTimes()
+	c.MockHandler.EXPECT().Validate().Return(nil).AnyTimes()
+	c.MockHandler.EXPECT().ShouldTrackPosition().Return(true).AnyTimes()
+	c.MockHandler.EXPECT().GetTemplateVariables(gomock.Any(), gomock.Any()).Return(map[string]any{}).AnyTimes()
+	c.MockHandler.EXPECT().GetAdminTable().Return(transformation.AdminTable{
 		Database: "admin",
 		Table:    "cbt",
-	}
-}
-
-func (m *mockHandler) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
-	return nil
+	}).AnyTimes()
+	c.MockHandler.EXPECT().RecordCompletion(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 }
 
 // Mock transformation for testing
@@ -443,16 +409,7 @@ func (m *mockTransformation) GetConfig() *transformation.Config {
 	}
 }
 func (m *mockTransformation) GetHandler() transformation.Handler {
-	if m.handler != nil {
-		return m.handler
-	}
-	// Return a default mock handler
-	return &mockHandler{
-		interval:               m.interval,
-		forwardFillEnabled:     true,
-		allowsPartialIntervals: false,
-		dependencies:           []string{},
-	}
+	return m.handler
 }
 func (m *mockTransformation) GetValue() string                  { return "" }
 func (m *mockTransformation) GetDependencies() []string         { return []string{} }
@@ -554,11 +511,25 @@ func TestAdjustIntervalForDependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
 			// Setup mock validator
 			mockValidator := validation.NewMockValidator()
 			mockValidator.GetValidRangeFunc = func(_ context.Context, _ string) (uint64, uint64, error) {
 				return 0, tt.maxValid, nil
 			}
+
+			// Setup composite handler with generated mocks
+			handler := newCompositeHandler(ctrl)
+			handler.setupDefaultExpectations()
+			handler.MockIntervalHandler.EXPECT().GetMaxInterval().Return(tt.interval).AnyTimes()
+			handler.MockIntervalHandler.EXPECT().GetMinInterval().Return(tt.minPartial).AnyTimes()
+			handler.MockIntervalHandler.EXPECT().AllowsPartialIntervals().Return(tt.allowPartial).AnyTimes()
+			handler.MockIntervalHandler.EXPECT().AllowGapSkipping().Return(true).AnyTimes()
+			handler.MockScheduleHandler.EXPECT().IsForwardFillEnabled().Return(true).AnyTimes()
+			handler.MockScheduleHandler.EXPECT().IsBackfillEnabled().Return(false).AnyTimes()
+			handler.MockScheduleHandler.EXPECT().GetLimits().Return(nil).AnyTimes()
 
 			// Setup mock transformation
 			trans := &mockTransformation{
@@ -568,13 +539,7 @@ func TestAdjustIntervalForDependencies(t *testing.T) {
 					Database: "test",
 					Table:    "model",
 				},
-				handler: &mockHandler{
-					interval:               tt.interval,
-					minInterval:            tt.minPartial,
-					allowsPartialIntervals: tt.allowPartial,
-					forwardFillEnabled:     true,
-					dependencies:           []string{"dep1"},
-				},
+				handler: handler,
 			}
 
 			// Create service
@@ -594,68 +559,67 @@ func TestAdjustIntervalForDependencies(t *testing.T) {
 	}
 }
 
-// Test IntervalConfig validation is now handled by incremental handler
-// This test has been removed as IntervalConfig is now internal to the incremental package
-
-// Test AllowsPartialIntervals through handler
+// Test AllowsPartialIntervals through IntervalHandler interface
 func TestAllowsPartialIntervals(t *testing.T) {
 	tests := []struct {
 		name     string
-		handler  *mockHandler
+		partial  bool
 		expected bool
 	}{
 		{
-			name: "partial_intervals_enabled",
-			handler: &mockHandler{
-				interval:               3600,
-				allowsPartialIntervals: true,
-			},
+			name:     "partial_intervals_enabled",
+			partial:  true,
 			expected: true,
 		},
 		{
-			name: "partial_intervals_disabled",
-			handler: &mockHandler{
-				interval:               3600,
-				allowsPartialIntervals: false,
-			},
+			name:     "partial_intervals_disabled",
+			partial:  false,
 			expected: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.handler.AllowsPartialIntervals()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			handler := transformationmock.NewMockIntervalHandler(ctrl)
+			handler.EXPECT().AllowsPartialIntervals().Return(tt.partial)
+
+			result := handler.AllowsPartialIntervals()
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-// Test GetMaxInterval through handler
+// Test GetMaxInterval through IntervalHandler interface
 func TestGetMaxInterval(t *testing.T) {
 	tests := []struct {
 		name     string
-		handler  *mockHandler
+		interval uint64
 		expected uint64
 	}{
 		{
-			name: "with_interval",
-			handler: &mockHandler{
-				interval: 3600,
-			},
+			name:     "with_interval",
+			interval: 3600,
 			expected: 3600,
 		},
 		{
-			name: "without_interval",
-			handler: &mockHandler{
-				interval: 0,
-			},
+			name:     "without_interval",
+			interval: 0,
 			expected: 0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.handler.GetMaxInterval()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			handler := transformationmock.NewMockIntervalHandler(ctrl)
+			handler.EXPECT().GetMaxInterval().Return(tt.interval)
+
+			result := handler.GetMaxInterval()
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -741,6 +705,9 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
 			// Setup mock validator to track calls and return expected results
 			mockValidator := validation.NewMockValidator()
 			callIndex := 0
@@ -759,11 +726,16 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 				}, nil
 			}
 
-			// Setup mock transformation using existing types
-			handler := &mockHandler{
-				interval:           50,
-				forwardFillEnabled: true,
-			}
+			// Setup composite handler with generated mocks
+			handler := newCompositeHandler(ctrl)
+			handler.setupDefaultExpectations()
+			handler.MockIntervalHandler.EXPECT().GetMaxInterval().Return(uint64(50)).AnyTimes()
+			handler.MockIntervalHandler.EXPECT().GetMinInterval().Return(uint64(0)).AnyTimes()
+			handler.MockIntervalHandler.EXPECT().AllowsPartialIntervals().Return(false).AnyTimes()
+			handler.MockIntervalHandler.EXPECT().AllowGapSkipping().Return(true).AnyTimes()
+			handler.MockScheduleHandler.EXPECT().IsForwardFillEnabled().Return(true).AnyTimes()
+			handler.MockScheduleHandler.EXPECT().IsBackfillEnabled().Return(false).AnyTimes()
+			handler.MockScheduleHandler.EXPECT().GetLimits().Return(nil).AnyTimes()
 
 			trans := &mockTransformation{
 				id:      "test.model",
@@ -826,12 +798,8 @@ func (s *testableService) checkAndEnqueuePositionWithTrigger(_ context.Context, 
 }
 
 func (s *testableService) calculateProcessingInterval(_ context.Context, _ models.Transformation, handler transformation.Handler, nextPos, maxLimit uint64) (uint64, bool) {
-	type intervalProvider interface {
-		GetMaxInterval() uint64
-	}
-
 	var interval uint64 = 50 // Default for testing
-	if provider, ok := handler.(intervalProvider); ok {
+	if provider, ok := handler.(transformation.IntervalHandler); ok {
 		interval = provider.GetMaxInterval()
 	}
 

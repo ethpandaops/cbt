@@ -218,11 +218,12 @@ func (h *Handler) AllowsPartialIntervals() bool {
 }
 
 // GetLimits returns the position limits configuration
-func (h *Handler) GetLimits() *struct{ Min, Max uint64 } {
+func (h *Handler) GetLimits() *transformation.Limits {
 	if h.config.Limits == nil {
 		return nil
 	}
-	return &struct{ Min, Max uint64 }{
+
+	return &transformation.Limits{
 		Min: h.config.Limits.Min,
 		Max: h.config.Limits.Max,
 	}

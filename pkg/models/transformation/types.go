@@ -1,5 +1,7 @@
 package transformation
 
+//go:generate mockgen -package mock -destination mock/handler.mock.go github.com/ethpandaops/cbt/pkg/models/transformation Handler,IntervalHandler,ScheduleHandler,LimitsHandler,DependencyHandler,FillHandler
+
 import (
 	"context"
 	"time"
@@ -41,4 +43,46 @@ type TaskInfo struct {
 	Interval  uint64
 	Timestamp time.Time
 	Direction string
+}
+
+// Limits defines position limits for transformations.
+type Limits struct {
+	Min uint64
+	Max uint64
+}
+
+// IntervalHandler provides interval configuration for transformations.
+// Handlers that process data in intervals should implement this interface.
+type IntervalHandler interface {
+	GetMinInterval() uint64
+	GetMaxInterval() uint64
+	AllowsPartialIntervals() bool
+	AllowGapSkipping() bool
+}
+
+// ScheduleHandler provides scheduling and limits configuration for transformations.
+// Handlers that have directional processing should implement this interface.
+type ScheduleHandler interface {
+	IsBackfillEnabled() bool
+	IsForwardFillEnabled() bool
+	GetLimits() *Limits
+}
+
+// LimitsHandler provides position limits for transformations.
+// This is a subset of ScheduleHandler for cases where only limits are needed.
+type LimitsHandler interface {
+	GetLimits() *Limits
+}
+
+// DependencyHandler provides dependency information for transformations.
+type DependencyHandler interface {
+	GetFlattenedDependencies() []string
+	GetDependencies() []Dependency
+}
+
+// FillHandler provides fill configuration for transformations.
+type FillHandler interface {
+	GetFillDirection() string
+	AllowGapSkipping() bool
+	GetFillBuffer() uint64
 }

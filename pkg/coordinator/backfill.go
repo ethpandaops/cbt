@@ -23,7 +23,7 @@ func (s *service) processBack(trans models.Transformation) {
 		return
 	}
 
-	if provider, ok := handler.(scheduleProvider); !ok || !provider.IsBackfillEnabled() {
+	if provider, ok := handler.(transformation.ScheduleHandler); !ok || !provider.IsBackfillEnabled() {
 		return
 	}
 
@@ -76,7 +76,7 @@ func (s *service) checkBackfillOpportunities(ctx context.Context, trans models.T
 }
 
 func (s *service) getMaxInterval(handler transformation.Handler) uint64 {
-	if provider, ok := handler.(intervalProvider); ok {
+	if provider, ok := handler.(transformation.IntervalHandler); ok {
 		return provider.GetMaxInterval()
 	}
 	return 0
@@ -87,7 +87,7 @@ func (s *service) handleNoDataCase(trans models.Transformation, handler transfor
 		return true
 	}
 
-	if provider, ok := handler.(scheduleProvider); ok && provider.IsForwardFillEnabled() {
+	if provider, ok := handler.(transformation.ScheduleHandler); ok && provider.IsForwardFillEnabled() {
 		s.log.WithFields(logrus.Fields{
 			"model_id": trans.GetID(),
 			"reason":   "forward fill enabled, waiting for initial forward fill to populate data",
@@ -294,7 +294,7 @@ func (s *service) calculateBackfillScanRange(ctx context.Context, trans models.T
 // applyMinimumLimit applies the configured minimum limit to the initial position
 func (s *service) applyMinimumLimit(modelID string, handler transformation.Handler, initialPos uint64) uint64 {
 	var minLimit uint64
-	if provider, ok := handler.(limitsProvider); ok {
+	if provider, ok := handler.(transformation.ScheduleHandler); ok {
 		if limits := provider.GetLimits(); limits != nil && limits.Min > 0 {
 			minLimit = limits.Min
 		}
@@ -332,7 +332,7 @@ func (s *service) applyMinimumLimit(modelID string, handler transformation.Handl
 // applyMaximumLimit applies the configured maximum limit to the scan range
 func (s *service) applyMaximumLimit(modelID string, handler transformation.Handler, lastEndPos uint64) uint64 {
 	var maxLimit uint64
-	if provider, ok := handler.(limitsProvider); ok {
+	if provider, ok := handler.(transformation.ScheduleHandler); ok {
 		if limits := provider.GetLimits(); limits != nil && limits.Max > 0 {
 			maxLimit = limits.Max
 		}
@@ -362,7 +362,7 @@ func (s *service) isGapFillable(ctx context.Context, trans models.Transformation
 
 	// Get max and min intervals from handler (same logic as processSingleGap)
 	var maxInterval, minInterval uint64
-	if provider, ok := handler.(intervalProvider); ok {
+	if provider, ok := handler.(transformation.IntervalHandler); ok {
 		maxInterval = provider.GetMaxInterval()
 		minInterval = provider.GetMinInterval()
 	}
@@ -417,7 +417,7 @@ func (s *service) processSingleGap(ctx context.Context, trans models.Transformat
 
 	// Get max and min intervals from handler
 	var maxInterval, minInterval uint64
-	if provider, ok := trans.GetHandler().(intervalProvider); ok {
+	if provider, ok := trans.GetHandler().(transformation.IntervalHandler); ok {
 		maxInterval = provider.GetMaxInterval()
 		minInterval = provider.GetMinInterval()
 	}

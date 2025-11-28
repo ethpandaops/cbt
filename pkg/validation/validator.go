@@ -937,14 +937,7 @@ func (v *dependencyValidator) applyLimitsFromHandler(handler transformation.Hand
 		return finalMin, finalMax
 	}
 
-	type limitsProvider interface {
-		GetLimits() *struct {
-			Min uint64
-			Max uint64
-		}
-	}
-
-	provider, ok := handler.(limitsProvider)
+	provider, ok := handler.(transformation.LimitsHandler)
 	if !ok {
 		return finalMin, finalMax
 	}

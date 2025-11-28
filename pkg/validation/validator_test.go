@@ -200,7 +200,7 @@ func TestValidateDependencies(t *testing.T) {
 							handler: &mockHandler{
 								interval:     50,
 								dependencies: []string{"dep.model1"},
-								limits: &mockLimitsConfig{
+								limits: &transformation.Limits{
 									Min: 700, // Configured minimum limit
 									Max: 0,   // No max limit
 								},
@@ -242,7 +242,7 @@ func TestValidateDependencies(t *testing.T) {
 							handler: &mockHandler{
 								interval:     50,
 								dependencies: []string{"dep.model1"},
-								limits: &mockLimitsConfig{
+								limits: &transformation.Limits{
 									Min: 700,
 									Max: 0,
 								},
@@ -747,18 +747,12 @@ func (m *mockAdmin) GetProcessedRanges(_ context.Context, _ string) ([]admin.Pro
 	return []admin.ProcessedRange{}, nil
 }
 
-// mockLimitsConfig is a test implementation of limits
-type mockLimitsConfig struct {
-	Min uint64
-	Max uint64
-}
-
 // Mock handler for tests
 type mockHandler struct {
 	interval       uint64
 	dependencies   []string
 	orDependencies []transformation.Dependency
-	limits         *mockLimitsConfig
+	limits         *transformation.Limits
 }
 
 // Mock scheduled handler for tests - simulates scheduled transformations
@@ -813,20 +807,8 @@ func (h *mockHandler) GetDependencies() []transformation.Dependency {
 	return deps
 }
 
-func (h *mockHandler) GetLimits() *struct {
-	Min uint64
-	Max uint64
-} {
-	if h.limits == nil {
-		return nil
-	}
-	return &struct {
-		Min uint64
-		Max uint64
-	}{
-		Min: h.limits.Min,
-		Max: h.limits.Max,
-	}
+func (h *mockHandler) GetLimits() *transformation.Limits {
+	return h.limits
 }
 
 // Other handler methods (not used in validation tests)
