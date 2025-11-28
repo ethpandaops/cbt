@@ -38,8 +38,8 @@ type ClientInterface interface {
 	QueryOne(ctx context.Context, query string, dest any) error
 	// QueryMany executes a query and returns multiple results
 	QueryMany(ctx context.Context, query string, dest any) error
-	// Execute runs a query and returns the raw response body
-	Execute(ctx context.Context, query string) ([]byte, error)
+	// Execute runs a query without returning results (INSERT, ALTER, etc.)
+	Execute(ctx context.Context, query string) error
 	// BulkInsert performs a bulk insert operation
 	BulkInsert(ctx context.Context, table string, data any) error
 	// Start initializes the client
@@ -163,7 +163,7 @@ func (c *client) QueryMany(ctx context.Context, query string, dest any) error {
 	return nil
 }
 
-func (c *client) Execute(ctx context.Context, query string) ([]byte, error) {
+func (c *client) Execute(ctx context.Context, query string) error {
 	ctx, cancel := context.WithTimeout(ctx, c.queryTimeout)
 	defer cancel()
 
@@ -172,11 +172,10 @@ func (c *client) Execute(ctx context.Context, query string) ([]byte, error) {
 	}
 
 	if err := c.conn.Exec(ctx, query); err != nil {
-		return nil, fmt.Errorf("execution failed: %w", err)
+		return fmt.Errorf("execution failed: %w", err)
 	}
 
-	// Native driver doesn't return a body like HTTP interface
-	return nil, nil
+	return nil
 }
 
 func (c *client) BulkInsert(ctx context.Context, table string, data any) error {
@@ -240,13 +239,8 @@ func createClickHouseOptions(cfg *Config) (*clickhouse.Options, error) {
 		}
 	}
 
-	// Database from URL path or config
-	database := strings.TrimPrefix(parsedURL.Path, "/")
-	if database == "" {
-		database = cfg.Database
-	}
-
-	auth.Database = database
+	// Database from URL path (optional, CBT uses fully-qualified table names)
+	auth.Database = strings.TrimPrefix(parsedURL.Path, "/")
 
 	options := &clickhouse.Options{
 		Addr:     []string{parsedURL.Host},

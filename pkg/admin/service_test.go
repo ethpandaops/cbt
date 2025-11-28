@@ -501,12 +501,8 @@ type mockClickhouseClient struct {
 	executeError   error
 }
 
-func (m *mockClickhouseClient) Execute(_ context.Context, _ string) ([]byte, error) {
-	if m.executeError != nil {
-		return nil, m.executeError
-	}
-	// Return a mock response with 1 row written
-	return []byte(`{"written_rows":"1"}`), nil
+func (m *mockClickhouseClient) Execute(_ context.Context, _ string) error {
+	return m.executeError
 }
 
 func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, result interface{}) error {
@@ -829,13 +825,9 @@ type consolidationMockClient struct {
 	queries       []string
 }
 
-func (m *consolidationMockClient) Execute(_ context.Context, query string) ([]byte, error) {
+func (m *consolidationMockClient) Execute(_ context.Context, query string) error {
 	m.queries = append(m.queries, query)
-	if m.executeError != nil {
-		return nil, m.executeError
-	}
-
-	return []byte(`{"written_rows":"1"}`), nil
+	return m.executeError
 }
 
 func (m *consolidationMockClient) QueryOne(_ context.Context, query string, result interface{}) error {
@@ -1029,9 +1021,9 @@ type queryCapturingClient struct {
 	resultIndex int
 }
 
-func (m *queryCapturingClient) Execute(_ context.Context, query string) ([]byte, error) {
+func (m *queryCapturingClient) Execute(_ context.Context, query string) error {
 	m.queries = append(m.queries, query)
-	return []byte(`{"written_rows":"1"}`), nil
+	return nil
 }
 
 func (m *queryCapturingClient) QueryOne(_ context.Context, query string, result interface{}) error {

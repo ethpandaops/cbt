@@ -162,25 +162,9 @@ func (a *service) RecordCompletion(ctx context.Context, modelID string, position
 		VALUES (now(), '%s', '%s', %d, %d)
 	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, position, interval)
 
-	body, err := a.client.Execute(ctx, query)
-	if err != nil {
+	if err := a.client.Execute(ctx, query); err != nil {
 		return fmt.Errorf("failed to insert admin record: %w", err)
 	}
-
-	// Log the raw response for debugging (helps troubleshoot issues)
-	if len(body) > 0 {
-		a.log.WithFields(logrus.Fields{
-			"model_id":      modelID,
-			"position":      position,
-			"interval":      interval,
-			"response_body": string(body),
-		}).Debug("Admin table INSERT response")
-	}
-
-	// ClickHouse HTTP INSERT queries return:
-	// - Empty body on success (most common)
-	// - "Ok." or similar text on success
-	// - Error message on failure (already handled by Execute())
 
 	return nil
 }
@@ -557,7 +541,7 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 	`, a.adminDatabase, a.adminTable, consolidationTime.Format("2006-01-02 15:04:05.000"),
 		database, table, rangeResult.StartPos, consolidatedInterval)
 
-	if _, err := a.client.Execute(ctx, insertQuery); err != nil {
+	if err := a.client.Execute(ctx, insertQuery); err != nil {
 		return 0, fmt.Errorf("failed to insert consolidated row: %w", err)
 	}
 
@@ -593,7 +577,7 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 			consolidatedInterval)
 	}
 
-	if _, err := a.client.Execute(ctx, deleteQuery); err != nil {
+	if err := a.client.Execute(ctx, deleteQuery); err != nil {
 		// Log error but don't fail - the consolidated row will eventually replace the old ones
 		// due to ReplacingMergeTree behavior
 		return rangeResult.RowCount, fmt.Errorf("consolidated row inserted but failed to delete old rows: %w", err)
@@ -635,8 +619,7 @@ func (a *service) RecordScheduledCompletion(ctx context.Context, modelID string,
 		VALUES (now(), '%s', '%s', '%s')
 	`, buildTableRef(a.scheduledAdminDatabase, a.scheduledAdminTable), database, table, startDateTime.Format("2006-01-02 15:04:05.000"))
 
-	_, err = a.client.Execute(ctx, query)
-	return err
+	return a.client.Execute(ctx, query)
 }
 
 // GetLastScheduledExecution returns the last execution time for a scheduled transformation

@@ -31,10 +31,9 @@ type AdminConfig struct {
 // Config contains ClickHouse connection and cluster settings
 type Config struct {
 	// URL supports multiple formats:
-	// - Native: clickhouse://user:pass@host:9000/database
-	// - HTTP: http://user:pass@host:8123/database
-	URL      string `yaml:"url" validate:"required"`
-	Database string `yaml:"database"` // Optional, can be specified in URL
+	// - Native: clickhouse://user:pass@host:9000
+	// - HTTP: http://user:pass@host:8123
+	URL string `yaml:"url" validate:"required"`
 
 	Cluster     string `yaml:"cluster"`
 	LocalSuffix string `yaml:"localSuffix"`
