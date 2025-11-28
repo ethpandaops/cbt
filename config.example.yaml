@@ -16,33 +16,45 @@ healthCheckAddr: ":8081"
 # ClickHouse configuration
 clickhouse:
   # Connection URL (required)
-  url: http://localhost:8123
-  
+  # Supports multiple formats:
+  # - Native protocol (recommended): clickhouse://user:pass@localhost:9000/database
+  # - HTTP protocol: http://user:pass@localhost:8123/database
+  # - HTTPS protocol: https://user:pass@localhost:8443/database
+  url: "clickhouse://localhost:9000"
+
+  # Database name (optional if specified in URL)
+  # database: default
+
   # Cluster configuration (optional, for distributed deployments)
   # cluster: "default"
   # localSuffix: "_local"
-  
-  # Admin table configuration (required)
+
+  # Admin table configuration (optional)
   # Each transformation type requires its own admin table
   # admin:
   #   incremental:
   #     database: admin          # Database for incremental transformations
   #     table: cbt_incremental   # Table for incremental transformations
   #   scheduled:
-  #     database: admin          # Database for scheduled transformations 
+  #     database: admin          # Database for scheduled transformations
   #     table: cbt_scheduled     # Table for scheduled transformations
-  
+
   # Query timeout
   queryTimeout: 30s
-  
+
   # Insert timeout
   insertTimeout: 60s
-  
+
   # Enable debug logging for queries
   debug: false
-  
-  # Keep-alive interval
-  keepAlive: 30s
+
+  # Connection pool settings (optional)
+  # maxOpenConns: 10
+  # maxIdleConns: 5
+  # connMaxLifetime: 1h
+
+  # TLS settings (optional, for secure connections)
+  # insecureSkipVerify: false
 
 # Redis configuration
 redis:

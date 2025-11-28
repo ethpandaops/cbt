@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -75,8 +74,8 @@ type GapInfo struct {
 
 // ProcessedRange represents a processed range from the admin table
 type ProcessedRange struct {
-	Position uint64 `json:"position,string"`
-	Interval uint64 `json:"interval,string"`
+	Position uint64 `ch:"position"`
+	Interval uint64 `ch:"interval"`
 }
 
 // service manages the admin tracking table for completed transformations
@@ -200,14 +199,11 @@ func (a *service) GetFirstPosition(ctx context.Context, modelID string) (uint64,
 	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
 
 	var result struct {
-		FirstPos uint64 `json:"first_pos,string"`
+		FirstPos uint64 `ch:"first_pos"`
 	}
 
 	err = a.client.QueryOne(ctx, query, &result)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, nil
-		}
 		return 0, err
 	}
 
@@ -229,14 +225,11 @@ func (a *service) GetNextUnprocessedPosition(ctx context.Context, modelID string
 	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
 
 	var result struct {
-		LastEndPos uint64 `json:"last_end_pos,string"`
+		LastEndPos uint64 `ch:"last_end_pos"`
 	}
 
 	err = a.client.QueryOne(ctx, query, &result)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, nil
-		}
 		return 0, err
 	}
 
@@ -258,14 +251,11 @@ func (a *service) GetLastProcessedPosition(ctx context.Context, modelID string) 
 	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
 
 	var result struct {
-		LastPos uint64 `json:"last_pos,string"`
+		LastPos uint64 `ch:"last_pos"`
 	}
 
 	err = a.client.QueryOne(ctx, query, &result)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, nil
-		}
 		return 0, err
 	}
 
@@ -295,14 +285,11 @@ func (a *service) GetCoverage(ctx context.Context, modelID string, startPos, end
 	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, endPos, startPos, startPos, endPos)
 
 	var result struct {
-		FullyCovered int `json:"fully_covered"`
+		FullyCovered int `ch:"fully_covered"`
 	}
 
 	err = a.client.QueryOne(ctx, query, &result)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
-		}
 		return false, err
 	}
 
@@ -381,8 +368,8 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, minPos, maxPos)
 
 	var gapResults []struct {
-		GapStart uint64 `json:"gap_start,string"`
-		GapEnd   uint64 `json:"gap_end,string"`
+		GapStart uint64 `ch:"gap_start"`
+		GapEnd   uint64 `ch:"gap_end"`
 	}
 
 	err = a.client.QueryMany(ctx, query, &gapResults)
@@ -414,11 +401,11 @@ func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, 
 	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, minPos)
 
 	var firstPosResult struct {
-		FirstPos *uint64 `json:"first_pos,string"`
+		FirstPos *uint64 `ch:"first_pos"`
 	}
 
 	err = a.client.QueryOne(ctx, firstPosQuery, &firstPosResult)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err != nil {
 		return nil, err
 	}
 
@@ -527,16 +514,13 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
 
 	var rangeResult struct {
-		StartPos uint64 `json:"start_pos,string"`
-		EndPos   uint64 `json:"end_pos,string"`
-		RowCount int    `json:"row_count,string"`
+		StartPos uint64 `ch:"start_pos"`
+		EndPos   uint64 `ch:"end_pos"`
+		RowCount int    `ch:"row_count"`
 	}
 
 	err = a.client.QueryOne(ctx, rangeQuery, &rangeResult)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, nil // No contiguous ranges found
-		}
 		return 0, fmt.Errorf("failed to find contiguous ranges: %w", err)
 	}
 
@@ -669,32 +653,19 @@ func (a *service) GetLastScheduledExecution(ctx context.Context, modelID string)
 	`, buildTableRef(a.scheduledAdminDatabase, a.scheduledAdminTable), database, table)
 
 	var result struct {
-		LastExecution *string `json:"last_execution"`
+		LastExecution *time.Time `ch:"last_execution"`
 	}
 
 	err = a.client.QueryOne(ctx, query, &result)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
 		return nil, err
 	}
 
-	if result.LastExecution == nil || *result.LastExecution == "" {
+	if result.LastExecution == nil || result.LastExecution.IsZero() {
 		return nil, nil
 	}
 
-	// Parse ClickHouse datetime format: "2006-01-02 15:04:05.000"
-	t, err := time.Parse("2006-01-02 15:04:05.999", *result.LastExecution)
-	if err != nil {
-		// Try without milliseconds
-		t, err = time.Parse("2006-01-02 15:04:05", *result.LastExecution)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse datetime: %w", err)
-		}
-	}
-
-	return &t, nil
+	return result.LastExecution, nil
 }
 
 // Ensure service implements the interface

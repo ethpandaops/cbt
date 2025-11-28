@@ -319,6 +319,96 @@ func TestFlexUint64(t *testing.T) {
 	}
 }
 
+func TestFlexUint64Scan(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       interface{}
+		expected    uint64
+		expectError bool
+	}{
+		{
+			name:        "int64 value",
+			input:       int64(12345),
+			expected:    12345,
+			expectError: false,
+		},
+		{
+			name:        "uint64 value",
+			input:       uint64(67890),
+			expected:    67890,
+			expectError: false,
+		},
+		{
+			name:        "int value",
+			input:       int(111),
+			expected:    111,
+			expectError: false,
+		},
+		{
+			name:        "int32 value",
+			input:       int32(222),
+			expected:    222,
+			expectError: false,
+		},
+		{
+			name:        "uint32 value",
+			input:       uint32(333),
+			expected:    333,
+			expectError: false,
+		},
+		{
+			name:        "float64 value",
+			input:       float64(444),
+			expected:    444,
+			expectError: false,
+		},
+		{
+			name:        "string value",
+			input:       "12345",
+			expected:    12345,
+			expectError: false,
+		},
+		{
+			name:        "[]byte value",
+			input:       []byte("67890"),
+			expected:    67890,
+			expectError: false,
+		},
+		{
+			name:        "nil value",
+			input:       nil,
+			expected:    0,
+			expectError: true,
+		},
+		{
+			name:        "invalid string",
+			input:       "not_a_number",
+			expected:    0,
+			expectError: true,
+		},
+		{
+			name:        "unsupported type",
+			input:       true,
+			expected:    0,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var f FlexUint64
+			err := f.Scan(tt.input)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, uint64(f))
+			}
+		})
+	}
+}
+
 func TestApplyLag(t *testing.T) {
 	tests := []struct {
 		name        string

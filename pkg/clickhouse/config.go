@@ -30,14 +30,28 @@ type AdminConfig struct {
 
 // Config contains ClickHouse connection and cluster settings
 type Config struct {
-	URL           string        `yaml:"url" validate:"required,url"`
-	Cluster       string        `yaml:"cluster"`
-	LocalSuffix   string        `yaml:"localSuffix"`
+	// URL supports multiple formats:
+	// - Native: clickhouse://user:pass@host:9000/database
+	// - HTTP: http://user:pass@host:8123/database
+	URL      string `yaml:"url" validate:"required"`
+	Database string `yaml:"database"` // Optional, can be specified in URL
+
+	Cluster     string `yaml:"cluster"`
+	LocalSuffix string `yaml:"localSuffix"`
+
 	QueryTimeout  time.Duration `yaml:"queryTimeout"`
 	InsertTimeout time.Duration `yaml:"insertTimeout"`
 	Debug         bool          `yaml:"debug"`
-	KeepAlive     time.Duration `yaml:"keepAlive"`
-	Admin         AdminConfig   `yaml:"admin"`
+
+	// Connection pool settings
+	MaxOpenConns    int           `yaml:"maxOpenConns"`
+	MaxIdleConns    int           `yaml:"maxIdleConns"`
+	ConnMaxLifetime time.Duration `yaml:"connMaxLifetime"`
+
+	// TLS settings
+	InsecureSkipVerify bool `yaml:"insecureSkipVerify"`
+
+	Admin AdminConfig `yaml:"admin"`
 }
 
 // Validate checks if the configuration is valid
@@ -57,10 +71,6 @@ func (c *Config) SetDefaults() {
 
 	if c.InsertTimeout == 0 {
 		c.InsertTimeout = 5 * time.Minute
-	}
-
-	if c.KeepAlive == 0 {
-		c.KeepAlive = 30 * time.Second
 	}
 
 	// Set defaults for admin config

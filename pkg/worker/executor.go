@@ -169,9 +169,10 @@ func (e *ModelExecutor) queryExternalBounds(ctx context.Context, modelID string,
 	}
 
 	// Execute the query to get bounds
+	// Use FlexUint64 to handle cases where SQL returns string literals (e.g., cached values)
 	var result struct {
-		Min validation.FlexUint64 `json:"min"`
-		Max validation.FlexUint64 `json:"max"`
+		Min validation.FlexUint64 `ch:"min"`
+		Max validation.FlexUint64 `ch:"max"`
 	}
 
 	e.log.WithFields(logrus.Fields{
