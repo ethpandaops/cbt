@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -501,12 +502,8 @@ type mockClickhouseClient struct {
 	executeError   error
 }
 
-func (m *mockClickhouseClient) Execute(_ context.Context, _ string) ([]byte, error) {
-	if m.executeError != nil {
-		return nil, m.executeError
-	}
-	// Return a mock response with 1 row written
-	return []byte(`{"written_rows":"1"}`), nil
+func (m *mockClickhouseClient) Execute(_ context.Context, _ string) error {
+	return m.executeError
 }
 
 func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, result interface{}) error {
@@ -514,29 +511,30 @@ func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, result inte
 		return m.queryError
 	}
 
-	// Handle different result types based on what's being queried
-	switch v := result.(type) {
-	case *struct {
-		LastPos uint64 `json:"last_pos,string"`
-	}:
-		v.LastPos = m.queryResult
-	case *struct {
-		LastEndPos uint64 `json:"last_end_pos,string"`
-	}:
-		v.LastEndPos = m.queryResult
-	case *struct {
-		FirstPos uint64 `json:"first_pos,string"`
-	}:
-		v.FirstPos = m.queryResult
-	case *struct {
-		FullyCovered int `json:"fully_covered"`
-	}:
-		if m.coverageResult {
-			v.FullyCovered = 1
-		} else {
-			v.FullyCovered = 0
+	// Use reflection to set fields by name, avoiding struct tag mismatches
+	v := reflect.ValueOf(result).Elem()
+	t := v.Type()
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		fieldValue := v.Field(i)
+
+		switch field.Name {
+		case "LastPos", "LastEndPos", "FirstPos":
+			if fieldValue.Kind() == reflect.Uint64 {
+				fieldValue.SetUint(m.queryResult)
+			}
+		case "FullyCovered":
+			if fieldValue.Kind() == reflect.Int {
+				if m.coverageResult {
+					fieldValue.SetInt(1)
+				} else {
+					fieldValue.SetInt(0)
+				}
+			}
 		}
 	}
+
 	return nil
 }
 
@@ -545,21 +543,27 @@ func (m *mockClickhouseClient) QueryMany(_ context.Context, _ string, result int
 		return m.queryError
 	}
 
-	// Handle gap results
-	if gaps, ok := result.(*[]struct {
-		GapStart uint64 `json:"gap_start,string"`
-		GapEnd   uint64 `json:"gap_end,string"`
-	}); ok {
-		for _, gap := range m.gaps {
-			*gaps = append(*gaps, struct {
-				GapStart uint64 `json:"gap_start,string"`
-				GapEnd   uint64 `json:"gap_end,string"`
-			}{
-				GapStart: gap.StartPos,
-				GapEnd:   gap.EndPos,
-			})
+	// Use reflection to handle gap results regardless of struct tags
+	slicePtr := reflect.ValueOf(result)
+	if slicePtr.Kind() != reflect.Ptr || slicePtr.Elem().Kind() != reflect.Slice {
+		return nil
+	}
+
+	slice := slicePtr.Elem()
+	elemType := slice.Type().Elem()
+
+	// Check if this is a gap-like struct (has GapStart and GapEnd fields)
+	if _, hasGapStart := elemType.FieldByName("GapStart"); hasGapStart {
+		if _, hasGapEnd := elemType.FieldByName("GapEnd"); hasGapEnd {
+			for _, gap := range m.gaps {
+				newElem := reflect.New(elemType).Elem()
+				newElem.FieldByName("GapStart").SetUint(gap.StartPos)
+				newElem.FieldByName("GapEnd").SetUint(gap.EndPos)
+				slice.Set(reflect.Append(slice, newElem))
+			}
 		}
 	}
+
 	return nil
 }
 
@@ -581,60 +585,40 @@ var _ clickhouse.ClientInterface = (*mockClickhouseClient)(nil)
 // Test ConsolidateHistoricalData
 func TestConsolidateHistoricalData(t *testing.T) {
 	tests := []struct {
-		name            string
-		modelID         string
-		mockRangeResult *struct {
-			StartPos uint64 `json:"start_pos,string"`
-			EndPos   uint64 `json:"end_pos,string"`
-			RowCount int    `json:"row_count,string"`
-		}
+		name                string
+		modelID             string
+		rangeStartPos       uint64
+		rangeEndPos         uint64
+		rangeRowCount       int
 		mockRangeError      error
 		expectedRowsDeleted int
 		wantErr             bool
 		errMatch            error
 	}{
 		{
-			name:    "successful consolidation",
-			modelID: "database.table",
-			mockRangeResult: &struct {
-				StartPos uint64 `json:"start_pos,string"`
-				EndPos   uint64 `json:"end_pos,string"`
-				RowCount int    `json:"row_count,string"`
-			}{
-				StartPos: 0,
-				EndPos:   400,
-				RowCount: 4,
-			},
+			name:                "successful consolidation",
+			modelID:             "database.table",
+			rangeStartPos:       0,
+			rangeEndPos:         400,
+			rangeRowCount:       4,
 			expectedRowsDeleted: 4,
 			wantErr:             false,
 		},
 		{
-			name:    "no consolidation needed (no ranges found)",
-			modelID: "database.empty",
-			mockRangeResult: &struct {
-				StartPos uint64 `json:"start_pos,string"`
-				EndPos   uint64 `json:"end_pos,string"`
-				RowCount int    `json:"row_count,string"`
-			}{
-				StartPos: 0,
-				EndPos:   0,
-				RowCount: 0,
-			},
+			name:                "no consolidation needed (no ranges found)",
+			modelID:             "database.empty",
+			rangeStartPos:       0,
+			rangeEndPos:         0,
+			rangeRowCount:       0,
 			expectedRowsDeleted: 0,
 			wantErr:             false,
 		},
 		{
-			name:    "single row found (should not consolidate)",
-			modelID: "database.single",
-			mockRangeResult: &struct {
-				StartPos uint64 `json:"start_pos,string"`
-				EndPos   uint64 `json:"end_pos,string"`
-				RowCount int    `json:"row_count,string"`
-			}{
-				StartPos: 100,
-				EndPos:   200,
-				RowCount: 1,
-			},
+			name:                "single row found (should not consolidate)",
+			modelID:             "database.single",
+			rangeStartPos:       100,
+			rangeEndPos:         200,
+			rangeRowCount:       1,
 			expectedRowsDeleted: 0,
 			wantErr:             false,
 		},
@@ -650,8 +634,10 @@ func TestConsolidateHistoricalData(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockClient := &consolidationMockClient{
-				rangeResult: tt.mockRangeResult,
-				rangeError:  tt.mockRangeError,
+				rangeStartPos: tt.rangeStartPos,
+				rangeEndPos:   tt.rangeEndPos,
+				rangeRowCount: tt.rangeRowCount,
+				rangeError:    tt.mockRangeError,
 			}
 			log := logrus.New()
 			log.SetLevel(logrus.WarnLevel)
@@ -832,22 +818,17 @@ func TestConsolidateHistoricalDataClusterMode(t *testing.T) {
 
 // consolidationMockClient is a specialized mock for consolidation testing
 type consolidationMockClient struct {
-	rangeResult *struct {
-		StartPos uint64 `json:"start_pos,string"`
-		EndPos   uint64 `json:"end_pos,string"`
-		RowCount int    `json:"row_count,string"`
-	}
-	rangeError   error
-	executeError error
-	queries      []string
+	rangeStartPos uint64
+	rangeEndPos   uint64
+	rangeRowCount int
+	rangeError    error
+	executeError  error
+	queries       []string
 }
 
-func (m *consolidationMockClient) Execute(_ context.Context, query string) ([]byte, error) {
+func (m *consolidationMockClient) Execute(_ context.Context, query string) error {
 	m.queries = append(m.queries, query)
-	if m.executeError != nil {
-		return nil, m.executeError
-	}
-	return []byte(`{"written_rows":"1"}`), nil
+	return m.executeError
 }
 
 func (m *consolidationMockClient) QueryOne(_ context.Context, query string, result interface{}) error {
@@ -857,13 +838,19 @@ func (m *consolidationMockClient) QueryOne(_ context.Context, query string, resu
 		return m.rangeError
 	}
 
-	// Handle consolidation range query
-	if v, ok := result.(*struct {
-		StartPos uint64 `json:"start_pos,string"`
-		EndPos   uint64 `json:"end_pos,string"`
-		RowCount int    `json:"row_count,string"`
-	}); ok && m.rangeResult != nil {
-		*v = *m.rangeResult
+	// Use reflection to set fields by name
+	v := reflect.ValueOf(result).Elem()
+
+	if startPosField := v.FieldByName("StartPos"); startPosField.IsValid() && startPosField.CanSet() {
+		startPosField.SetUint(m.rangeStartPos)
+	}
+
+	if endPosField := v.FieldByName("EndPos"); endPosField.IsValid() && endPosField.CanSet() {
+		endPosField.SetUint(m.rangeEndPos)
+	}
+
+	if rowCountField := v.FieldByName("RowCount"); rowCountField.IsValid() && rowCountField.CanSet() {
+		rowCountField.SetInt(int64(m.rangeRowCount))
 	}
 
 	return nil
@@ -1035,45 +1022,44 @@ type queryCapturingClient struct {
 	resultIndex int
 }
 
-func (m *queryCapturingClient) Execute(_ context.Context, query string) ([]byte, error) {
+func (m *queryCapturingClient) Execute(_ context.Context, query string) error {
 	m.queries = append(m.queries, query)
-	return []byte(`{"written_rows":"1"}`), nil
+	return nil
 }
 
 func (m *queryCapturingClient) QueryOne(_ context.Context, query string, result interface{}) error {
 	m.queries = append(m.queries, query)
 
-	// Handle consolidation range query - always populate this
-	if v, ok := result.(*struct {
-		StartPos uint64 `json:"start_pos,string"`
-		EndPos   uint64 `json:"end_pos,string"`
-		RowCount int    `json:"row_count,string"`
-	}); ok {
-		v.StartPos = 1000
-		v.EndPos = 2000
-		v.RowCount = 5
-		return nil
+	// Use reflection to set fields by name, avoiding struct tag mismatches
+	v := reflect.ValueOf(result).Elem()
+
+	// Handle consolidation range query fields
+	if startPosField := v.FieldByName("StartPos"); startPosField.IsValid() && startPosField.CanSet() {
+		startPosField.SetUint(1000)
 	}
 
-	// Return other mock results if available
-	if m.resultIndex < len(m.mockResults) {
-		// Simple type assertion - in real tests you'd handle this better
-		switch v := result.(type) {
-		case *struct {
-			FirstPos uint64 `json:"first_pos,string"`
-		}:
-			v.FirstPos = 1000 // Default value
-		case *struct {
-			LastEndPos uint64 `json:"last_end_pos,string"`
-		}:
-			v.LastEndPos = 2000 // Default value
-		case *struct {
-			LastPos uint64 `json:"last_pos,string"`
-		}:
-			v.LastPos = 1500 // Default value
-		}
-		m.resultIndex++
+	if endPosField := v.FieldByName("EndPos"); endPosField.IsValid() && endPosField.CanSet() {
+		endPosField.SetUint(2000)
 	}
+
+	if rowCountField := v.FieldByName("RowCount"); rowCountField.IsValid() && rowCountField.CanSet() {
+		rowCountField.SetInt(5)
+	}
+
+	// Handle other query result fields
+	if firstPosField := v.FieldByName("FirstPos"); firstPosField.IsValid() && firstPosField.CanSet() {
+		firstPosField.SetUint(1000)
+	}
+
+	if lastEndPosField := v.FieldByName("LastEndPos"); lastEndPosField.IsValid() && lastEndPosField.CanSet() {
+		lastEndPosField.SetUint(2000)
+	}
+
+	if lastPosField := v.FieldByName("LastPos"); lastPosField.IsValid() && lastPosField.CanSet() {
+		lastPosField.SetUint(1500)
+	}
+
+	m.resultIndex++
 
 	return nil
 }

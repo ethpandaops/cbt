@@ -14,7 +14,7 @@ func TableExists(ctx context.Context, client ClientInterface, database, table st
 	`, database, table)
 
 	var result struct {
-		Count uint64 `json:"count,string"`
+		Count uint64 `ch:"count"`
 	}
 
 	err := client.QueryOne(ctx, query, &result)

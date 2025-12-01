@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,6 @@ import (
 	"github.com/ethpandaops/cbt/pkg/models/external"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/tasks"
-	"github.com/ethpandaops/cbt/pkg/validation"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -297,10 +297,8 @@ func TestModelExecutor_UpdateBounds(t *testing.T) {
 					},
 				}
 				m.renderedSQL = "SELECT min(id), max(id) FROM test.external"
-				ch.queryResult = &struct {
-					Min validation.FlexUint64 `json:"min"`
-					Max validation.FlexUint64 `json:"max"`
-				}{Min: 1, Max: 100}
+				ch.boundsMin = 1
+				ch.boundsMax = 100
 			},
 			modelID: "test.external",
 			wantErr: false,
@@ -326,10 +324,8 @@ func TestModelExecutor_UpdateBounds(t *testing.T) {
 					},
 				}
 				m.renderedSQL = "SELECT min(id), max(id) FROM test.external"
-				ch.queryResult = &struct {
-					Min validation.FlexUint64 `json:"min"`
-					Max validation.FlexUint64 `json:"max"`
-				}{Min: 100, Max: 200}
+				ch.boundsMin = 100
+				ch.boundsMax = 200
 			},
 			modelID: "test.external",
 			wantErr: false,
@@ -358,10 +354,8 @@ func TestModelExecutor_UpdateBounds(t *testing.T) {
 					},
 				}
 				m.renderedSQL = "SELECT min(id), max(id) FROM test.external WHERE ..."
-				ch.queryResult = &struct {
-					Min validation.FlexUint64 `json:"min"`
-					Max validation.FlexUint64 `json:"max"`
-				}{Min: 100, Max: 250}
+				ch.boundsMin = 100
+				ch.boundsMax = 250
 			},
 			modelID: "test.external",
 			wantErr: false,
@@ -440,53 +434,51 @@ type mockExecutorClickhouseClient struct {
 	tableExistsErr error
 	executeErr     error
 	queryOneErr    error
-	queryResult    interface{}
+	boundsMin      uint64
+	boundsMax      uint64
 }
 
 func (m *mockExecutorClickhouseClient) QueryOne(_ context.Context, query string, result interface{}) error {
 	if m.queryOneErr != nil {
 		return m.queryOneErr
 	}
+
 	if m.tableExistsErr != nil {
 		return m.tableExistsErr
 	}
-	// Handle TableExists query
+
+	// Use reflection to set fields regardless of struct tags
+	v := reflect.ValueOf(result).Elem()
+
+	// Handle TableExists query (Count field)
 	if strings.Contains(query, "system.tables") {
-		r, ok := result.(*struct {
-			Count uint64 `json:"count,string"`
-		})
-		if !ok {
-			return nil
-		}
-		if m.tableExists {
-			r.Count = 1
-		} else {
-			r.Count = 0
-		}
-		return nil
-	}
-	// Handle bounds query
-	if m.queryResult != nil {
-		if boundsResult, ok := result.(*struct {
-			Min validation.FlexUint64 `json:"min"`
-			Max validation.FlexUint64 `json:"max"`
-		}); ok {
-			if mockResult, ok := m.queryResult.(*struct {
-				Min validation.FlexUint64 `json:"min"`
-				Max validation.FlexUint64 `json:"max"`
-			}); ok {
-				boundsResult.Min = mockResult.Min
-				boundsResult.Max = mockResult.Max
+		if countField := v.FieldByName("Count"); countField.IsValid() && countField.CanSet() {
+			if m.tableExists {
+				countField.SetUint(1)
+			} else {
+				countField.SetUint(0)
 			}
 		}
+
+		return nil
 	}
+
+	// Handle bounds query (Min and Max fields)
+	if minField := v.FieldByName("Min"); minField.IsValid() && minField.CanSet() {
+		minField.SetUint(m.boundsMin)
+	}
+
+	if maxField := v.FieldByName("Max"); maxField.IsValid() && maxField.CanSet() {
+		maxField.SetUint(m.boundsMax)
+	}
+
 	return nil
 }
 func (m *mockExecutorClickhouseClient) QueryMany(_ context.Context, _ string, _ interface{}) error {
 	return nil
 }
-func (m *mockExecutorClickhouseClient) Execute(_ context.Context, _ string) ([]byte, error) {
-	return nil, m.executeErr
+func (m *mockExecutorClickhouseClient) Execute(_ context.Context, _ string) error {
+	return m.executeErr
 }
 func (m *mockExecutorClickhouseClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
 	return nil
