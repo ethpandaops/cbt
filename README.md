@@ -140,20 +140,19 @@ worker:
 #   env:
 #     API_KEY: "your_api_key_here"
 #     ENVIRONMENT: "production"
-#
-# # Model overrides for environment-specific adjustments (optional)
-# # Override transformation model configurations without modifying base definitions
-# overrides:
-#   # Disable specific models
-#   analytics.expensive_model:
-#     enabled: false
-#   # Customize model settings
-#   analytics.hourly_stats:
-#     config:
-#       interval:
-#         max: 7200  # Override interval
-#       schedules:
-#         backfill: ""  # Disable backfill (use empty string)
+#   # Model overrides for environment-specific adjustments (optional)
+#   # Override transformation model configurations without modifying base definitions
+#   overrides:
+#     # Disable specific models
+#     analytics.expensive_model:
+#       enabled: false
+#     # Customize model settings
+#     analytics.hourly_stats:
+#       config:
+#         interval:
+#           max: 7200  # Override interval
+#         schedules:
+#           backfill: ""  # Disable backfill (use empty string)
 
 # Frontend service configuration
 frontend:
@@ -209,7 +208,7 @@ CBT supports configuration overrides for transformation models, allowing you to 
 
 #### Override Configuration
 
-Add an `overrides` section to your config to customize specific models. You can reference models in two ways:
+Add an `overrides` section under `models` in your config to customize specific models. You can reference models in two ways:
 
 1. **Full ID format**: `database.table` - Always works for any model
 2. **Table-only format**: `table` - Works for models using the default database
@@ -219,33 +218,32 @@ Add an `overrides` section to your config to customize specific models. You can 
 models:
   transformations:
     defaultDatabase: "analytics"
+  # Override specific transformation models (nested under models)
+  overrides:
+    # Full ID format - explicit and always works
+    analytics.expensive_model:
+      enabled: false
 
-# Override specific transformation models
-overrides:
-  # Full ID format - explicit and always works
-  analytics.expensive_model:
-    enabled: false
-  
-  # Table-only format - cleaner when using default database
-  hourly_block_stats:  # Equivalent to analytics.hourly_block_stats
-    config:
-      interval:
-        max: 7200  # Increase interval to 2 hours (staging environment)
-      schedules:
-        forwardfill: "@every 10m"  # Slower schedule for staging
-        backfill: ""  # Disable backfill (use empty string)
-  
-  # Models with custom databases must use full ID
-  custom_db.special_model:
-    config:
-      schedules:
-        forwardfill: "@every 5m"
-  
-  # You can mix both formats
-  entity_changes:  # Uses default database (analytics)
-    config:
-      tags:
-        - "staging-only"
+    # Table-only format - cleaner when using default database
+    hourly_block_stats:  # Equivalent to analytics.hourly_block_stats
+      config:
+        interval:
+          max: 7200  # Increase interval to 2 hours (staging environment)
+        schedules:
+          forwardfill: "@every 10m"  # Slower schedule for staging
+          backfill: ""  # Disable backfill (use empty string)
+
+    # Models with custom databases must use full ID
+    custom_db.special_model:
+      config:
+        schedules:
+          forwardfill: "@every 5m"
+
+    # You can mix both formats
+    entity_changes:  # Uses default database (analytics)
+      config:
+        tags:
+          - "staging-only"
 ```
 
 **Note**: If both formats exist for the same model, the full ID format takes precedence.
@@ -270,63 +268,67 @@ Overrides apply different fields based on the transformation type:
 
 **Staging Environment:**
 ```yaml
-# Assuming defaultDatabase: "analytics"
-overrides:
-  # Incremental transformation: reduce resource usage in staging (table-only format)
-  heavy_aggregation:
-    config:
-      interval:
-        max: 14400  # Process larger chunks less frequently
-      schedules:
-        forwardfill: "@every 30m"
-        backfill: ""  # No backfill in staging (use empty string)
+models:
+  transformations:
+    defaultDatabase: "analytics"
+  overrides:
+    # Incremental transformation: reduce resource usage in staging (table-only format)
+    heavy_aggregation:
+      config:
+        interval:
+          max: 14400  # Process larger chunks less frequently
+        schedules:
+          forwardfill: "@every 30m"
+          backfill: ""  # No backfill in staging (use empty string)
 
-  # Scheduled transformation: slow down refresh rate
-  exchange_rates:
-    config:
-      schedule: "@every 2h"  # Less frequent in staging
+    # Scheduled transformation: slow down refresh rate
+    exchange_rates:
+      config:
+        schedule: "@every 2h"  # Less frequent in staging
 
-  # Disable production-only models (table-only format)
-  production_reporting:
-    enabled: false
+    # Disable production-only models (table-only format)
+    production_reporting:
+      enabled: false
 ```
 
 **Production Environment:**
 ```yaml
-overrides:
-  # Disable debug/test models in production
-  analytics.debug_tracker:
-    enabled: false
+models:
+  overrides:
+    # Disable debug/test models in production
+    analytics.debug_tracker:
+      enabled: false
 
-  # Incremental: ensure critical models run frequently
-  analytics.real_time_metrics:
-    config:
-      schedules:
-        forwardfill: "@every 30s"
-        backfill: "@every 1m"
+    # Incremental: ensure critical models run frequently
+    analytics.real_time_metrics:
+      config:
+        schedules:
+          forwardfill: "@every 30s"
+          backfill: "@every 1m"
 
-  # Scheduled: increase refresh rate for production
-  reference.user_cache:
-    config:
-      schedule: "@every 5m"
+    # Scheduled: increase refresh rate for production
+    reference.user_cache:
+      config:
+        schedule: "@every 5m"
 ```
 
 **Development Environment:**
 ```yaml
-overrides:
-  # Incremental: process limited data ranges for testing
-  analytics.block_stats:
-    config:
-      limits:
-        min: 1000000  # Start from specific position
-        max: 2000000  # Stop at specific position
-      schedules:
-        forwardfill: "@every 5m"  # Less frequent for development
+models:
+  overrides:
+    # Incremental: process limited data ranges for testing
+    analytics.block_stats:
+      config:
+        limits:
+          min: 1000000  # Start from specific position
+          max: 2000000  # Stop at specific position
+        schedules:
+          forwardfill: "@every 5m"  # Less frequent for development
 
-  # Scheduled: run less frequently in dev
-  metrics.daily_summary:
-    config:
-      schedule: "@daily"
+    # Scheduled: run less frequently in dev
+    metrics.daily_summary:
+      config:
+        schedule: "@daily"
 ```
 
 #### How Overrides Work
