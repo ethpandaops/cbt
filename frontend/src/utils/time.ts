@@ -7,6 +7,25 @@ export function timeAgo(timestamp: string | null | undefined): string {
   const now = new Date();
   const past = new Date(timestamp);
   const diffMs = now.getTime() - past.getTime();
+
+  // Handle future timestamps (negative diff means timestamp is in the future)
+  if (diffMs < 0) {
+    const futureSecs = Math.floor(Math.abs(diffMs) / 1000);
+    const futureMins = Math.floor(futureSecs / 60);
+    const futureHours = Math.floor(futureMins / 60);
+    const futureDays = Math.floor(futureHours / 24);
+
+    if (futureDays > 0) {
+      return futureDays === 1 ? 'in 1 day' : `in ${futureDays} days`;
+    } else if (futureHours > 0) {
+      return futureHours === 1 ? 'in 1 hour' : `in ${futureHours} hours`;
+    } else if (futureMins > 0) {
+      return futureMins === 1 ? 'in 1 min' : `in ${futureMins} mins`;
+    } else {
+      return futureSecs <= 1 ? 'in a moment' : `in ${futureSecs} secs`;
+    }
+  }
+
   const diffSecs = Math.floor(diffMs / 1000);
   const diffMins = Math.floor(diffSecs / 60);
   const diffHours = Math.floor(diffMins / 60);

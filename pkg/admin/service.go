@@ -604,7 +604,7 @@ func (a *service) RecordScheduledCompletion(ctx context.Context, modelID string,
 	query := fmt.Sprintf(`
 		INSERT INTO %s (updated_date_time, database, table, start_date_time)
 		VALUES (now(), '%s', '%s', '%s')
-	`, buildTableRef(a.scheduledAdminDatabase, a.scheduledAdminTable), database, table, startDateTime.Format("2006-01-02 15:04:05.000"))
+	`, buildTableRef(a.scheduledAdminDatabase, a.scheduledAdminTable), database, table, startDateTime.UTC().Format("2006-01-02 15:04:05.000"))
 
 	return a.client.Execute(ctx, query)
 }
@@ -635,7 +635,10 @@ func (a *service) GetLastScheduledExecution(ctx context.Context, modelID string)
 		return nil, nil
 	}
 
-	return result.LastExecution, nil
+	// Ensure the timestamp is in UTC to match how we store it
+	utcTime := result.LastExecution.UTC()
+
+	return &utcTime, nil
 }
 
 // Ensure service implements the interface
