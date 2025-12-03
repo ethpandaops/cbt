@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -380,7 +381,7 @@ func (e *ModelExecutor) executeCommand(ctx context.Context, taskCtx *tasks.TaskC
 	// Execute command
 	// #nosec G204 -- Model exec commands are defined by trusted model files
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	cmd.Env = append(cmd.Env, *env...)
+	cmd.Env = append(os.Environ(), *env...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
