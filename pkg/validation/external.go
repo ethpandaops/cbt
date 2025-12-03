@@ -57,30 +57,60 @@ func (f *FlexUint64) Scan(src interface{}) error {
 	}
 
 	switch v := src.(type) {
+	case string:
+		return f.scanString(v)
+	case []byte:
+		return f.scanString(string(v))
+	default:
+		return f.scanNumeric(src)
+	}
+}
+
+// scanString parses a string value as uint64
+func (f *FlexUint64) scanString(s string) error {
+	parsed, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return fmt.Errorf("%w: failed to parse string %q as uint64: %w", ErrInvalidUint64, s, err)
+	}
+
+	*f = FlexUint64(parsed)
+
+	return nil
+}
+
+// scanNumeric handles all numeric types (int8-64, uint8-64, float64)
+//
+//nolint:gosec // bounds checked by caller context
+func (f *FlexUint64) scanNumeric(src interface{}) error {
+	switch v := src.(type) {
 	case int64:
-		*f = FlexUint64(v) //nolint:gosec // bounds checked by caller context
+		*f = FlexUint64(v)
 	case uint64:
 		*f = FlexUint64(v)
 	case int:
-		*f = FlexUint64(v) //nolint:gosec // bounds checked by caller context
-	case int32:
-		*f = FlexUint64(v) //nolint:gosec // bounds checked by caller context
-	case uint32:
 		*f = FlexUint64(v)
+	case int8, int16, int32:
+		// Use type switch to convert smaller signed ints
+		switch n := v.(type) {
+		case int8:
+			*f = FlexUint64(n)
+		case int16:
+			*f = FlexUint64(n)
+		case int32:
+			*f = FlexUint64(n)
+		}
+	case uint8, uint16, uint32:
+		// Use type switch to convert smaller unsigned ints
+		switch n := v.(type) {
+		case uint8:
+			*f = FlexUint64(n)
+		case uint16:
+			*f = FlexUint64(n)
+		case uint32:
+			*f = FlexUint64(n)
+		}
 	case float64:
-		*f = FlexUint64(v) //nolint:gosec // bounds checked by caller context
-	case string:
-		parsed, err := strconv.ParseUint(v, 10, 64)
-		if err != nil {
-			return fmt.Errorf("%w: failed to parse string %q as uint64: %w", ErrInvalidUint64, v, err)
-		}
-		*f = FlexUint64(parsed)
-	case []byte:
-		parsed, err := strconv.ParseUint(string(v), 10, 64)
-		if err != nil {
-			return fmt.Errorf("%w: failed to parse bytes %q as uint64: %w", ErrInvalidUint64, string(v), err)
-		}
-		*f = FlexUint64(parsed)
+		*f = FlexUint64(v)
 	default:
 		return fmt.Errorf("%w: unsupported type %T", ErrInvalidUint64, src)
 	}

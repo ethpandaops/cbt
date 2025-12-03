@@ -310,6 +310,30 @@ func TestFlexUint64Scan(t *testing.T) {
 			expectError: false,
 		},
 		{
+			name:        "int8 value",
+			input:       int8(42),
+			expected:    42,
+			expectError: false,
+		},
+		{
+			name:        "uint8 value",
+			input:       uint8(255),
+			expected:    255,
+			expectError: false,
+		},
+		{
+			name:        "int16 value",
+			input:       int16(1000),
+			expected:    1000,
+			expectError: false,
+		},
+		{
+			name:        "uint16 value",
+			input:       uint16(65535),
+			expected:    65535,
+			expectError: false,
+		},
+		{
 			name:        "int32 value",
 			input:       int32(222),
 			expected:    222,
