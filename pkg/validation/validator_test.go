@@ -625,6 +625,7 @@ func (m *mockDAGReader) IsPathBetween(_, _ string) bool                  { retur
 type mockAdmin struct {
 	lastPositions  map[string]uint64
 	firstPositions map[string]uint64
+	gaps           map[string][]admin.GapInfo
 	coverage       bool
 	slowOperation  bool
 	operationDelay time.Duration
@@ -686,7 +687,12 @@ func (m *mockAdmin) GetCoverage(ctx context.Context, _ string, _, _ uint64) (boo
 	return m.coverage, nil
 }
 
-func (m *mockAdmin) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
+func (m *mockAdmin) FindGaps(_ context.Context, modelID string, _, _, _ uint64) ([]admin.GapInfo, error) {
+	if m.gaps != nil {
+		if gaps, ok := m.gaps[modelID]; ok {
+			return gaps, nil
+		}
+	}
 	return []admin.GapInfo{}, nil
 }
 
