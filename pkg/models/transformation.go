@@ -1,5 +1,7 @@
 package models
 
+//go:generate mockgen -package mock -destination mock/transformation.mock.go -source transformation.go Transformation
+
 import (
 	"errors"
 	"fmt"

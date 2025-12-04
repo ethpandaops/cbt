@@ -1,5 +1,7 @@
 package admin
 
+//go:generate mockgen -package mock -destination mock/service.mock.go -source service.go Service
+
 import (
 	"context"
 	"errors"

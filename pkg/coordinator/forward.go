@@ -5,6 +5,7 @@ import (
 
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
+	"github.com/ethpandaops/cbt/pkg/validation"
 	"github.com/sirupsen/logrus"
 )
 
@@ -82,7 +83,7 @@ func (s *service) getProcessingPosition(ctx context.Context, trans models.Transf
 	if nextPos == 0 {
 		s.log.WithField("model_id", trans.GetID()).Debug("No data processed yet, calculating initial position")
 
-		initialPos, err := s.validator.GetInitialPosition(ctx, trans.GetID())
+		initialPos, err := s.validator.GetStartPosition(ctx, trans.GetID())
 		if err != nil {
 			s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to calculate initial position")
 			return 0, err
@@ -162,7 +163,7 @@ func (s *service) calculateProcessingInterval(ctx context.Context, trans models.
 // Returns the adjusted interval and whether processing should stop
 func (s *service) adjustIntervalForDependencies(ctx context.Context, trans models.Transformation, nextPos, interval uint64) (uint64, bool) {
 	// Get the valid range based on dependencies
-	_, maxValid, err := s.validator.GetValidRange(ctx, trans.GetID())
+	_, maxValid, err := s.validator.GetValidRange(ctx, trans.GetID(), validation.Union)
 	if err != nil || maxValid == 0 || nextPos >= maxValid {
 		// Can't determine valid range or position already beyond range
 		return interval, false

@@ -7,6 +7,7 @@ import (
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/observability"
+	"github.com/ethpandaops/cbt/pkg/validation"
 	"github.com/sirupsen/logrus"
 )
 
@@ -261,28 +262,53 @@ func (s *service) getBackfillBounds(ctx context.Context, modelID string) (lastPo
 	return lastPos, lastEndPos, true
 }
 
-// calculateBackfillScanRange determines the range to scan for gaps
+// calculateBackfillScanRange determines the range to scan for gaps.
+// The range is constrained by both the last processed position and dependency coverage
+// to ensure we don't scan for gaps in regions where dependencies have no data.
+// Uses GetValidRangeForBackfill which calculates the intersection of all dependencies
+// (where ALL dependencies have data), not the union used by forward fill.
 func (s *service) calculateBackfillScanRange(ctx context.Context, trans models.Transformation, lastEndPos uint64) (*backfillScanRange, error) {
-	// Get initial position based on dependencies
-	initialPos, err := s.validator.GetEarliestPosition(ctx, trans.GetID())
+	modelID := trans.GetID()
+
+	// Get valid range for backfill using intersection semantics.
+	// This ensures we only scan where ALL dependencies have data.
+	minValid, maxValid, err := s.validator.GetValidRange(ctx, modelID, validation.Intersection)
 	if err != nil {
+		s.log.WithError(err).WithFields(logrus.Fields{
+			"model_id": modelID,
+		}).Debug("Failed to get valid range for backfill")
+
 		return nil, err
 	}
 
-	s.log.WithFields(logrus.Fields{
-		"model_id":               trans.GetID(),
-		"calculated_initial_pos": initialPos,
-		"based_on":               "dependency analysis",
-	}).Debug("Calculated earliest position from dependencies")
+	initialPos := minValid
 
-	// Apply minimum limit if configured
-	var maxPos uint64
+	s.log.WithFields(logrus.Fields{
+		"model_id":               modelID,
+		"calculated_initial_pos": initialPos,
+		"dependency_max_valid":   maxValid,
+		"last_end_pos":           lastEndPos,
+		"based_on":               "backfill intersection semantics",
+	}).Debug("Calculated valid range from dependencies for backfill")
+
+	// Constrain maxPos to the minimum of lastEndPos and maxValid from dependencies.
+	// This ensures we don't scan for gaps beyond where dependencies have data.
+	maxPos := lastEndPos
+	if maxValid > 0 && maxValid < maxPos {
+		s.log.WithFields(logrus.Fields{
+			"model_id":             modelID,
+			"last_end_pos":         lastEndPos,
+			"dependency_max_valid": maxValid,
+			"constrained_max_pos":  maxValid,
+		}).Debug("Constraining max position to dependency coverage")
+
+		maxPos = maxValid
+	}
+
+	// Apply configured limits
 	if handler := trans.GetHandler(); handler != nil {
-		initialPos = s.applyMinimumLimit(trans.GetID(), handler, initialPos)
-		// Apply maximum limit if configured
-		maxPos = s.applyMaximumLimit(trans.GetID(), handler, lastEndPos)
-	} else {
-		maxPos = lastEndPos
+		initialPos = s.applyMinimumLimit(modelID, handler, initialPos)
+		maxPos = s.applyMaximumLimit(modelID, handler, maxPos)
 	}
 
 	return &backfillScanRange{

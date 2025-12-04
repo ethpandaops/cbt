@@ -25,6 +25,7 @@ var (
 	errMockDAGError       = errors.New("mock DAG error")
 	errNotATransformation = errors.New("not a transformation")
 	errNotImplemented     = errors.New("not implemented")
+	errValidationError    = errors.New("validation error")
 )
 
 // Test service creation (ethPandaOps requirement)
@@ -506,7 +507,7 @@ func TestAdjustIntervalForDependencies(t *testing.T) {
 
 			// Setup mock validator
 			mockValidator := validation.NewMockValidator()
-			mockValidator.GetValidRangeFunc = func(_ context.Context, _ string) (uint64, uint64, error) {
+			mockValidator.GetValidRangeFunc = func(_ context.Context, _ string, _ validation.RangeSemantics) (uint64, uint64, error) {
 				return 0, tt.maxValid, nil
 			}
 
@@ -845,5 +846,151 @@ func (s *testableService) processForwardWithGapSkipping(ctx context.Context, tra
 	default:
 		// No valid position to process
 		s.log.WithField("model_id", modelID).Debug("No more valid positions for forward fill")
+	}
+}
+
+// ========================================
+// Backfill Scan Range Tests
+// ========================================
+
+func TestCalculateBackfillScanRange(t *testing.T) {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	tests := []struct {
+		name          string
+		lastEndPos    uint64
+		validRangeMin uint64
+		validRangeMax uint64
+		validRangeErr error
+		limitsMin     uint64
+		limitsMax     uint64
+		expectedMin   uint64
+		expectedMax   uint64
+		description   string
+	}{
+		{
+			name:          "maxPos_constrained_by_dependency_coverage",
+			lastEndPos:    10000,
+			validRangeMin: 5000,
+			validRangeMax: 8000,
+			expectedMin:   5000,
+			expectedMax:   8000,
+			description:   "When dependency max (8000) is less than lastEndPos (10000), use dependency max",
+		},
+		{
+			name:          "maxPos_uses_lastEndPos_when_dependency_coverage_is_higher",
+			lastEndPos:    8000,
+			validRangeMin: 5000,
+			validRangeMax: 10000,
+			expectedMin:   5000,
+			expectedMax:   8000,
+			description:   "When lastEndPos (8000) is less than dependency max (10000), use lastEndPos",
+		},
+		{
+			name:          "maxPos_uses_lastEndPos_when_dependency_max_is_zero",
+			lastEndPos:    10000,
+			validRangeMin: 5000,
+			validRangeMax: 0,
+			expectedMin:   5000,
+			expectedMax:   10000,
+			description:   "When dependency max is 0, use lastEndPos",
+		},
+		{
+			name:          "limits_min_overrides_dependency_min",
+			lastEndPos:    10000,
+			validRangeMin: 5000,
+			validRangeMax: 10000,
+			limitsMin:     6000,
+			expectedMin:   6000,
+			expectedMax:   10000,
+			description:   "When configured limits.min (6000) is higher than dependency min (5000), use limits.min",
+		},
+		{
+			name:          "limits_max_constrains_further",
+			lastEndPos:    10000,
+			validRangeMin: 5000,
+			validRangeMax: 9000,
+			limitsMax:     8000,
+			expectedMin:   5000,
+			expectedMax:   8000,
+			description:   "When configured limits.max (8000) is less than constrained max (9000), use limits.max",
+		},
+		{
+			name:          "dependency_max_constrains_even_with_limits_max",
+			lastEndPos:    15000,
+			validRangeMin: 5000,
+			validRangeMax: 8000,
+			limitsMax:     12000,
+			expectedMin:   5000,
+			expectedMax:   8000,
+			description:   "Dependency max (8000) constrains before limits.max (12000) is applied",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			// Setup mock validator
+			mockValidator := validation.NewMockValidator()
+
+			if tt.validRangeErr != nil {
+				mockValidator.GetValidRangeFunc = func(_ context.Context, _ string, _ validation.RangeSemantics) (uint64, uint64, error) {
+					return 0, 0, tt.validRangeErr
+				}
+			} else {
+				mockValidator.GetValidRangeFunc = func(_ context.Context, _ string, _ validation.RangeSemantics) (uint64, uint64, error) {
+					return tt.validRangeMin, tt.validRangeMax, nil
+				}
+			}
+
+			// Setup composite handler with generated mocks
+			handler := newCompositeHandler(ctrl)
+			handler.setupDefaultExpectations()
+			handler.MockIntervalHandler.EXPECT().GetMaxInterval().Return(uint64(100)).AnyTimes()
+			handler.MockIntervalHandler.EXPECT().GetMinInterval().Return(uint64(0)).AnyTimes()
+			handler.MockIntervalHandler.EXPECT().AllowsPartialIntervals().Return(false).AnyTimes()
+			handler.MockIntervalHandler.EXPECT().AllowGapSkipping().Return(true).AnyTimes()
+			handler.MockScheduleHandler.EXPECT().IsForwardFillEnabled().Return(true).AnyTimes()
+			handler.MockScheduleHandler.EXPECT().IsBackfillEnabled().Return(true).AnyTimes()
+
+			// Setup limits
+			var limits *transformation.Limits
+			if tt.limitsMin > 0 || tt.limitsMax > 0 {
+				limits = &transformation.Limits{
+					Min: tt.limitsMin,
+					Max: tt.limitsMax,
+				}
+			}
+			handler.MockScheduleHandler.EXPECT().GetLimits().Return(limits).AnyTimes()
+
+			// Setup mock transformation
+			trans := &mockTransformation{
+				id: "test.model",
+				config: &transformation.Config{
+					Type:     transformation.TypeIncremental,
+					Database: "test",
+					Table:    "model",
+				},
+				handler: handler,
+			}
+
+			// Create service
+			svc := &service{
+				log:       logger.WithField("test", tt.name),
+				validator: mockValidator,
+			}
+
+			// Test the method
+			ctx := context.Background()
+			scanRange, err := svc.calculateBackfillScanRange(ctx, trans, tt.lastEndPos)
+
+			// Assert results
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedMin, scanRange.initialPos, "%s - initialPos mismatch", tt.description)
+			assert.Equal(t, tt.expectedMax, scanRange.maxPos, "%s - maxPos mismatch", tt.description)
+		})
 	}
 }

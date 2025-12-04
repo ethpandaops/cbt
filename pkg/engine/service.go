@@ -75,7 +75,8 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 		return nil, fmt.Errorf("failed to create models service: %w", err)
 	}
 
-	validator := validation.NewDependencyValidator(log, chClient, adminManager, modelsService)
+	externalValidator := validation.NewExternalModelExecutor(log, adminManager)
+	validator := validation.NewDependencyValidator(log, adminManager, externalValidator, modelsService.GetDAG())
 
 	coordinatorService, err := coordinator.NewService(log, redisOptions, modelsService.GetDAG(), adminManager, validator)
 	if err != nil {
