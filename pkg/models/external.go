@@ -1,5 +1,7 @@
 package models
 
+//go:generate mockgen -package mock -destination mock/external.mock.go -source external.go External
+
 import (
 	"errors"
 	"fmt"

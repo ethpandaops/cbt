@@ -1,5 +1,7 @@
 package models
 
+//go:generate mockgen -package mock -destination mock/dag.mock.go -source dag.go DAGReader
+
 import (
 	"errors"
 	"fmt"
