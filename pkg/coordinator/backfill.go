@@ -7,6 +7,7 @@ import (
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/observability"
+	"github.com/ethpandaops/cbt/pkg/validation"
 	"github.com/sirupsen/logrus"
 )
 
@@ -271,19 +272,13 @@ func (s *service) calculateBackfillScanRange(ctx context.Context, trans models.T
 
 	// Get valid range for backfill using intersection semantics.
 	// This ensures we only scan where ALL dependencies have data.
-	minValid, maxValid, err := s.validator.GetValidRangeForBackfill(ctx, modelID)
+	minValid, maxValid, err := s.validator.GetValidRange(ctx, modelID, validation.Intersection)
 	if err != nil {
 		s.log.WithError(err).WithFields(logrus.Fields{
 			"model_id": modelID,
-		}).Debug("Failed to get valid range for backfill, falling back to GetEarliestPosition")
+		}).Debug("Failed to get valid range for backfill")
 
-		// Fall back to GetEarliestPosition for backward compatibility
-		minValid, err = s.validator.GetEarliestPosition(ctx, modelID)
-		if err != nil {
-			return nil, err
-		}
-
-		maxValid = lastEndPos
+		return nil, err
 	}
 
 	initialPos := minValid

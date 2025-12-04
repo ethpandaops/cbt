@@ -507,7 +507,7 @@ func TestAdjustIntervalForDependencies(t *testing.T) {
 
 			// Setup mock validator
 			mockValidator := validation.NewMockValidator()
-			mockValidator.GetValidRangeForForwardFillFunc = func(_ context.Context, _ string) (uint64, uint64, error) {
+			mockValidator.GetValidRangeFunc = func(_ context.Context, _ string, _ validation.RangeSemantics) (uint64, uint64, error) {
 				return 0, tt.maxValid, nil
 			}
 
@@ -926,16 +926,6 @@ func TestCalculateBackfillScanRange(t *testing.T) {
 			expectedMax:   8000,
 			description:   "Dependency max (8000) constrains before limits.max (12000) is applied",
 		},
-		{
-			name:          "fallback_to_earliest_position_on_error",
-			lastEndPos:    10000,
-			validRangeMin: 0,
-			validRangeMax: 0,
-			validRangeErr: errValidationError,
-			expectedMin:   7000, // Falls back to GetEarliestPosition
-			expectedMax:   10000,
-			description:   "On GetValidRange error, falls back to GetEarliestPosition and uses lastEndPos",
-		},
 	}
 
 	for _, tt := range tests {
@@ -947,15 +937,11 @@ func TestCalculateBackfillScanRange(t *testing.T) {
 			mockValidator := validation.NewMockValidator()
 
 			if tt.validRangeErr != nil {
-				mockValidator.GetValidRangeForBackfillFunc = func(_ context.Context, _ string) (uint64, uint64, error) {
+				mockValidator.GetValidRangeFunc = func(_ context.Context, _ string, _ validation.RangeSemantics) (uint64, uint64, error) {
 					return 0, 0, tt.validRangeErr
 				}
-				// Fallback to GetEarliestPosition
-				mockValidator.GetEarliestPositionFunc = func(_ context.Context, _ string) (uint64, error) {
-					return 7000, nil // Return a specific value for fallback test
-				}
 			} else {
-				mockValidator.GetValidRangeForBackfillFunc = func(_ context.Context, _ string) (uint64, uint64, error) {
+				mockValidator.GetValidRangeFunc = func(_ context.Context, _ string, _ validation.RangeSemantics) (uint64, uint64, error) {
 					return tt.validRangeMin, tt.validRangeMax, nil
 				}
 			}

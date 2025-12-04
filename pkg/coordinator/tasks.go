@@ -229,7 +229,7 @@ func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload)
 		nextPos := lastPos
 		if nextPos == 0 {
 			// First run - calculate initial position
-			initialPos, err := s.validator.GetInitialPosition(ctx, depModelID)
+			initialPos, err := s.validator.GetStartPosition(ctx, depModelID)
 			if err != nil {
 				continue
 			}
