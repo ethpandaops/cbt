@@ -900,7 +900,7 @@ func TestGetEarliestPosition(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name:    "only external dependencies - returns min of external mins",
+			name:    "only external dependencies - returns max of external mins (intersection)",
 			modelID: "model.test",
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"ext.model1", "ext.model2", "ext.model3"}
@@ -922,7 +922,7 @@ func TestGetEarliestPosition(t *testing.T) {
 					"ext.model3": 5000,
 				}
 			},
-			expectedPos: 100, // Minimum of external mins (can start from earliest external data)
+			expectedPos: 200, // Maximum of external mins (intersection where all have data)
 			wantErr:     false,
 		},
 		{
@@ -979,7 +979,7 @@ func TestGetEarliestPosition(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name:    "mixed dependencies where external_min is higher",
+			name:    "mixed dependencies - returns max of all mins (intersection)",
 			modelID: "model.test",
 			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
 				dag.dependencies = []string{"ext.model1", "ext.model2", "dep.model1", "dep.model2"}
@@ -991,9 +991,9 @@ func TestGetEarliestPosition(t *testing.T) {
 					"dep.model2": models.Node{NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model2", interval: 100}},
 				}
 				admin.firstPositions = map[string]uint64{
-					"ext.model1": 300, // External MIN will be 300 (can start from earliest)
-					"ext.model2": 350,
-					"dep.model1": 100, // Transformation max will be 150
+					"ext.model1": 300,
+					"ext.model2": 350, // MAX of all mins is 350
+					"dep.model1": 100,
 					"dep.model2": 150,
 				}
 				admin.lastPositions = map[string]uint64{
@@ -1003,7 +1003,7 @@ func TestGetEarliestPosition(t *testing.T) {
 					"dep.model2": 2000,
 				}
 			},
-			expectedPos: 300, // Result: max of (external_min=300, transformation_max=150)
+			expectedPos: 350, // Result: max of all mins (intersection where ALL deps have data)
 			wantErr:     false,
 		},
 		{
@@ -2187,6 +2187,154 @@ func TestGetValidRangeForBackfill(t *testing.T) {
 				assert.Equal(t, tt.expectedMin, minPos, "min position mismatch")
 				assert.Equal(t, tt.expectedMax, maxPos, "max position mismatch")
 			}
+		})
+	}
+}
+
+// TestValidateDependenciesUsesIntersection verifies that ValidateDependencies
+// uses intersection semantics (GetValidRangeForBackfill) to ensure positions
+// are only processed where ALL dependencies have data.
+func TestValidateDependenciesUsesIntersection(t *testing.T) {
+	tests := []struct {
+		name        string
+		modelID     string
+		position    uint64
+		interval    uint64
+		setupMocks  func(*mockDAGReader, *mockAdmin)
+		canProcess  bool
+		description string
+	}{
+		{
+			name:        "rejects position below intersection min",
+			modelID:     "model.test",
+			position:    13150000, // Between synthetic_heartbeat min and custody_probe min
+			interval:    100,
+			description: "Position 13,150,000 is within synthetic_heartbeat (13,140,598) but NOT custody_probe (13,164,545)",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"custody_probe", "synthetic_heartbeat"}
+				dag.nodes = map[string]models.Node{
+					"model.test":          {NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"custody_probe", "synthetic_heartbeat"}}},
+					"custody_probe":       {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "custody_probe"}},
+					"synthetic_heartbeat": {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "synthetic_heartbeat"}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"custody_probe":       13164545,
+					"synthetic_heartbeat": 13140598,
+				}
+				admin.lastPositions = map[string]uint64{
+					"custody_probe":       13165835,
+					"synthetic_heartbeat": 13165835,
+				}
+			},
+			canProcess: false, // Should reject because custody_probe has no data at this position
+		},
+		{
+			name:        "accepts position within intersection",
+			modelID:     "model.test",
+			position:    13165000, // Within BOTH dependencies
+			interval:    100,
+			description: "Position 13,165,000 is within both custody_probe and synthetic_heartbeat ranges",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"custody_probe", "synthetic_heartbeat"}
+				dag.nodes = map[string]models.Node{
+					"model.test":          {NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"custody_probe", "synthetic_heartbeat"}}},
+					"custody_probe":       {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "custody_probe"}},
+					"synthetic_heartbeat": {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "synthetic_heartbeat"}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"custody_probe":       13164545,
+					"synthetic_heartbeat": 13140598,
+				}
+				admin.lastPositions = map[string]uint64{
+					"custody_probe":       13165835,
+					"synthetic_heartbeat": 13165835,
+				}
+				admin.coverage = true // Mark as having coverage
+			},
+			canProcess: true, // Should accept because both have data at this position
+		},
+		{
+			name:        "accepts position at intersection boundary",
+			modelID:     "model.test",
+			position:    13164545, // Exactly at custody_probe min (intersection start)
+			interval:    100,
+			description: "Position exactly at custody_probe min (13,164,545) which is the intersection start",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"custody_probe", "synthetic_heartbeat"}
+				dag.nodes = map[string]models.Node{
+					"model.test":          {NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"custody_probe", "synthetic_heartbeat"}}},
+					"custody_probe":       {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "custody_probe"}},
+					"synthetic_heartbeat": {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "synthetic_heartbeat"}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"custody_probe":       13164545,
+					"synthetic_heartbeat": 13140598,
+				}
+				admin.lastPositions = map[string]uint64{
+					"custody_probe":       13165835,
+					"synthetic_heartbeat": 13165835,
+				}
+				admin.coverage = true
+			},
+			canProcess: true, // Should accept because both have data at intersection start
+		},
+		{
+			name:        "rejects position beyond max",
+			modelID:     "model.test",
+			position:    13170000, // Beyond both dependencies
+			interval:    100,
+			description: "Position 13,170,000 is beyond both dependencies' max",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"custody_probe", "synthetic_heartbeat"}
+				dag.nodes = map[string]models.Node{
+					"model.test":          {NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"custody_probe", "synthetic_heartbeat"}}},
+					"custody_probe":       {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "custody_probe"}},
+					"synthetic_heartbeat": {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "synthetic_heartbeat"}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"custody_probe":       13164545,
+					"synthetic_heartbeat": 13140598,
+				}
+				admin.lastPositions = map[string]uint64{
+					"custody_probe":       13165835,
+					"synthetic_heartbeat": 13165835,
+				}
+			},
+			canProcess: false, // Should reject because position is beyond max
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			log := logrus.New()
+			log.SetLevel(logrus.DebugLevel)
+
+			mockDAG := &mockDAGReader{
+				nodes:        make(map[string]models.Node),
+				dependencies: []string{},
+			}
+			mockAdmin := &mockAdmin{
+				firstPositions: make(map[string]uint64),
+				lastPositions:  make(map[string]uint64),
+			}
+
+			tt.setupMocks(mockDAG, mockAdmin)
+
+			validator := &dependencyValidator{
+				log:   log.WithField("test", tt.name),
+				dag:   mockDAG,
+				admin: mockAdmin,
+				externalManager: &mockExternalModelValidator{
+					admin: mockAdmin,
+				},
+			}
+
+			result, err := validator.ValidateDependencies(ctx, tt.modelID, tt.position, tt.interval)
+			require.NoError(t, err, "ValidateDependencies should not error")
+
+			assert.Equal(t, tt.canProcess, result.CanProcess,
+				"%s: expected CanProcess=%v, got %v", tt.description, tt.canProcess, result.CanProcess)
 		})
 	}
 }

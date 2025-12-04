@@ -134,8 +134,9 @@ func (v *dependencyValidator) ValidateDependencies(
 	modelID string,
 	position, interval uint64,
 ) (Result, error) {
-	// Check if position falls within dependency bounds
-	minValid, maxValid, err := v.GetValidRangeForForwardFill(ctx, modelID)
+	// Check if position falls within dependency bounds.
+	// Use intersection semantics to ensure ALL dependencies have data at this position.
+	minValid, maxValid, err := v.GetValidRangeForBackfill(ctx, modelID)
 	if err != nil {
 		return Result{CanProcess: false, Errors: []error{err}}, nil
 	}
@@ -462,13 +463,14 @@ func findMax(values []uint64) uint64 {
 	return slices.Max(values)
 }
 
-// GetEarliestPosition calculates the earliest position for a model based on its dependencies
-// Returns the earliest position where all dependencies have data available (for backfill scanning)
+// GetEarliestPosition calculates the earliest position for a model based on its dependencies.
+// Returns the earliest position where ALL dependencies have data available (intersection semantics).
+// Used for backfill scanning to ensure we only process where all deps have data.
 func (v *dependencyValidator) GetEarliestPosition(ctx context.Context, modelID string) (uint64, error) {
 	v.log.WithField("model_id", modelID).Debug("GetEarliestPosition called")
 
-	// Use GetValidRange to get the valid range
-	minPos, _, err := v.GetValidRangeForForwardFill(ctx, modelID)
+	// Use GetValidRangeForBackfill to get intersection-based range
+	minPos, _, err := v.GetValidRangeForBackfill(ctx, modelID)
 	if err != nil {
 		// Return 0 for invalid models (backward compatibility)
 		if errors.Is(err, ErrModelNotFound) || errors.Is(err, ErrNotTransformationModel) {
