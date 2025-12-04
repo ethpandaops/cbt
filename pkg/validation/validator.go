@@ -209,23 +209,17 @@ func (v *dependencyValidator) checkIncrementalDependencyGaps(
 
 	endPos := position + interval
 
-	// Try structured dependencies first (with OR group support)
+	// Get structured dependencies (with OR group support)
 	type dependencyProvider interface {
 		GetDependencies() []transformation.Dependency
 	}
-	if depProvider, ok := handler.(dependencyProvider); ok {
-		nextValid, gaps := v.checkDependencyGaps(ctx, depProvider.GetDependencies(), position, endPos)
-		return nextValid, gaps, nil
+	depProvider, ok := handler.(dependencyProvider)
+	if !ok {
+		return 0, false, nil
 	}
 
-	// Fallback to flattened dependencies
-	type flatProvider interface{ GetFlattenedDependencies() []string }
-	if provider, ok := handler.(flatProvider); ok {
-		nextValid, gaps := v.checkFlattenedDependencyGaps(ctx, provider.GetFlattenedDependencies(), position, endPos)
-		return nextValid, gaps, nil
-	}
-
-	return 0, false, nil
+	nextValid, gaps := v.checkDependencyGaps(ctx, depProvider.GetDependencies(), position, endPos)
+	return nextValid, gaps, nil
 }
 
 // checkDependencyGaps checks structured dependencies for gaps
@@ -243,23 +237,6 @@ func (v *dependencyValidator) checkDependencyGaps(
 		} else {
 			nextValid, depHasGaps = v.checkSingleDependencyGaps(ctx, dep.SingleDep, position, endPos)
 		}
-		if depHasGaps && nextValid > maxGapEnd {
-			maxGapEnd = nextValid
-			hasGaps = true
-		}
-	}
-	return maxGapEnd, hasGaps
-}
-
-// checkFlattenedDependencyGaps checks flattened dependencies for gaps (legacy fallback)
-func (v *dependencyValidator) checkFlattenedDependencyGaps(
-	ctx context.Context,
-	depIDs []string,
-	position, endPos uint64,
-) (nextValidPos uint64, hasGaps bool) {
-	var maxGapEnd uint64
-	for _, depID := range depIDs {
-		nextValid, depHasGaps := v.checkSingleDependencyGaps(ctx, depID, position, endPos)
 		if depHasGaps && nextValid > maxGapEnd {
 			maxGapEnd = nextValid
 			hasGaps = true
@@ -300,16 +277,19 @@ func (v *dependencyValidator) checkSingleDependencyGaps(
 
 	firstPos, err := v.admin.GetFirstPosition(ctx, depID)
 	if err != nil {
+		v.log.WithError(err).WithField("dependency_id", depID).Debug("Gap check: failed to get first position")
 		return 0, false
 	}
 
 	lastEndPos, err := v.admin.GetNextUnprocessedPosition(ctx, depID)
 	if err != nil {
+		v.log.WithError(err).WithField("dependency_id", depID).Debug("Gap check: failed to get last position")
 		return 0, false
 	}
 
 	gaps, err := v.admin.FindGaps(ctx, depID, firstPos, lastEndPos, maxGapQueryLimit)
 	if err != nil {
+		v.log.WithError(err).WithField("dependency_id", depID).Debug("Gap check: failed to query gaps")
 		return 0, false
 	}
 
