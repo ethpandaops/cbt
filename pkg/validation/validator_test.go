@@ -850,17 +850,12 @@ func (m *mockTransformation) SetDefaultDatabase(_ string) {
 // Test NewDependencyValidator creation
 func TestNewDependencyValidator(t *testing.T) {
 	log := logrus.New()
-	mockCH := &mockClickhouseClient{}
-	mockAdmin := newMockAdmin()
-	mockModels := &mockModelsService{
-		dag: newMockDAGReader(),
-	}
+	mockAdminSvc := newMockAdmin()
+	mockExtVal := &mockExternalModelValidator{}
+	mockDAG := newMockDAGReader()
 
-	validator := NewDependencyValidator(log, mockCH, mockAdmin, mockModels)
+	validator := NewDependencyValidator(log, mockAdminSvc, mockExtVal, mockDAG)
 	assert.NotNil(t, validator)
-
-	// Verify it implements the Validator interface
-	var _ = validator
 }
 
 // Test GetEarliestPosition

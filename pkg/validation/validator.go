@@ -12,7 +12,6 @@ import (
 	"slices"
 
 	"github.com/ethpandaops/cbt/pkg/admin"
-	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/observability"
@@ -107,20 +106,18 @@ func (v *dependencyValidator) getTransformationModel(modelID string) (models.Tra
 	return model, nil
 }
 
-// NewDependencyValidator creates a new dependency validator
+// NewDependencyValidator creates a new dependency validator with explicit dependencies.
 func NewDependencyValidator(
 	log logrus.FieldLogger,
-	chClient clickhouse.ClientInterface,
 	adminService admin.Service,
-	modelsService models.Service,
+	externalValidator ExternalValidator,
+	dag models.DAGReader,
 ) Validator {
-	externalManager := NewExternalModelExecutor(log, adminService)
-
 	return &dependencyValidator{
 		log:             log.WithField("service", "validator"),
 		admin:           adminService,
-		externalManager: externalManager,
-		dag:             modelsService.GetDAG(),
+		externalManager: externalValidator,
+		dag:             dag,
 	}
 }
 
