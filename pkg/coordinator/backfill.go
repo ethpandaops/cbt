@@ -264,15 +264,18 @@ func (s *service) getBackfillBounds(ctx context.Context, modelID string) (lastPo
 // calculateBackfillScanRange determines the range to scan for gaps.
 // The range is constrained by both the last processed position and dependency coverage
 // to ensure we don't scan for gaps in regions where dependencies have no data.
+// Uses GetValidRangeForBackfill which calculates the intersection of all dependencies
+// (where ALL dependencies have data), not the union used by forward fill.
 func (s *service) calculateBackfillScanRange(ctx context.Context, trans models.Transformation, lastEndPos uint64) (*backfillScanRange, error) {
 	modelID := trans.GetID()
 
-	// Get valid range based on dependencies (both min and max bounds)
-	minValid, maxValid, err := s.validator.GetValidRange(ctx, modelID)
+	// Get valid range for backfill using intersection semantics.
+	// This ensures we only scan where ALL dependencies have data.
+	minValid, maxValid, err := s.validator.GetValidRangeForBackfill(ctx, modelID)
 	if err != nil {
 		s.log.WithError(err).WithFields(logrus.Fields{
 			"model_id": modelID,
-		}).Debug("Failed to get valid range, falling back to GetEarliestPosition")
+		}).Debug("Failed to get valid range for backfill, falling back to GetEarliestPosition")
 
 		// Fall back to GetEarliestPosition for backward compatibility
 		minValid, err = s.validator.GetEarliestPosition(ctx, modelID)
@@ -290,8 +293,8 @@ func (s *service) calculateBackfillScanRange(ctx context.Context, trans models.T
 		"calculated_initial_pos": initialPos,
 		"dependency_max_valid":   maxValid,
 		"last_end_pos":           lastEndPos,
-		"based_on":               "dependency analysis",
-	}).Debug("Calculated valid range from dependencies")
+		"based_on":               "backfill intersection semantics",
+	}).Debug("Calculated valid range from dependencies for backfill")
 
 	// Constrain maxPos to the minimum of lastEndPos and maxValid from dependencies.
 	// This ensures we don't scan for gaps beyond where dependencies have data.

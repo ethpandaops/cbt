@@ -1066,7 +1066,7 @@ func TestGetEarliestPosition(t *testing.T) {
 func logPositionDebugInfo(ctx context.Context, t *testing.T, validator *dependencyValidator, mockDAG *mockDAGReader, modelID string, pos, expectedPos uint64) {
 	t.Logf("GetEarliestPosition returned %d, expected %d", pos, expectedPos)
 	// Try GetValidRange directly to see what it returns
-	minPos, maxPos, err2 := validator.GetValidRange(ctx, modelID)
+	minPos, maxPos, err2 := validator.GetValidRangeForForwardFill(ctx, modelID)
 	t.Logf("GetValidRange returned min=%d, max=%d, err=%v", minPos, maxPos, err2)
 	// Check what the model's dependencies are
 	node, err3 := mockDAG.GetNode(modelID)
@@ -1178,10 +1178,10 @@ func (m *mockClickhouseClient) BulkInsert(_ context.Context, _ string, _ interfa
 func (m *mockClickhouseClient) Start() error { return nil }
 func (m *mockClickhouseClient) Stop() error  { return nil }
 
-// TestGetValidRange specifically tests the corrected validation formula
-// min = MAX(MIN(external_mins), MAX(transformation_mins))
+// TestGetValidRangeForForwardFill specifically tests the forward fill validation formula
+// min = MAX(MIN(external_mins), MAX(transformation_mins)) - union semantics for externals
 // max = MIN(all dependency maxes)
-func TestGetValidRange(t *testing.T) {
+func TestGetValidRangeForForwardFill(t *testing.T) {
 	tests := []struct {
 		name        string
 		modelID     string
@@ -1443,7 +1443,7 @@ func TestGetValidRange(t *testing.T) {
 				},
 			}
 
-			minPos, maxPos, err := validator.GetValidRange(ctx, tt.modelID)
+			minPos, maxPos, err := validator.GetValidRangeForForwardFill(ctx, tt.modelID)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1456,8 +1456,8 @@ func TestGetValidRange(t *testing.T) {
 	}
 }
 
-// TestGetValidRangeWithORGroups specifically tests OR group dependency handling
-func TestGetValidRangeWithORGroups(t *testing.T) {
+// TestGetValidRangeForForwardFillWithORGroups specifically tests OR group dependency handling
+func TestGetValidRangeForForwardFillWithORGroups(t *testing.T) {
 	tests := []struct {
 		name        string
 		modelID     string
@@ -1762,7 +1762,7 @@ func TestGetValidRangeWithORGroups(t *testing.T) {
 				},
 			}
 
-			minPos, maxPos, err := validator.GetValidRange(ctx, tt.modelID)
+			minPos, maxPos, err := validator.GetValidRangeForForwardFill(ctx, tt.modelID)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -2041,6 +2041,152 @@ func TestFindMax(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := findMax(tt.values)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestGetValidRangeForBackfill tests the backfill-specific range calculation
+// which uses intersection semantics (MAX of all mins) instead of union semantics.
+// min = MAX(all dependency mins) - requires ALL dependencies to have data
+// max = MIN(all dependency maxes)
+func TestGetValidRangeForBackfill(t *testing.T) {
+	tests := []struct {
+		name        string
+		modelID     string
+		setupMocks  func(*mockDAGReader, *mockAdmin)
+		expectedMin uint64
+		expectedMax uint64
+		wantErr     bool
+	}{
+		{
+			name:    "no dependencies returns 0,0",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, _ *mockAdmin) {
+				dag.dependencies = []string{}
+				dag.nodes["model.test"] = models.Node{
+					NodeType: models.NodeTypeTransformation,
+					Model:    &mockTransformation{id: "model.test", interval: 100},
+				}
+			},
+			expectedMin: 0,
+			expectedMax: 0,
+			wantErr:     false,
+		},
+		{
+			name:    "multiple externals - uses MAX of mins (intersection)",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"ext.model1", "ext.model2"}
+				dag.nodes = map[string]models.Node{
+					"model.test": {NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"ext.model1", "ext.model2"}}},
+					"ext.model1": {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
+					"ext.model2": {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model2"}},
+				}
+				// External 1: starts at 100, ends at 5000
+				// External 2: starts at 500, ends at 4000
+				// For backfill, min should be MAX(100, 500) = 500 (intersection)
+				// max should be MIN(5000, 4000) = 4000
+				admin.firstPositions = map[string]uint64{
+					"ext.model1": 100,
+					"ext.model2": 500,
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.model1": 5000,
+					"ext.model2": 4000,
+				}
+			},
+			expectedMin: 500,  // MAX of mins (intersection where both have data)
+			expectedMax: 4000, // MIN of maxes
+			wantErr:     false,
+		},
+		{
+			name:    "compare with forward fill - backfill uses intersection",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				// This test demonstrates the difference between forward fill and backfill
+				// custody_probe: 13,164,545 -> 13,165,835
+				// synthetic_heartbeat: 13,140,598 -> 13,165,835
+				dag.dependencies = []string{"custody_probe", "synthetic_heartbeat"}
+				dag.nodes = map[string]models.Node{
+					"model.test":          {NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"custody_probe", "synthetic_heartbeat"}}},
+					"custody_probe":       {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "custody_probe"}},
+					"synthetic_heartbeat": {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "synthetic_heartbeat"}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"custody_probe":       13164545,
+					"synthetic_heartbeat": 13140598,
+				}
+				admin.lastPositions = map[string]uint64{
+					"custody_probe":       13165835,
+					"synthetic_heartbeat": 13165835,
+				}
+			},
+			// GetValidRangeForForwardFill would return min of 13140598 (MIN of externals, i.e. union)
+			// GetValidRangeForBackfill returns min of 13164545 (MAX of all mins, i.e. intersection)
+			expectedMin: 13164545,
+			expectedMax: 13165835,
+			wantErr:     false,
+		},
+		{
+			name:    "mixed external and transformation deps",
+			modelID: "model.test",
+			setupMocks: func(dag *mockDAGReader, admin *mockAdmin) {
+				dag.dependencies = []string{"ext.model1", "dep.model1"}
+				dag.nodes = map[string]models.Node{
+					"model.test": {NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "model.test", interval: 100, dependencies: []string{"ext.model1", "dep.model1"}}},
+					"ext.model1": {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "ext.model1"}},
+					"dep.model1": {NodeType: models.NodeTypeTransformation, Model: &mockTransformation{id: "dep.model1", interval: 100}},
+				}
+				admin.firstPositions = map[string]uint64{
+					"ext.model1": 100,
+					"dep.model1": 300,
+				}
+				admin.lastPositions = map[string]uint64{
+					"ext.model1": 5000,
+					"dep.model1": 4000,
+				}
+			},
+			expectedMin: 300,  // MAX of mins gives intersection
+			expectedMax: 4000, // MIN of maxes
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			log := logrus.New()
+			log.SetLevel(logrus.DebugLevel)
+
+			mockDAG := &mockDAGReader{
+				nodes:        make(map[string]models.Node),
+				dependencies: []string{},
+			}
+			mockAdmin := &mockAdmin{
+				firstPositions: make(map[string]uint64),
+				lastPositions:  make(map[string]uint64),
+			}
+
+			tt.setupMocks(mockDAG, mockAdmin)
+
+			validator := &dependencyValidator{
+				log:   log.WithField("test", tt.name),
+				dag:   mockDAG,
+				admin: mockAdmin,
+				externalManager: &mockExternalModelValidator{
+					admin: mockAdmin,
+				},
+			}
+
+			minPos, maxPos, err := validator.GetValidRangeForBackfill(ctx, tt.modelID)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedMin, minPos, "min position mismatch")
+				assert.Equal(t, tt.expectedMax, maxPos, "max position mismatch")
+			}
 		})
 	}
 }

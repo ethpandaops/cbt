@@ -162,7 +162,7 @@ func (s *service) calculateProcessingInterval(ctx context.Context, trans models.
 // Returns the adjusted interval and whether processing should stop
 func (s *service) adjustIntervalForDependencies(ctx context.Context, trans models.Transformation, nextPos, interval uint64) (uint64, bool) {
 	// Get the valid range based on dependencies
-	_, maxValid, err := s.validator.GetValidRange(ctx, trans.GetID())
+	_, maxValid, err := s.validator.GetValidRangeForForwardFill(ctx, trans.GetID())
 	if err != nil || maxValid == 0 || nextPos >= maxValid {
 		// Can't determine valid range or position already beyond range
 		return interval, false

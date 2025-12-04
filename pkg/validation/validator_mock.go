@@ -10,16 +10,18 @@ type MockValidator struct {
 	mu sync.Mutex
 
 	// Control behavior
-	ValidateDependenciesFunc func(ctx context.Context, modelID string, position, interval uint64) (Result, error)
-	GetInitialPositionFunc   func(ctx context.Context, modelID string) (uint64, error)
-	GetEarliestPositionFunc  func(ctx context.Context, modelID string) (uint64, error)
-	GetValidRangeFunc        func(ctx context.Context, modelID string) (uint64, uint64, error)
+	ValidateDependenciesFunc        func(ctx context.Context, modelID string, position, interval uint64) (Result, error)
+	GetInitialPositionFunc          func(ctx context.Context, modelID string) (uint64, error)
+	GetEarliestPositionFunc         func(ctx context.Context, modelID string) (uint64, error)
+	GetValidRangeForForwardFillFunc func(ctx context.Context, modelID string) (uint64, uint64, error)
+	GetValidRangeForBackfillFunc    func(ctx context.Context, modelID string) (uint64, uint64, error)
 
 	// Track calls for assertions
-	ValidateCalls   []ValidateCall
-	InitialCalls    []string
-	EarliestCalls   []string
-	ValidRangeCalls []string
+	ValidateCalls           []ValidateCall
+	InitialCalls            []string
+	EarliestCalls           []string
+	ValidRangeCalls         []string
+	ValidRangeBackfillCalls []string
 }
 
 // ValidateCall records a ValidateDependencies call
@@ -85,15 +87,28 @@ func (m *MockValidator) GetEarliestPosition(ctx context.Context, modelID string)
 	return 0, nil
 }
 
-// GetValidRange implements Validator
-func (m *MockValidator) GetValidRange(ctx context.Context, modelID string) (minPos, maxPos uint64, err error) {
+// GetValidRangeForForwardFill implements Validator
+func (m *MockValidator) GetValidRangeForForwardFill(ctx context.Context, modelID string) (minPos, maxPos uint64, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.ValidRangeCalls = append(m.ValidRangeCalls, modelID)
 
-	if m.GetValidRangeFunc != nil {
-		return m.GetValidRangeFunc(ctx, modelID)
+	if m.GetValidRangeForForwardFillFunc != nil {
+		return m.GetValidRangeForForwardFillFunc(ctx, modelID)
+	}
+	return 0, 0, nil
+}
+
+// GetValidRangeForBackfill implements Validator
+func (m *MockValidator) GetValidRangeForBackfill(ctx context.Context, modelID string) (minPos, maxPos uint64, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ValidRangeBackfillCalls = append(m.ValidRangeBackfillCalls, modelID)
+
+	if m.GetValidRangeForBackfillFunc != nil {
+		return m.GetValidRangeForBackfillFunc(ctx, modelID)
 	}
 	return 0, 0, nil
 }
@@ -107,6 +122,7 @@ func (m *MockValidator) Reset() {
 	m.InitialCalls = make([]string, 0)
 	m.EarliestCalls = make([]string, 0)
 	m.ValidRangeCalls = make([]string, 0)
+	m.ValidRangeBackfillCalls = make([]string, 0)
 }
 
 // AssertValidateCalledWith checks if ValidateDependencies was called with specific args
