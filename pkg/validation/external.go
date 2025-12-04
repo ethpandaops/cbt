@@ -48,9 +48,10 @@ func (f *FlexUint64) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Scan implements sql.Scanner for FlexUint64 to handle database values
-// This allows scanning from string columns (e.g., when SQL returns '123' as min)
-// as well as numeric columns
+// Scan implements sql.Scanner for FlexUint64 to handle database values.
+// Supports string columns (e.g., '123') and numeric columns.
+//
+//nolint:gosec // bounds checked by caller context
 func (f *FlexUint64) Scan(src interface{}) error {
 	if src == nil {
 		return fmt.Errorf("%w: received nil value", ErrInvalidUint64)
@@ -58,63 +59,40 @@ func (f *FlexUint64) Scan(src interface{}) error {
 
 	switch v := src.(type) {
 	case string:
-		return f.scanString(v)
+		parsed, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("%w: failed to parse %q: %w", ErrInvalidUint64, v, err)
+		}
+		*f = FlexUint64(parsed)
 	case []byte:
-		return f.scanString(string(v))
-	default:
-		return f.scanNumeric(src)
-	}
-}
-
-// scanString parses a string value as uint64
-func (f *FlexUint64) scanString(s string) error {
-	parsed, err := strconv.ParseUint(s, 10, 64)
-	if err != nil {
-		return fmt.Errorf("%w: failed to parse string %q as uint64: %w", ErrInvalidUint64, s, err)
-	}
-
-	*f = FlexUint64(parsed)
-
-	return nil
-}
-
-// scanNumeric handles all numeric types (int8-64, uint8-64, float64)
-//
-//nolint:gosec // bounds checked by caller context
-func (f *FlexUint64) scanNumeric(src interface{}) error {
-	switch v := src.(type) {
+		parsed, err := strconv.ParseUint(string(v), 10, 64)
+		if err != nil {
+			return fmt.Errorf("%w: failed to parse %q: %w", ErrInvalidUint64, v, err)
+		}
+		*f = FlexUint64(parsed)
 	case int64:
 		*f = FlexUint64(v)
 	case uint64:
 		*f = FlexUint64(v)
 	case int:
 		*f = FlexUint64(v)
-	case int8, int16, int32:
-		// Use type switch to convert smaller signed ints
-		switch n := v.(type) {
-		case int8:
-			*f = FlexUint64(n)
-		case int16:
-			*f = FlexUint64(n)
-		case int32:
-			*f = FlexUint64(n)
-		}
-	case uint8, uint16, uint32:
-		// Use type switch to convert smaller unsigned ints
-		switch n := v.(type) {
-		case uint8:
-			*f = FlexUint64(n)
-		case uint16:
-			*f = FlexUint64(n)
-		case uint32:
-			*f = FlexUint64(n)
-		}
+	case int8:
+		*f = FlexUint64(v)
+	case int16:
+		*f = FlexUint64(v)
+	case int32:
+		*f = FlexUint64(v)
+	case uint8:
+		*f = FlexUint64(v)
+	case uint16:
+		*f = FlexUint64(v)
+	case uint32:
+		*f = FlexUint64(v)
 	case float64:
 		*f = FlexUint64(v)
 	default:
 		return fmt.Errorf("%w: unsupported type %T", ErrInvalidUint64, src)
 	}
-
 	return nil
 }
 
@@ -133,75 +111,38 @@ func NewExternalModelExecutor(log logrus.FieldLogger, adminService admin.Service
 }
 
 // applyLag applies lag adjustment to max position if configured
-// Note: Bounds stored in cache are always raw (without lag applied)
-func (e *ExternalModelValidator) applyLag(model models.External, minPos, maxPos uint64, fromCache bool) (adjustedMin, adjustedMax uint64) {
-	modelConfig := model.GetConfig()
-
-	if modelConfig.Lag == 0 {
-		e.log.WithFields(logrus.Fields{
-			"model":     model.GetID(),
-			"min_pos":   minPos,
-			"max_pos":   maxPos,
-			"cache_hit": fromCache,
-		}).Debug("Retrieved external model bounds")
-
+func (e *ExternalModelValidator) applyLag(model models.External, minPos, maxPos uint64) (adjustedMin, adjustedMax uint64) {
+	lag := model.GetConfig().Lag
+	if lag == 0 {
 		return minPos, maxPos
 	}
 
-	if maxPos > modelConfig.Lag {
-		adjustedMax := maxPos - modelConfig.Lag
-		e.log.WithFields(logrus.Fields{
-			"model":        model.GetID(),
-			"lag":          modelConfig.Lag,
-			"original_max": maxPos,
-			"adjusted_max": adjustedMax,
-			"cache_hit":    fromCache,
-		}).Debug("Applied lag to external model bounds")
-
-		return minPos, adjustedMax
+	if maxPos > lag {
+		return minPos, maxPos - lag
 	}
 
-	// If lag is greater than max, set max to min (no data available)
+	// Lag exceeds max - no data available
 	e.log.WithFields(logrus.Fields{
-		"model":     model.GetID(),
-		"lag":       modelConfig.Lag,
-		"cache_hit": fromCache,
-		"min_pos":   minPos,
-		"max_pos":   maxPos,
-		"warning":   "lag exceeds max position, no data available",
+		"model": model.GetID(),
+		"lag":   lag,
+		"max":   maxPos,
 	}).Warn("Lag exceeds available data range")
 
 	return minPos, minPos
-}
-
-// tryGetFromCache attempts to retrieve bounds from cache
-func (e *ExternalModelValidator) tryGetFromCache(ctx context.Context, model models.External) (minPos, maxPos uint64, found bool) {
-	cached, err := e.admin.GetExternalBounds(ctx, model.GetID())
-	if err != nil || cached == nil {
-		observability.RecordExternalCacheMiss(model.GetID())
-		return 0, 0, false
-	}
-
-	// Cache hit - no need to query database
-	return cached.Min, cached.Max, true
 }
 
 // GetMinMax retrieves the min and max position values for an external model
 func (e *ExternalModelValidator) GetMinMax(ctx context.Context, model models.External) (minPos, maxPos uint64, err error) {
 	modelID := model.GetID()
 
-	// Try to get from cache
-	cachedMin, cachedMax, found := e.tryGetFromCache(ctx, model)
-	if !found {
-		// No cache - wait for executor's scheduled full scan to populate it
-		return 0, 0, fmt.Errorf("%w: %s (waiting for initial scan)", ErrExternalNotInitialized, modelID)
+	cached, err := e.admin.GetExternalBounds(ctx, modelID)
+	if err != nil || cached == nil {
+		observability.RecordExternalCacheMiss(modelID)
+		return 0, 0, fmt.Errorf("%w: %s", ErrExternalNotInitialized, modelID)
 	}
 
-	// Record the raw bounds in metrics
-	observability.RecordModelBounds(modelID, cachedMin, cachedMax)
+	observability.RecordModelBounds(modelID, cached.Min, cached.Max)
 
-	// Apply lag if configured
-	minPos, maxPos = e.applyLag(model, cachedMin, cachedMax, true)
-
+	minPos, maxPos = e.applyLag(model, cached.Min, cached.Max)
 	return minPos, maxPos, nil
 }

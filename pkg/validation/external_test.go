@@ -459,7 +459,7 @@ func TestApplyLag(t *testing.T) {
 
 			minPos, maxPos := validator.applyLag(&externalModelAdapter{
 				testModel: externalModel,
-			}, tt.minPos, tt.maxPos, false)
+			}, tt.minPos, tt.maxPos)
 			assert.Equal(t, tt.expectedMin, minPos)
 			assert.Equal(t, tt.expectedMax, maxPos)
 		})

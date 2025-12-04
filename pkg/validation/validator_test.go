@@ -513,7 +513,7 @@ func TestGetInitialPosition(t *testing.T) {
 				},
 			}
 
-			pos, err := validator.GetInitialPosition(ctx, tt.modelID)
+			pos, err := validator.GetStartPosition(ctx, tt.modelID)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1007,26 +1007,26 @@ func TestGetEarliestPosition(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name:    "model not found returns 0",
+			name:    "model not found returns error",
 			modelID: "model.nonexistent",
 			setupMocks: func(dag *mockDAGReader, _ *mockAdmin) {
 				dag.nodes = map[string]models.Node{}
-				dag.dependencies = []string{} // No dependencies for non-existent model
+				dag.dependencies = []string{}
 			},
 			expectedPos: 0,
-			wantErr:     false,
+			wantErr:     true,
 		},
 		{
-			name:    "not a transformation model returns 0",
+			name:    "not a transformation model returns error",
 			modelID: "model.external",
 			setupMocks: func(dag *mockDAGReader, _ *mockAdmin) {
 				dag.nodes = map[string]models.Node{
-					"model.external": models.Node{NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "model.external"}},
+					"model.external": {NodeType: models.NodeTypeExternal, Model: &mockExternal{id: "model.external"}},
 				}
-				dag.dependencies = []string{} // No dependencies for external model
+				dag.dependencies = []string{}
 			},
 			expectedPos: 0,
-			wantErr:     false,
+			wantErr:     true,
 		},
 	}
 
@@ -1047,7 +1047,7 @@ func TestGetEarliestPosition(t *testing.T) {
 				},
 			}
 
-			pos, err := validator.GetEarliestPosition(ctx, tt.modelID)
+			pos, _, err := validator.GetValidRange(ctx, tt.modelID, Intersection)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1064,10 +1064,10 @@ func TestGetEarliestPosition(t *testing.T) {
 
 // logPositionDebugInfo logs debug information when position doesn't match expected
 func logPositionDebugInfo(ctx context.Context, t *testing.T, validator *dependencyValidator, mockDAG *mockDAGReader, modelID string, pos, expectedPos uint64) {
-	t.Logf("GetEarliestPosition returned %d, expected %d", pos, expectedPos)
+	t.Logf("GetValidRange(Intersection) returned min=%d, expected %d", pos, expectedPos)
 	// Try GetValidRange directly to see what it returns
-	minPos, maxPos, err2 := validator.GetValidRangeForForwardFill(ctx, modelID)
-	t.Logf("GetValidRange returned min=%d, max=%d, err=%v", minPos, maxPos, err2)
+	minPos, maxPos, err2 := validator.GetValidRange(ctx, modelID, Union)
+	t.Logf("GetValidRange(Union) returned min=%d, max=%d, err=%v", minPos, maxPos, err2)
 	// Check what the model's dependencies are
 	node, err3 := mockDAG.GetNode(modelID)
 	if err3 != nil {
@@ -1443,7 +1443,7 @@ func TestGetValidRangeForForwardFill(t *testing.T) {
 				},
 			}
 
-			minPos, maxPos, err := validator.GetValidRangeForForwardFill(ctx, tt.modelID)
+			minPos, maxPos, err := validator.GetValidRange(ctx, tt.modelID, Union)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1456,8 +1456,8 @@ func TestGetValidRangeForForwardFill(t *testing.T) {
 	}
 }
 
-// TestGetValidRangeForForwardFillWithORGroups specifically tests OR group dependency handling
-func TestGetValidRangeForForwardFillWithORGroups(t *testing.T) {
+// TestGetValidRangeUnionWithORGroups specifically tests OR group dependency handling
+func TestGetValidRangeUnionWithORGroups(t *testing.T) {
 	tests := []struct {
 		name        string
 		modelID     string
@@ -1762,7 +1762,7 @@ func TestGetValidRangeForForwardFillWithORGroups(t *testing.T) {
 				},
 			}
 
-			minPos, maxPos, err := validator.GetValidRangeForForwardFill(ctx, tt.modelID)
+			minPos, maxPos, err := validator.GetValidRange(ctx, tt.modelID, Union)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1923,133 +1923,11 @@ func TestGetTransformationModel(t *testing.T) {
 	}
 }
 
-func TestFindMin(t *testing.T) {
-	tests := []struct {
-		name     string
-		values   []uint64
-		expected uint64
-	}{
-		{
-			name:     "empty slice returns 0",
-			values:   []uint64{},
-			expected: 0,
-		},
-		{
-			name:     "single element",
-			values:   []uint64{42},
-			expected: 42,
-		},
-		{
-			name:     "multiple elements - min at start",
-			values:   []uint64{1, 5, 10, 20},
-			expected: 1,
-		},
-		{
-			name:     "multiple elements - min at end",
-			values:   []uint64{20, 10, 5, 1},
-			expected: 1,
-		},
-		{
-			name:     "multiple elements - min in middle",
-			values:   []uint64{10, 1, 20, 5},
-			expected: 1,
-		},
-		{
-			name:     "all same values",
-			values:   []uint64{7, 7, 7, 7},
-			expected: 7,
-		},
-		{
-			name:     "two elements",
-			values:   []uint64{100, 50},
-			expected: 50,
-		},
-		{
-			name:     "includes zero",
-			values:   []uint64{10, 0, 5},
-			expected: 0,
-		},
-		{
-			name:     "large values",
-			values:   []uint64{18446744073709551615, 1000, 500}, // max uint64
-			expected: 500,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := findMin(tt.values)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestFindMax(t *testing.T) {
-	tests := []struct {
-		name     string
-		values   []uint64
-		expected uint64
-	}{
-		{
-			name:     "empty slice returns 0",
-			values:   []uint64{},
-			expected: 0,
-		},
-		{
-			name:     "single element",
-			values:   []uint64{42},
-			expected: 42,
-		},
-		{
-			name:     "multiple elements - max at start",
-			values:   []uint64{20, 10, 5, 1},
-			expected: 20,
-		},
-		{
-			name:     "multiple elements - max at end",
-			values:   []uint64{1, 5, 10, 20},
-			expected: 20,
-		},
-		{
-			name:     "multiple elements - max in middle",
-			values:   []uint64{10, 20, 1, 5},
-			expected: 20,
-		},
-		{
-			name:     "all same values",
-			values:   []uint64{7, 7, 7, 7},
-			expected: 7,
-		},
-		{
-			name:     "two elements",
-			values:   []uint64{50, 100},
-			expected: 100,
-		},
-		{
-			name:     "includes zero",
-			values:   []uint64{0, 10, 5},
-			expected: 10,
-		},
-		{
-			name:     "large values",
-			values:   []uint64{1000, 18446744073709551615, 500}, // max uint64
-			expected: 18446744073709551615,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := findMax(tt.values)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-// TestGetValidRangeForBackfill tests the backfill-specific range calculation
+// TestGetValidRangeIntersection tests the backfill-specific range calculation
 // which uses intersection semantics (MAX of all mins) instead of union semantics.
 // min = MAX(all dependency mins) - requires ALL dependencies to have data
 // max = MIN(all dependency maxes)
-func TestGetValidRangeForBackfill(t *testing.T) {
+func TestGetValidRangeIntersection(t *testing.T) {
 	tests := []struct {
 		name        string
 		modelID     string
@@ -2178,7 +2056,7 @@ func TestGetValidRangeForBackfill(t *testing.T) {
 				},
 			}
 
-			minPos, maxPos, err := validator.GetValidRangeForBackfill(ctx, tt.modelID)
+			minPos, maxPos, err := validator.GetValidRange(ctx, tt.modelID, Intersection)
 
 			if tt.wantErr {
 				require.Error(t, err)
