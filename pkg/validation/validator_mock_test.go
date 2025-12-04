@@ -8,6 +8,7 @@ import (
 	adminpkg "github.com/ethpandaops/cbt/pkg/admin"
 	adminmock "github.com/ethpandaops/cbt/pkg/admin/mock"
 	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/models/external"
 	modelsmock "github.com/ethpandaops/cbt/pkg/models/mock"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	transmock "github.com/ethpandaops/cbt/pkg/models/transformation/mock"
@@ -894,6 +895,151 @@ func TestValidateDependencies_WithLimits_GeneratedMocks(t *testing.T) {
 				if tt.expectedResult.NextValidPos > 0 {
 					assert.Equal(t, tt.expectedResult.NextValidPos, result.NextValidPos)
 				}
+			}
+		})
+	}
+}
+
+func TestExternalModelValidator_GetMinMax(t *testing.T) {
+	tests := []struct {
+		name        string
+		modelID     string
+		lag         uint64
+		setup       func(ctrl *gomock.Controller) *adminmock.MockService
+		expectedMin uint64
+		expectedMax uint64
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "cache hit - returns cached bounds",
+			modelID: "ext.test",
+			lag:     0,
+			setup: func(ctrl *gomock.Controller) *adminmock.MockService {
+				admin := adminmock.NewMockService(ctrl)
+				admin.EXPECT().GetExternalBounds(gomock.Any(), "ext.test").Return(&adminpkg.BoundsCache{
+					ModelID: "ext.test",
+					Min:     100,
+					Max:     5000,
+				}, nil)
+				return admin
+			},
+			expectedMin: 100,
+			expectedMax: 5000,
+			wantErr:     false,
+		},
+		{
+			name:    "cache hit with lag - applies lag to max",
+			modelID: "ext.test",
+			lag:     500,
+			setup: func(ctrl *gomock.Controller) *adminmock.MockService {
+				admin := adminmock.NewMockService(ctrl)
+				admin.EXPECT().GetExternalBounds(gomock.Any(), "ext.test").Return(&adminpkg.BoundsCache{
+					ModelID: "ext.test",
+					Min:     100,
+					Max:     5000,
+				}, nil)
+				return admin
+			},
+			expectedMin: 100,
+			expectedMax: 4500, // 5000 - 500 lag
+			wantErr:     false,
+		},
+		{
+			name:    "cache miss - returns error",
+			modelID: "ext.test",
+			lag:     0,
+			setup: func(ctrl *gomock.Controller) *adminmock.MockService {
+				admin := adminmock.NewMockService(ctrl)
+				admin.EXPECT().GetExternalBounds(gomock.Any(), "ext.test").Return(nil, nil)
+				return admin
+			},
+			expectedMin: 0,
+			expectedMax: 0,
+			wantErr:     true,
+			errContains: "external model bounds not initialized",
+		},
+		{
+			name:    "cache error - returns error",
+			modelID: "ext.test",
+			lag:     0,
+			setup: func(ctrl *gomock.Controller) *adminmock.MockService {
+				admin := adminmock.NewMockService(ctrl)
+				admin.EXPECT().GetExternalBounds(gomock.Any(), "ext.test").Return(nil, fmt.Errorf("%w: redis connection failed", validation.ErrExternalNotInitialized))
+				return admin
+			},
+			expectedMin: 0,
+			expectedMax: 0,
+			wantErr:     true,
+			errContains: "external model bounds not initialized",
+		},
+		{
+			name:    "lag exceeds max - returns min for both",
+			modelID: "ext.test",
+			lag:     10000,
+			setup: func(ctrl *gomock.Controller) *adminmock.MockService {
+				admin := adminmock.NewMockService(ctrl)
+				admin.EXPECT().GetExternalBounds(gomock.Any(), "ext.test").Return(&adminpkg.BoundsCache{
+					ModelID: "ext.test",
+					Min:     100,
+					Max:     5000,
+				}, nil)
+				return admin
+			},
+			expectedMin: 100,
+			expectedMax: 100, // Lag exceeds max, so max is set to min
+			wantErr:     false,
+		},
+		{
+			name:    "lag equals max - returns min for both",
+			modelID: "ext.test",
+			lag:     5000,
+			setup: func(ctrl *gomock.Controller) *adminmock.MockService {
+				admin := adminmock.NewMockService(ctrl)
+				admin.EXPECT().GetExternalBounds(gomock.Any(), "ext.test").Return(&adminpkg.BoundsCache{
+					ModelID: "ext.test",
+					Min:     100,
+					Max:     5000,
+				}, nil)
+				return admin
+			},
+			expectedMin: 100,
+			expectedMax: 100, // Lag equals max, so max is set to min
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+
+			adminSvc := tt.setup(ctrl)
+
+			validator := validation.NewExternalModelExecutor(
+				logrus.New().WithField("test", tt.name),
+				adminSvc,
+			)
+
+			// Create a mock external model
+			mockExt := modelsmock.NewMockExternal(ctrl)
+			mockExt.EXPECT().GetID().Return(tt.modelID).AnyTimes()
+			mockExt.EXPECT().GetConfig().Return(external.Config{
+				Database: "test_db",
+				Table:    "test_table",
+				Lag:      tt.lag,
+			}).AnyTimes()
+
+			minPos, maxPos, err := validator.GetMinMax(context.Background(), mockExt)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedMin, minPos)
+				assert.Equal(t, tt.expectedMax, maxPos)
 			}
 		})
 	}
