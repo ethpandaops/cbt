@@ -14,7 +14,7 @@ func (s *service) RunConsolidation(ctx context.Context) {
 		totalModels          int
 		modelsConsolidated   int
 		modelsFailed         int
-		totalRowsConsolidate int
+		totalRowsConsolidate uint64
 	)
 
 	for _, transformation := range transformations {

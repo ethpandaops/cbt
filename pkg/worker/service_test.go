@@ -587,7 +587,7 @@ func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64)
 func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
 	return []admin.GapInfo{}, nil
 }
-func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
+func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (uint64, error) {
 	return 0, nil
 }
 func (m *mockAdminService) GetExternalBounds(_ context.Context, _ string) (*admin.BoundsCache, error) {

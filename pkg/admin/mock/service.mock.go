@@ -43,10 +43,10 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 }
 
 // ConsolidateHistoricalData mocks base method.
-func (m *MockService) ConsolidateHistoricalData(ctx context.Context, modelID string) (int, error) {
+func (m *MockService) ConsolidateHistoricalData(ctx context.Context, modelID string) (uint64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ConsolidateHistoricalData", ctx, modelID)
-	ret0, _ := ret[0].(int)
+	ret0, _ := ret[0].(uint64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
