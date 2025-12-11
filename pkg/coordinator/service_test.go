@@ -309,7 +309,7 @@ func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64)
 	return false, nil
 }
 
-func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
+func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (uint64, error) {
 	return 0, nil
 }
 

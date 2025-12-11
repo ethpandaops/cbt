@@ -589,9 +589,9 @@ func TestConsolidateHistoricalData(t *testing.T) {
 		modelID             string
 		rangeStartPos       uint64
 		rangeEndPos         uint64
-		rangeRowCount       int
+		rangeRowCount       uint64
 		mockRangeError      error
-		expectedRowsDeleted int
+		expectedRowsDeleted uint64
 		wantErr             bool
 		errMatch            error
 	}{
@@ -820,7 +820,7 @@ func TestConsolidateHistoricalDataClusterMode(t *testing.T) {
 type consolidationMockClient struct {
 	rangeStartPos uint64
 	rangeEndPos   uint64
-	rangeRowCount int
+	rangeRowCount uint64
 	rangeError    error
 	executeError  error
 	queries       []string
@@ -850,7 +850,7 @@ func (m *consolidationMockClient) QueryOne(_ context.Context, query string, resu
 	}
 
 	if rowCountField := v.FieldByName("RowCount"); rowCountField.IsValid() && rowCountField.CanSet() {
-		rowCountField.SetInt(int64(m.rangeRowCount))
+		rowCountField.SetUint(m.rangeRowCount)
 	}
 
 	return nil
@@ -1043,7 +1043,7 @@ func (m *queryCapturingClient) QueryOne(_ context.Context, query string, result 
 	}
 
 	if rowCountField := v.FieldByName("RowCount"); rowCountField.IsValid() && rowCountField.CanSet() {
-		rowCountField.SetInt(5)
+		rowCountField.SetUint(5)
 	}
 
 	// Handle other query result fields

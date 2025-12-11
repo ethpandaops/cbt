@@ -180,7 +180,7 @@ func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64)
 	return nil, nil
 }
 
-func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (int, error) {
+func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (uint64, error) {
 	return 0, nil
 }
 

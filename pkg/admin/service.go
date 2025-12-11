@@ -42,7 +42,7 @@ type Service interface {
 	FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]GapInfo, error)
 
 	// Consolidation
-	ConsolidateHistoricalData(ctx context.Context, modelID string) (int, error)
+	ConsolidateHistoricalData(ctx context.Context, modelID string) (uint64, error)
 
 	// External bounds cache
 	GetExternalBounds(ctx context.Context, modelID string) (*BoundsCache, error)
@@ -439,7 +439,7 @@ func (a *service) GetProcessedRanges(ctx context.Context, modelID string) ([]Pro
 }
 
 // ConsolidateHistoricalData consolidates historical admin table rows for a model
-func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string) (int, error) {
+func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string) (uint64, error) {
 	database, table, err := modelid.Parse(modelID)
 	if err != nil {
 		return 0, err
@@ -489,7 +489,7 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 	var rangeResult struct {
 		StartPos uint64 `ch:"start_pos"`
 		EndPos   uint64 `ch:"end_pos"`
-		RowCount int    `ch:"row_count"`
+		RowCount uint64 `ch:"row_count"`
 	}
 
 	err = a.client.QueryOne(ctx, rangeQuery, &rangeResult)
