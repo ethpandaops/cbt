@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -150,6 +151,7 @@ func (t *tickerServiceImpl) checkSchedules(ctx context.Context) {
 
 func (t *tickerServiceImpl) enqueueTask(ctx context.Context, task scheduledTask, enqueuedAt time.Time) error {
 	opts := []asynq.Option{
+		asynq.TaskID(task.ID),
 		asynq.Queue(task.Queue),
 		asynq.MaxRetry(0),
 		asynq.Timeout(5 * time.Minute),
@@ -157,6 +159,13 @@ func (t *tickerServiceImpl) enqueueTask(ctx context.Context, task scheduledTask,
 
 	info, err := t.queueClient.EnqueueContext(ctx, task.Task, opts...)
 	if err != nil {
+		// Task already exists in queue - this is expected when processing is slow
+		if errors.Is(err, asynq.ErrTaskIDConflict) {
+			t.log.WithField("task_id", task.ID).Debug("Task already queued, skipping")
+
+			return nil
+		}
+
 		return fmt.Errorf("failed to enqueue task: %w", err)
 	}
 
@@ -168,6 +177,7 @@ func (t *tickerServiceImpl) enqueueTask(ctx context.Context, task scheduledTask,
 	}).Info("Enqueued scheduled task")
 
 	observability.RecordTaskEnqueued(task.ID)
+
 	return nil
 }
 
