@@ -37,7 +37,7 @@ func TestNewService(t *testing.T) {
 	mockAdmin := &mockAdminService{}
 	mockValidator := validation.NewMockValidator()
 
-	svc, err := NewService(log, redisOpt, mockDAG, mockAdmin, mockValidator)
+	svc, err := NewService(log, redisOpt, 30*time.Minute, mockDAG, mockAdmin, mockValidator)
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
 
@@ -53,7 +53,7 @@ func TestServiceCreation(t *testing.T) {
 	mockAdmin := &mockAdminService{}
 	mockValidator := validation.NewMockValidator()
 
-	svc, err := NewService(log, redisOpt, mockDAG, mockAdmin, mockValidator)
+	svc, err := NewService(log, redisOpt, 30*time.Minute, mockDAG, mockAdmin, mockValidator)
 	require.NoError(t, err)
 
 	serviceCast := svc.(*service)
@@ -93,7 +93,7 @@ func TestProcessForward(t *testing.T) {
 	}
 	mockValidator := validation.NewMockValidator()
 
-	svc, err := NewService(log, redisOpt, mockDAG, mockAdmin, mockValidator)
+	svc, err := NewService(log, redisOpt, 30*time.Minute, mockDAG, mockAdmin, mockValidator)
 	require.NoError(t, err)
 
 	// Start the service to initialize queueManager
@@ -138,7 +138,7 @@ func TestProcessBackfill(t *testing.T) {
 	}
 	mockValidator := validation.NewMockValidator()
 
-	svc, err := NewService(log, redisOpt, mockDAG, mockAdmin, mockValidator)
+	svc, err := NewService(log, redisOpt, 30*time.Minute, mockDAG, mockAdmin, mockValidator)
 	require.NoError(t, err)
 
 	// Start the service to initialize queueManager
@@ -183,7 +183,7 @@ func BenchmarkServiceCreation(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := NewService(log, redisOpt, mockDAG, mockAdmin, mockValidator)
+		_, err := NewService(log, redisOpt, 30*time.Minute, mockDAG, mockAdmin, mockValidator)
 		if err != nil {
 			b.Fatal(err)
 		}

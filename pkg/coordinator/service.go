@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/models"
@@ -64,10 +65,11 @@ type service struct {
 	taskCheck chan taskOperation // Check if task is processed
 	taskMark  chan string        // Mark task as processed
 
-	redisOpt  *redis.Options
-	dag       models.DAGReader
-	admin     admin.Service
-	validator validation.Validator
+	redisOpt    *redis.Options
+	taskTimeout time.Duration
+	dag         models.DAGReader
+	admin       admin.Service
+	validator   validation.Validator
 
 	queueManager   *tasks.QueueManager
 	inspector      *asynq.Inspector
@@ -75,16 +77,17 @@ type service struct {
 }
 
 // NewService creates a new coordinator service
-func NewService(log logrus.FieldLogger, redisOpt *redis.Options, dag models.DAGReader, adminService admin.Service, validator validation.Validator) (Service, error) {
+func NewService(log logrus.FieldLogger, redisOpt *redis.Options, taskTimeout time.Duration, dag models.DAGReader, adminService admin.Service, validator validation.Validator) (Service, error) {
 	return &service{
-		log:       log.WithField("service", "coordinator"),
-		redisOpt:  redisOpt,
-		dag:       dag,
-		admin:     adminService,
-		validator: validator,
-		done:      make(chan struct{}),
-		taskCheck: make(chan taskOperation),
-		taskMark:  make(chan string, 100), // Buffered to avoid blocking
+		log:         log.WithField("service", "coordinator"),
+		redisOpt:    redisOpt,
+		taskTimeout: taskTimeout,
+		dag:         dag,
+		admin:       adminService,
+		validator:   validator,
+		done:        make(chan struct{}),
+		taskCheck:   make(chan taskOperation),
+		taskMark:    make(chan string, 100), // Buffered to avoid blocking
 	}, nil
 }
 
@@ -92,7 +95,7 @@ func NewService(log logrus.FieldLogger, redisOpt *redis.Options, dag models.DAGR
 func (s *service) Start(ctx context.Context) error {
 	asynqRedis := r.NewAsynqRedisOptions(s.redisOpt)
 
-	s.queueManager = tasks.NewQueueManager(asynqRedis)
+	s.queueManager = tasks.NewQueueManager(asynqRedis, s.taskTimeout)
 
 	s.inspector = asynq.NewInspector(*asynqRedis)
 

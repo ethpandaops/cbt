@@ -80,8 +80,8 @@ worker:
   #   - "batch"
   #   - "analytics"
 
-  # Seconds to wait for graceful shutdown
-  shutdownTimeout: 30
+  # Time to wait for graceful shutdown (e.g., 30s, 1m, 5m)
+  shutdownTimeout: 30s
 
 # Model configuration (optional)
 # Configure where to find external and transformation models and default cluster/database
