@@ -55,7 +55,7 @@ worker:
   #   include: []
   #   exclude: []
   #   require: []
-  shutdownTimeout: 30
+  shutdownTimeout: 30s
 
 # Model configuration with optional default databases
 models:

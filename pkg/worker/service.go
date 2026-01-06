@@ -137,7 +137,7 @@ func (s *service) Stop() error {
 		close(done)
 	}()
 
-	timeout := time.Duration(s.config.ShutdownTimeout) * time.Second
+	timeout := s.config.ShutdownTimeout
 	select {
 	case <-done:
 		s.log.Info("Worker service stopped successfully")
