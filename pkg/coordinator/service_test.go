@@ -340,6 +340,13 @@ func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string
 func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
 	return []admin.ProcessedRange{}, nil
 }
+func (m *mockAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
+	return &mockCoordinatorBoundsLock{}, nil
+}
+
+type mockCoordinatorBoundsLock struct{}
+
+func (m *mockCoordinatorBoundsLock) Unlock(_ context.Context) error { return nil }
 
 // compositeHandler combines generated mocks to satisfy type assertions for
 // transformation.Handler, IntervalHandler, and ScheduleHandler interfaces.

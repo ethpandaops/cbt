@@ -661,7 +661,15 @@ func (m *mockAdminService) GetScheduledAdminTable() string {
 func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
 	return []admin.ProcessedRange{}, nil
 }
+func (m *mockAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
+	return &mockSchedulerBoundsLock{}, nil
+}
 
+type mockSchedulerBoundsLock struct{}
+
+func (m *mockSchedulerBoundsLock) Unlock(_ context.Context) error { return nil }
+
+var _ admin.BoundsLock = (*mockSchedulerBoundsLock)(nil)
 var _ admin.Service = (*mockAdminService)(nil)
 
 type mockTransformation struct {

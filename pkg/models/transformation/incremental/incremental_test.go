@@ -559,6 +559,13 @@ func (m *mockAdminService) RecordCompletion(ctx context.Context, modelID string,
 func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
 	return []admin.ProcessedRange{}, nil
 }
+func (m *mockAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
+	return &mockIncrementalBoundsLock{}, nil
+}
+
+type mockIncrementalBoundsLock struct{}
+
+func (m *mockIncrementalBoundsLock) Unlock(_ context.Context) error { return nil }
 
 func TestHandler_GetFillBuffer(t *testing.T) {
 	tests := []struct {

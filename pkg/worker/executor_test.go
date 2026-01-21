@@ -526,6 +526,7 @@ type mockExecutorAdminService struct {
 	recordErr      error
 	externalBounds *admin.BoundsCache
 	setBoundsErr   error
+	onSetBounds    func(*admin.BoundsCache)
 }
 
 func (m *mockExecutorAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
@@ -552,7 +553,10 @@ func (m *mockExecutorAdminService) ConsolidateHistoricalData(_ context.Context, 
 func (m *mockExecutorAdminService) GetExternalBounds(_ context.Context, _ string) (*admin.BoundsCache, error) {
 	return m.externalBounds, nil
 }
-func (m *mockExecutorAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
+func (m *mockExecutorAdminService) SetExternalBounds(_ context.Context, cache *admin.BoundsCache) error {
+	if m.onSetBounds != nil {
+		m.onSetBounds(cache)
+	}
 	return m.setBoundsErr
 }
 func (m *mockExecutorAdminService) GetIncrementalAdminDatabase() string { return "admin_db" }
@@ -568,8 +572,189 @@ func (m *mockExecutorAdminService) GetLastScheduledExecution(_ context.Context, 
 func (m *mockExecutorAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
 	return []admin.ProcessedRange{}, nil
 }
+func (m *mockExecutorAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
+	return &mockBoundsLock{}, nil
+}
 
+// mockBoundsLock implements admin.BoundsLock for testing
+type mockBoundsLock struct{}
+
+func (m *mockBoundsLock) Unlock(_ context.Context) error {
+	return nil
+}
+
+var _ admin.BoundsLock = (*mockBoundsLock)(nil)
 var _ admin.Service = (*mockExecutorAdminService)(nil)
+
+// Test computeFinalBounds - zero protection logic
+func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+
+	executor := &ModelExecutor{log: log}
+
+	tests := []struct {
+		name          string
+		scanType      string
+		queryMin      uint64
+		queryMax      uint64
+		existingCache *admin.BoundsCache
+		expectedMin   uint64
+		expectedMax   uint64
+	}{
+		{
+			name:          "incremental zero with existing cache preserves bounds",
+			scanType:      ScanTypeIncremental,
+			queryMin:      0,
+			queryMax:      0,
+			existingCache: &admin.BoundsCache{Min: 100, Max: 200},
+			expectedMin:   100,
+			expectedMax:   200,
+		},
+		{
+			name:          "incremental zero with no cache uses zeros",
+			scanType:      ScanTypeIncremental,
+			queryMin:      0,
+			queryMax:      0,
+			existingCache: nil,
+			expectedMin:   0,
+			expectedMax:   0,
+		},
+		{
+			name:          "incremental with data uses query values",
+			scanType:      ScanTypeIncremental,
+			queryMin:      150,
+			queryMax:      250,
+			existingCache: &admin.BoundsCache{Min: 100, Max: 200},
+			expectedMin:   150,
+			expectedMax:   250,
+		},
+		{
+			name:          "full scan zero with existing cache preserves bounds",
+			scanType:      ScanTypeFull,
+			queryMin:      0,
+			queryMax:      0,
+			existingCache: &admin.BoundsCache{Min: 100, Max: 200},
+			expectedMin:   100,
+			expectedMax:   200,
+		},
+		{
+			name:          "full scan zero with no cache uses zeros",
+			scanType:      ScanTypeFull,
+			queryMin:      0,
+			queryMax:      0,
+			existingCache: nil,
+			expectedMin:   0,
+			expectedMax:   0,
+		},
+		{
+			name:          "full scan zero with cache max=0 uses zeros",
+			scanType:      ScanTypeFull,
+			queryMin:      0,
+			queryMax:      0,
+			existingCache: &admin.BoundsCache{Min: 0, Max: 0},
+			expectedMin:   0,
+			expectedMax:   0,
+		},
+		{
+			name:          "full scan with data overwrites cache",
+			scanType:      ScanTypeFull,
+			queryMin:      50,
+			queryMax:      300,
+			existingCache: &admin.BoundsCache{Min: 100, Max: 200},
+			expectedMin:   50,
+			expectedMax:   300,
+		},
+		{
+			name:          "full scan with data and no cache uses query values",
+			scanType:      ScanTypeFull,
+			queryMin:      100,
+			queryMax:      200,
+			existingCache: nil,
+			expectedMin:   100,
+			expectedMax:   200,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotMin, gotMax := executor.computeFinalBounds(tt.queryMin, tt.queryMax, tt.existingCache, tt.scanType)
+			assert.Equal(t, tt.expectedMin, gotMin, "min bound mismatch")
+			assert.Equal(t, tt.expectedMax, gotMax, "max bound mismatch")
+		})
+	}
+}
+
+// Test that InitialScanComplete is set correctly after a full scan
+func TestModelExecutor_UpdateBounds_InitialScanComplete(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+	mockCH := &mockExecutorClickhouseClient{
+		boundsMin: 100,
+		boundsMax: 200,
+	}
+
+	var savedCache *admin.BoundsCache
+	mockAdmin := &mockExecutorAdminService{
+		externalBounds: nil, // No existing cache - first scan
+		onSetBounds: func(cache *admin.BoundsCache) {
+			savedCache = cache
+		},
+	}
+
+	mockModels := &mockExecutorModelsService{
+		dagReader: &mockDAGReader{
+			externalNode: &mockExternal{
+				id:   "test.external",
+				conf: external.Config{Database: "test", Table: "external"},
+			},
+		},
+		renderedSQL: "SELECT min(id), max(id) FROM test.external",
+	}
+
+	executor := NewModelExecutor(log, mockCH, mockModels, mockAdmin)
+	err := executor.UpdateBounds(context.Background(), "test.external", ScanTypeFull)
+	require.NoError(t, err)
+
+	// Verify InitialScanComplete is true after first full scan
+	require.NotNil(t, savedCache, "Cache should have been saved")
+	assert.True(t, savedCache.InitialScanComplete, "InitialScanComplete should be true after full scan")
+	assert.NotNil(t, savedCache.InitialScanStarted, "InitialScanStarted should be set")
+}
+
+// Test that incremental scans are skipped when InitialScanComplete is false
+func TestModelExecutor_UpdateBounds_SkipsIncrementalBeforeInitialComplete(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+	mockCH := &mockExecutorClickhouseClient{}
+
+	now := time.Now().UTC()
+	mockAdmin := &mockExecutorAdminService{
+		externalBounds: &admin.BoundsCache{
+			ModelID:             "test.external",
+			Min:                 100,
+			Max:                 200,
+			InitialScanComplete: false, // Initial scan not complete
+			InitialScanStarted:  &now,
+		},
+	}
+
+	mockModels := &mockExecutorModelsService{
+		dagReader: &mockDAGReader{
+			externalNode: &mockExternal{
+				id:   "test.external",
+				conf: external.Config{Database: "test", Table: "external"},
+			},
+		},
+	}
+
+	executor := NewModelExecutor(log, mockCH, mockModels, mockAdmin)
+	err := executor.UpdateBounds(context.Background(), "test.external", ScanTypeIncremental)
+	require.NoError(t, err)
+
+	// Should skip without error and not query ClickHouse
+	// (mockCH would error if QueryOne was called without setup)
+}
 
 type mockExecutorTransformation struct {
 	id    string
