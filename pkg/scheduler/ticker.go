@@ -106,7 +106,7 @@ func (t *tickerServiceImpl) checkSchedules(ctx context.Context) {
 		// Get last run time from Redis (only when task might be due)
 		lastRun, err := t.tracker.GetLastRun(ctx, task.ID)
 		if err != nil {
-			t.log.WithError(err).WithField("task_id", task.ID).Error("Failed to get last run")
+			t.log.WithError(err).WithField("task_id", task.ID).Warn("Failed to get last run, will retry next tick")
 
 			continue
 		}

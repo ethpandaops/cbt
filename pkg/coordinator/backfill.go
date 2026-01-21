@@ -133,7 +133,7 @@ func (s *service) findGaps(ctx context.Context, trans models.Transformation, las
 
 	gaps, err := s.admin.FindGaps(ctx, trans.GetID(), scanRange.initialPos, scanRange.maxPos, maxInterval)
 	if err != nil {
-		s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to find gaps")
+		s.log.WithError(err).WithField("model_id", trans.GetID()).Warn("Failed to find gaps, will retry on next backfill cycle")
 		return nil
 	}
 
