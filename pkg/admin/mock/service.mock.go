@@ -42,6 +42,21 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 	return m.recorder
 }
 
+// AcquireBoundsLock mocks base method.
+func (m *MockService) AcquireBoundsLock(ctx context.Context, modelID string) (admin.BoundsLock, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AcquireBoundsLock", ctx, modelID)
+	ret0, _ := ret[0].(admin.BoundsLock)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AcquireBoundsLock indicates an expected call of AcquireBoundsLock.
+func (mr *MockServiceMockRecorder) AcquireBoundsLock(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcquireBoundsLock", reflect.TypeOf((*MockService)(nil).AcquireBoundsLock), ctx, modelID)
+}
+
 // ConsolidateHistoricalData mocks base method.
 func (m *MockService) ConsolidateHistoricalData(ctx context.Context, modelID string) (uint64, error) {
 	m.ctrl.T.Helper()

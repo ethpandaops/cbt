@@ -8,13 +8,14 @@ require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/creasty/defaults v1.8.0
 	github.com/getkin/kin-openapi v0.133.0
+	github.com/go-redsync/redsync/v4 v4.15.0
 	github.com/gofiber/fiber/v3 v3.0.0-rc.2
 	github.com/google/uuid v1.6.0
 	github.com/heimdalr/dag v1.5.0
 	github.com/hibiken/asynq v0.25.1
 	github.com/oapi-codegen/runtime v1.1.2
 	github.com/prometheus/client_golang v1.23.0
-	github.com/redis/go-redis/v9 v9.12.0
+	github.com/redis/go-redis/v9 v9.17.2
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.9.1
@@ -41,6 +42,8 @@ require (
 	github.com/go-openapi/swag v0.23.0 // indirect
 	github.com/gofiber/schema v1.6.0 // indirect
 	github.com/gofiber/utils/v2 v2.0.0-rc.1 // indirect
+	github.com/hashicorp/errwrap v1.1.0 // indirect
+	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect

@@ -52,9 +52,15 @@ func NewModelExecutor(log logrus.FieldLogger, chClient clickhouse.ClientInterfac
 	}
 }
 
-// UpdateBounds updates the external model bounds cache
+// UpdateBounds updates the external model bounds cache with distributed locking
+// to prevent race conditions between concurrent full and incremental scans.
+//
+// The function operates in phases:
+// 1. Get model and initial cache (unlocked - for skip checks)
+// 2. Execute ClickHouse query (unlocked - can take 5+ minutes)
+// 3. Acquire lock, re-read fresh cache, apply bounds, release lock
 func (e *ModelExecutor) UpdateBounds(ctx context.Context, modelID, scanType string) error {
-	// Get the external model from DAG
+	// Phase 1: Get the external model from DAG
 	externalModel, err := e.models.GetDAG().GetExternalNode(modelID)
 	if err != nil {
 		e.log.WithError(err).WithField("model_id", modelID).Error("Failed to get external model")
@@ -62,21 +68,21 @@ func (e *ModelExecutor) UpdateBounds(ctx context.Context, modelID, scanType stri
 		return fmt.Errorf("failed to get external model %s: %w", modelID, err)
 	}
 
-	// Get current cache entry
-	cache, err := e.admin.GetExternalBounds(ctx, modelID)
+	// Get initial cache entry for skip checks (not used for final write)
+	initialCache, err := e.admin.GetExternalBounds(ctx, modelID)
 	if err != nil {
-		e.log.WithError(err).WithField("model_id", modelID).Warn("Failed to get cache bounds")
+		e.log.WithError(err).WithField("model_id", modelID).Warn("Failed to get initial cache bounds")
 	}
 
 	now := time.Now().UTC()
 
-	// Validate scan preconditions
-	if shouldSkipScan(e.log, modelID, scanType, cache, now) {
+	// Validate scan preconditions with initial cache
+	if shouldSkipScan(e.log, modelID, scanType, initialCache, now) {
 		return nil
 	}
 
 	// Build cache state for template rendering
-	cacheState := buildCacheState(scanType, cache)
+	cacheState := buildCacheState(scanType, initialCache)
 
 	e.log.WithFields(logrus.Fields{
 		"model_id":            modelID,
@@ -86,33 +92,79 @@ func (e *ModelExecutor) UpdateBounds(ctx context.Context, modelID, scanType stri
 		"cache_state":         cacheState,
 	}).Debug("Processing external scan")
 
-	// Query bounds with cache state
+	// Phase 2: Query bounds with cache state (unlocked - can take 5+ minutes)
 	minBound, maxBound, err := e.queryExternalBounds(ctx, modelID, externalModel, cacheState)
 	if err != nil {
 		return fmt.Errorf("failed to query external bounds for %s: %w", modelID, err)
 	}
 
-	// Handle no new data case for incremental scans
+	// Phase 3: Apply bounds with distributed lock
+	return e.applyBoundsWithLock(ctx, modelID, minBound, maxBound, scanType)
+}
+
+// applyBoundsWithLock acquires a distributed lock, re-reads fresh cache, applies bounds, and releases lock.
+// This ensures that concurrent scans don't overwrite each other's updates.
+func (e *ModelExecutor) applyBoundsWithLock(ctx context.Context, modelID string, minBound, maxBound uint64, scanType string) error {
+	// Acquire distributed lock
+	lock, err := e.admin.AcquireBoundsLock(ctx, modelID)
+	if err != nil {
+		e.log.WithError(err).WithField("model_id", modelID).Error("Failed to acquire bounds lock")
+		return fmt.Errorf("failed to acquire bounds lock for %s: %w", modelID, err)
+	}
+
+	defer func() {
+		if unlockErr := lock.Unlock(ctx); unlockErr != nil {
+			e.log.WithError(unlockErr).WithField("model_id", modelID).Warn("Failed to release bounds lock")
+		}
+	}()
+
+	// Re-read FRESH cache while holding lock
+	freshCache, err := e.admin.GetExternalBounds(ctx, modelID)
+	if err != nil {
+		e.log.WithError(err).WithField("model_id", modelID).Warn("Failed to get fresh cache bounds")
+	}
+
+	now := time.Now().UTC()
 	isIncrementalScan := scanType == ScanTypeIncremental
 	isFullScan := scanType == ScanTypeFull
 
-	if isIncrementalScan && minBound == 0 && maxBound == 0 && cache != nil {
-		// No new data found, keep existing bounds
-		e.log.WithField("model_id", modelID).Debug("No new data found in incremental scan, keeping existing bounds")
-		minBound = cache.Min
-		maxBound = cache.Max
-	}
+	// Compute final bounds with zero protection
+	finalMin, finalMax := e.computeFinalBounds(minBound, maxBound, freshCache, scanType)
 
 	// Store raw bounds in cache without applying lag
 	// Lag will be applied consistently by the validator when reading bounds
-	if err := e.updateBoundsCache(ctx, modelID, minBound, maxBound, cache, isIncrementalScan, isFullScan, now); err != nil {
+	if err := e.updateBoundsCache(ctx, modelID, finalMin, finalMax, freshCache, isIncrementalScan, isFullScan, now); err != nil {
 		return fmt.Errorf("failed to update bounds cache for %s: %w", modelID, err)
 	}
 
 	// Record the bounds in metrics
-	observability.RecordModelBounds(modelID, minBound, maxBound)
+	observability.RecordModelBounds(modelID, finalMin, finalMax)
 
 	return nil
+}
+
+// computeFinalBounds applies zero-data protection for both scan types.
+// If the query returned zero bounds but the cache has valid data, preserve the existing bounds.
+func (e *ModelExecutor) computeFinalBounds(queryMin, queryMax uint64, cache *admin.BoundsCache, scanType string) (finalMin, finalMax uint64) {
+	// Zero protection for incremental scans
+	if scanType == ScanTypeIncremental && queryMin == 0 && queryMax == 0 && cache != nil {
+		e.log.WithFields(logrus.Fields{
+			"cache_min": cache.Min,
+			"cache_max": cache.Max,
+		}).Debug("No new data found in incremental scan, keeping existing bounds")
+		return cache.Min, cache.Max
+	}
+
+	// Zero protection for full scans - don't overwrite good data with zeros
+	if scanType == ScanTypeFull && queryMin == 0 && queryMax == 0 && cache != nil && cache.Max > 0 {
+		e.log.WithFields(logrus.Fields{
+			"cache_min": cache.Min,
+			"cache_max": cache.Max,
+		}).Warn("Full scan returned zero bounds but cache has data, keeping existing bounds")
+		return cache.Min, cache.Max
+	}
+
+	return queryMin, queryMax
 }
 
 // shouldSkipScan checks if the scan should be skipped based on current state
@@ -249,7 +301,7 @@ func updateCacheTimestamps(newCache, existingCache *admin.BoundsCache, isIncreme
 		// Set initial scan started time if this is the first scan
 		if existingCache == nil {
 			newCache.InitialScanStarted = &now
-			newCache.InitialScanComplete = false // Will be set to true when scan completes
+			// InitialScanComplete is already set to true in updateBoundsCache
 		} else if existingCache.InitialScanStarted != nil {
 			newCache.InitialScanStarted = existingCache.InitialScanStarted
 		}

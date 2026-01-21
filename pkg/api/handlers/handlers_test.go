@@ -175,6 +175,13 @@ func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64)
 func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
 	return []admin.ProcessedRange{}, nil
 }
+func (m *mockAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
+	return &mockHandlersBoundsLock{}, nil
+}
+
+type mockHandlersBoundsLock struct{}
+
+func (m *mockHandlersBoundsLock) Unlock(_ context.Context) error { return nil }
 
 func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
 	return nil, nil

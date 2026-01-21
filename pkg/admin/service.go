@@ -48,6 +48,9 @@ type Service interface {
 	GetExternalBounds(ctx context.Context, modelID string) (*BoundsCache, error)
 	SetExternalBounds(ctx context.Context, cache *BoundsCache) error
 
+	// Distributed locking for bounds updates
+	AcquireBoundsLock(ctx context.Context, modelID string) (BoundsLock, error)
+
 	// Admin table info
 	GetIncrementalAdminDatabase() string
 	GetIncrementalAdminTable() string
@@ -589,6 +592,14 @@ func (a *service) SetExternalBounds(ctx context.Context, cache *BoundsCache) err
 		return ErrCacheManagerUnavailable
 	}
 	return a.cacheManager.SetBounds(ctx, cache)
+}
+
+// AcquireBoundsLock acquires a distributed lock for bounds updates on a specific model
+func (a *service) AcquireBoundsLock(ctx context.Context, modelID string) (BoundsLock, error) {
+	if a.cacheManager == nil {
+		return nil, ErrCacheManagerUnavailable
+	}
+	return a.cacheManager.AcquireLock(ctx, modelID)
 }
 
 // RecordScheduledCompletion records a completed scheduled transformation

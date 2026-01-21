@@ -610,7 +610,18 @@ func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string
 func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
 	return []admin.ProcessedRange{}, nil
 }
+func (m *mockAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
+	return &mockServiceBoundsLock{}, nil
+}
 
+// mockServiceBoundsLock implements admin.BoundsLock for testing
+type mockServiceBoundsLock struct{}
+
+func (m *mockServiceBoundsLock) Unlock(_ context.Context) error {
+	return nil
+}
+
+var _ admin.BoundsLock = (*mockServiceBoundsLock)(nil)
 var _ admin.Service = (*mockAdminService)(nil)
 
 type mockModelsService struct {
