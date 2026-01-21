@@ -569,7 +569,7 @@ func (s *Server) ListTransformationCoverage(c fiber.Ctx, params generated.ListTr
 		// Get all processed ranges from admin service
 		ranges, err := s.adminService.GetProcessedRanges(c.Context(), modelID)
 		if err != nil {
-			s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get processed ranges")
+			s.log.WithError(err).WithField("model_id", modelID).Warn("Failed to get processed ranges for model, continuing")
 			continue
 		}
 
@@ -646,7 +646,7 @@ func (s *Server) ListScheduledRuns(c fiber.Ctx, params generated.ListScheduledRu
 		// Get last run timestamp from admin service
 		lastRun, err := s.adminService.GetLastScheduledExecution(c.Context(), modelID)
 		if err != nil {
-			s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get last run")
+			s.log.WithError(err).WithField("model_id", modelID).Warn("Failed to get last run for model, continuing")
 			continue
 		}
 

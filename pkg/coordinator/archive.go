@@ -93,7 +93,7 @@ func (h *archiveHandler) processArchivedTasks() {
 	// Get all queues dynamically from asynq
 	queues, err := h.inspector.Queues()
 	if err != nil {
-		h.log.WithError(err).Error("Failed to list queues")
+		h.log.WithError(err).Warn("Failed to list queues, will retry")
 		return
 	}
 

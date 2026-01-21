@@ -85,7 +85,7 @@ func (s *service) getProcessingPosition(ctx context.Context, trans models.Transf
 
 		initialPos, err := s.validator.GetStartPosition(ctx, trans.GetID())
 		if err != nil {
-			s.log.WithError(err).WithField("model_id", trans.GetID()).Error("Failed to calculate initial position")
+			s.log.WithError(err).WithField("model_id", trans.GetID()).Warn("Failed to calculate initial position, will retry")
 			return 0, err
 		}
 
