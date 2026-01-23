@@ -143,28 +143,49 @@ func (e *ModelExecutor) applyBoundsWithLock(ctx context.Context, modelID string,
 	return nil
 }
 
-// computeFinalBounds applies zero-data protection for both scan types.
-// If the query returned zero bounds but the cache has valid data, preserve the existing bounds.
+// computeFinalBounds applies zero-data and invalid bounds protection for both scan types.
+// If the query returned invalid bounds but the cache has valid data, preserve the existing bounds.
 func (e *ModelExecutor) computeFinalBounds(queryMin, queryMax uint64, cache *admin.BoundsCache, scanType string) (finalMin, finalMax uint64) {
-	// Zero protection for incremental scans
-	if scanType == ScanTypeIncremental && queryMin == 0 && queryMax == 0 && cache != nil {
-		e.log.WithFields(logrus.Fields{
-			"cache_min": cache.Min,
-			"cache_max": cache.Max,
-		}).Debug("No new data found in incremental scan, keeping existing bounds")
-		return cache.Min, cache.Max
+	// No protection needed if cache is empty or has no data
+	if cache == nil || cache.Max == 0 {
+		return queryMin, queryMax
 	}
 
-	// Zero protection for full scans - don't overwrite good data with zeros
-	if scanType == ScanTypeFull && queryMin == 0 && queryMax == 0 && cache != nil && cache.Max > 0 {
+	// Check for invalid bounds that should preserve existing cache
+	if reason := e.detectInvalidBounds(queryMin, queryMax); reason != "" {
 		e.log.WithFields(logrus.Fields{
 			"cache_min": cache.Min,
 			"cache_max": cache.Max,
-		}).Warn("Full scan returned zero bounds but cache has data, keeping existing bounds")
+			"query_min": queryMin,
+			"query_max": queryMax,
+			"scan_type": scanType,
+			"reason":    reason,
+		}).Warn("Invalid bounds detected, preserving existing cache")
 		return cache.Min, cache.Max
 	}
 
 	return queryMin, queryMax
+}
+
+// detectInvalidBounds checks if query bounds are invalid and returns the reason, or empty string if valid.
+func (e *ModelExecutor) detectInvalidBounds(queryMin, queryMax uint64) string {
+	// Both bounds are zero - no data found
+	if queryMin == 0 && queryMax == 0 {
+		return "zero_bounds"
+	}
+
+	// Only max is zero but min is valid - asymmetric zero (invalid state)
+	// This happens when incremental scan window has no data but template preserves previous_min
+	if queryMin > 0 && queryMax == 0 {
+		return "asymmetric_zero_max"
+	}
+
+	// Min > Max - invalid bounds order
+	if queryMin > queryMax {
+		return "min_greater_than_max"
+	}
+
+	return ""
 }
 
 // shouldSkipScan checks if the scan should be skipped based on current state

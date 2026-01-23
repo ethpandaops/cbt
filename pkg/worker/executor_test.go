@@ -674,6 +674,70 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 			expectedMin:   100,
 			expectedMax:   200,
 		},
+		// Asymmetric zero protection tests (bug fix)
+		{
+			name:          "incremental min valid max zero with cache - preserve bounds",
+			scanType:      ScanTypeIncremental,
+			queryMin:      150,
+			queryMax:      0,
+			existingCache: &admin.BoundsCache{Min: 100, Max: 500},
+			expectedMin:   100,
+			expectedMax:   500, // Preserved! Not corrupted to 0
+		},
+		{
+			name:          "full scan min valid max zero with cache - preserve bounds",
+			scanType:      ScanTypeFull,
+			queryMin:      150,
+			queryMax:      0,
+			existingCache: &admin.BoundsCache{Min: 100, Max: 500},
+			expectedMin:   100,
+			expectedMax:   500, // Preserved!
+		},
+		{
+			name:          "incremental min greater than max with cache - preserve bounds",
+			scanType:      ScanTypeIncremental,
+			queryMin:      600,
+			queryMax:      200,
+			existingCache: &admin.BoundsCache{Min: 100, Max: 500},
+			expectedMin:   100,
+			expectedMax:   500, // Preserved! Invalid bounds rejected
+		},
+		{
+			name:          "full scan min greater than max with cache - preserve bounds",
+			scanType:      ScanTypeFull,
+			queryMin:      600,
+			queryMax:      200,
+			existingCache: &admin.BoundsCache{Min: 100, Max: 500},
+			expectedMin:   100,
+			expectedMax:   500, // Preserved!
+		},
+		{
+			name:          "min valid max zero no cache - use query values",
+			scanType:      ScanTypeIncremental,
+			queryMin:      150,
+			queryMax:      0,
+			existingCache: nil, // No existing cache
+			expectedMin:   150,
+			expectedMax:   0, // Can't preserve, must use query values
+		},
+		{
+			name:          "min zero max valid - legitimate zero start",
+			scanType:      ScanTypeFull,
+			queryMin:      0,
+			queryMax:      500,
+			existingCache: &admin.BoundsCache{Min: 100, Max: 200},
+			expectedMin:   0,
+			expectedMax:   500, // Valid: data could legitimately start at 0
+		},
+		{
+			name:          "cache with zero max - no protection needed",
+			scanType:      ScanTypeIncremental,
+			queryMin:      150,
+			queryMax:      0,
+			existingCache: &admin.BoundsCache{Min: 0, Max: 0}, // Cache has no data
+			expectedMin:   150,
+			expectedMax:   0, // No protection because cache.Max == 0
+		},
 	}
 
 	for _, tt := range tests {

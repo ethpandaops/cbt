@@ -210,17 +210,3 @@ func TestTruncateQuery(t *testing.T) {
 		})
 	}
 }
-
-// Integration tests require a running ClickHouse instance.
-// Run with: go test -tags=integration -run=Integration
-// These tests are skipped by default.
-
-func TestIntegration_NewClient(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	// This test requires CLICKHOUSE_URL environment variable
-	// Example: CLICKHOUSE_URL=clickhouse://localhost:9000 go test -run Integration
-	t.Skip("Integration test - requires running ClickHouse instance")
-}
