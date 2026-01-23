@@ -261,7 +261,7 @@ func (a *service) GetCoverage(ctx context.Context, modelID string, startPos, end
 	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, endPos, startPos, startPos, endPos)
 
 	var result struct {
-		FullyCovered int `ch:"fully_covered"`
+		FullyCovered uint8 `ch:"fully_covered"`
 	}
 
 	err = a.client.QueryOne(ctx, query, &result)
@@ -644,7 +644,8 @@ func (a *service) GetLastScheduledExecution(ctx context.Context, modelID string)
 		return nil, err
 	}
 
-	if result.LastExecution == nil || result.LastExecution.IsZero() {
+	// Check for nil, Go's zero time, or Unix epoch (ClickHouse's "zero" DateTime)
+	if result.LastExecution == nil || result.LastExecution.IsZero() || result.LastExecution.Unix() == 0 {
 		return nil, nil
 	}
 

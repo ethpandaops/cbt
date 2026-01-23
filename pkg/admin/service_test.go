@@ -525,11 +525,11 @@ func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, result inte
 				fieldValue.SetUint(m.queryResult)
 			}
 		case "FullyCovered":
-			if fieldValue.Kind() == reflect.Int {
+			if fieldValue.Kind() == reflect.Uint8 {
 				if m.coverageResult {
-					fieldValue.SetInt(1)
+					fieldValue.SetUint(1)
 				} else {
-					fieldValue.SetInt(0)
+					fieldValue.SetUint(0)
 				}
 			}
 		}
