@@ -364,6 +364,7 @@ func (v *dependencyValidator) processGapsForRange(
 
 // GetStartPosition calculates the starting position for a NEW model.
 // Supports both head-first (from most recent data) and tail-first (from oldest data) strategies.
+// Uses Intersection semantics to ensure the start position is where ALL dependencies have data.
 func (v *dependencyValidator) GetStartPosition(ctx context.Context, modelID string) (uint64, error) {
 	model, err := v.getTransformationModel(modelID)
 	if err != nil {
@@ -388,7 +389,12 @@ func (v *dependencyValidator) GetStartPosition(ctx context.Context, modelID stri
 		}
 	}
 
-	minPos, maxPos, err := v.GetValidRange(ctx, modelID, Union)
+	// Use Intersection semantics: min = MAX(all dependency mins), max = MIN(all dependency maxes)
+	// This ensures we start at a position where ALL dependencies have data available,
+	// which is required for successful processing. Union semantics would give us the
+	// earliest position where ANY dependency has data, but that position may not be
+	// processable if other dependencies don't have data there yet.
+	minPos, maxPos, err := v.GetValidRange(ctx, modelID, Intersection)
 	if err != nil {
 		return 0, err
 	}

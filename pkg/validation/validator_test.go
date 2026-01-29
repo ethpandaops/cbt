@@ -417,6 +417,57 @@ func TestGetStartPosition_GeneratedMocks(t *testing.T) {
 		wantErr          bool
 	}{
 		{
+			name:    "tail-first with multiple externals uses intersection semantics (MAX of mins)",
+			modelID: "model.test",
+			setup: func(ctrl *gomock.Controller) (*adminmock.MockService, *validationmock.MockExternalValidator, *modelsmock.MockDAGReader) {
+				admin := adminmock.NewMockService(ctrl)
+				extVal := validationmock.NewMockExternalValidator(ctrl)
+				dag := modelsmock.NewMockDAGReader(ctrl)
+
+				mockTrans := modelsmock.NewMockTransformation(ctrl)
+				handler := &testIncrementalHandler{
+					deps: []transformation.Dependency{
+						{IsGroup: false, SingleDep: "ext.traces"},
+						{IsGroup: false, SingleDep: "ext.contracts"},
+					},
+					fillDirection: "tail",
+				}
+				mockTrans.EXPECT().GetHandler().Return(handler).AnyTimes()
+
+				extTraces := modelsmock.NewMockExternal(ctrl)
+				extTraces.EXPECT().GetID().Return("ext.traces").AnyTimes()
+				extContracts := modelsmock.NewMockExternal(ctrl)
+				extContracts.EXPECT().GetID().Return("ext.contracts").AnyTimes()
+
+				dag.EXPECT().GetNode("model.test").Return(models.Node{
+					NodeType: models.NodeTypeTransformation,
+					Model:    mockTrans,
+				}, nil).AnyTimes()
+
+				dag.EXPECT().GetNode("ext.traces").Return(models.Node{
+					NodeType: models.NodeTypeExternal,
+					Model:    extTraces,
+				}, nil).AnyTimes()
+
+				dag.EXPECT().GetNode("ext.contracts").Return(models.Node{
+					NodeType: models.NodeTypeExternal,
+					Model:    extContracts,
+				}, nil).AnyTimes()
+
+				// This is the key scenario: traces starts at 0, contracts starts at 47205
+				// With Union semantics (old behavior): min = MIN(0, 47205) = 0 (WRONG - can't process at 0)
+				// With Intersection semantics (fix): min = MAX(0, 47205) = 47205 (CORRECT - all deps have data)
+				extVal.EXPECT().GetMinMax(gomock.Any(), extTraces).Return(uint64(0), uint64(24338331), nil)
+				extVal.EXPECT().GetMinMax(gomock.Any(), extContracts).Return(uint64(47205), uint64(24338331), nil)
+
+				return admin, extVal, dag
+			},
+			// With the fix, start position should be 47205 (MAX of mins using Intersection)
+			// This ensures we start where ALL dependencies have data available
+			expectedPosition: 47205,
+			wantErr:          false,
+		},
+		{
 			name:    "head-first direction - starts from near max",
 			modelID: "model.test",
 			setup: func(ctrl *gomock.Controller) (*adminmock.MockService, *validationmock.MockExternalValidator, *modelsmock.MockDAGReader) {
