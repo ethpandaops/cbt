@@ -569,6 +569,14 @@ func (m *mockExecutorAdminService) RecordScheduledCompletion(_ context.Context, 
 func (m *mockExecutorAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
 	return nil, nil
 }
+func (m *mockExecutorAdminService) GetAllProcessedRanges(_ context.Context, _ []string) (map[string][]admin.ProcessedRange, error) {
+	return make(map[string][]admin.ProcessedRange), nil
+}
+
+func (m *mockExecutorAdminService) GetAllLastScheduledExecutions(_ context.Context, _ []string) (map[string]*time.Time, error) {
+	return make(map[string]*time.Time), nil
+}
+
 func (m *mockExecutorAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
 	return []admin.ProcessedRange{}, nil
 }

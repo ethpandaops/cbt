@@ -551,28 +551,34 @@ func mapBoundsCacheToAPI(id string, cache *admin.BoundsCache) generated.External
 // ListTransformationCoverage handles GET /api/v1/models/transformations/coverage
 func (s *Server) ListTransformationCoverage(c fiber.Ctx, params generated.ListTransformationCoverageParams) error {
 	dag := s.modelsService.GetDAG()
-	coverage := make([]generated.CoverageSummary, 0)
+
+	// Collect all matching model IDs first
+	modelIDs := make([]string, 0)
 
 	for _, node := range dag.GetTransformationNodes() {
 		cfg := node.GetConfig()
 		if !cfg.IsIncrementalType() {
-			continue // Skip scheduled transformations
+			continue
 		}
 
-		// Filter by database if provided
 		if params.Database != nil && cfg.Database != *params.Database {
 			continue
 		}
 
-		modelID := cfg.GetID()
+		modelIDs = append(modelIDs, cfg.GetID())
+	}
 
-		// Get all processed ranges from admin service
-		ranges, err := s.adminService.GetProcessedRanges(c.Context(), modelID)
-		if err != nil {
-			s.log.WithError(err).WithField("model_id", modelID).Warn("Failed to get processed ranges for model, continuing")
-			continue
-		}
+	// Batch fetch all processed ranges in a single query
+	allRanges, err := s.adminService.GetAllProcessedRanges(c.Context(), modelIDs)
+	if err != nil {
+		s.log.WithError(err).Warn("Failed to batch get processed ranges")
+		return err
+	}
 
+	coverage := make([]generated.CoverageSummary, 0, len(modelIDs))
+
+	for _, modelID := range modelIDs {
+		ranges := allRanges[modelID]
 		coverage = append(coverage, generated.CoverageSummary{
 			Id:     modelID,
 			Ranges: mapRangesToAPI(ranges),
@@ -628,32 +634,37 @@ func mapRangesToAPI(ranges []admin.ProcessedRange) []generated.Range {
 // ListScheduledRuns handles GET /api/v1/models/transformations/runs
 func (s *Server) ListScheduledRuns(c fiber.Ctx, params generated.ListScheduledRunsParams) error {
 	dag := s.modelsService.GetDAG()
-	runs := make([]generated.ScheduledRun, 0)
+
+	// Collect all matching model IDs first
+	modelIDs := make([]string, 0)
 
 	for _, node := range dag.GetTransformationNodes() {
 		cfg := node.GetConfig()
 		if !cfg.IsScheduledType() {
-			continue // Skip incremental transformations
+			continue
 		}
 
-		// Filter by database if provided
 		if params.Database != nil && cfg.Database != *params.Database {
 			continue
 		}
 
-		modelID := cfg.GetID()
+		modelIDs = append(modelIDs, cfg.GetID())
+	}
 
-		// Get last run timestamp from admin service
-		lastRun, err := s.adminService.GetLastScheduledExecution(c.Context(), modelID)
-		if err != nil {
-			s.log.WithError(err).WithField("model_id", modelID).Warn("Failed to get last run for model, continuing")
-			continue
-		}
+	// Batch fetch all last executions in a single query
+	allExecutions, err := s.adminService.GetAllLastScheduledExecutions(c.Context(), modelIDs)
+	if err != nil {
+		s.log.WithError(err).Warn("Failed to batch get last scheduled executions")
+		return err
+	}
 
+	runs := make([]generated.ScheduledRun, 0, len(modelIDs))
+
+	for _, modelID := range modelIDs {
 		run := generated.ScheduledRun{
 			Id: modelID,
 		}
-		if lastRun != nil {
+		if lastRun := allExecutions[modelID]; lastRun != nil {
 			run.LastRun = lastRun
 		}
 

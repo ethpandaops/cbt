@@ -610,6 +610,14 @@ func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string
 func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
 	return []admin.ProcessedRange{}, nil
 }
+
+func (m *mockAdminService) GetAllProcessedRanges(_ context.Context, _ []string) (map[string][]admin.ProcessedRange, error) {
+	return make(map[string][]admin.ProcessedRange), nil
+}
+
+func (m *mockAdminService) GetAllLastScheduledExecutions(_ context.Context, _ []string) (map[string]*time.Time, error) {
+	return make(map[string]*time.Time), nil
+}
 func (m *mockAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
 	return &mockServiceBoundsLock{}, nil
 }
