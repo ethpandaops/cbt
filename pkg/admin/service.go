@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
@@ -35,10 +36,12 @@ type Service interface {
 	// Scheduled transformation tracking
 	RecordScheduledCompletion(ctx context.Context, modelID string, startDateTime time.Time) error
 	GetLastScheduledExecution(ctx context.Context, modelID string) (*time.Time, error)
+	GetAllLastScheduledExecutions(ctx context.Context, modelIDs []string) (map[string]*time.Time, error)
 
 	// Coverage and gap management
 	GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error)
 	GetProcessedRanges(ctx context.Context, modelID string) ([]ProcessedRange, error)
+	GetAllProcessedRanges(ctx context.Context, modelIDs []string) (map[string][]ProcessedRange, error)
 	FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]GapInfo, error)
 
 	// Consolidation
@@ -653,6 +656,116 @@ func (a *service) GetLastScheduledExecution(ctx context.Context, modelID string)
 	utcTime := result.LastExecution.UTC()
 
 	return &utcTime, nil
+}
+
+// GetAllProcessedRanges returns processed ranges for multiple models in a single query.
+// This avoids the N+1 query problem when listing coverage for all models.
+func (a *service) GetAllProcessedRanges(ctx context.Context, modelIDs []string) (map[string][]ProcessedRange, error) {
+	if len(modelIDs) == 0 {
+		return make(map[string][]ProcessedRange), nil
+	}
+
+	// Build the WHERE IN clause with (database, table) tuples
+	tuples := make([]string, 0, len(modelIDs))
+
+	for _, id := range modelIDs {
+		database, table, err := modelid.Parse(id)
+		if err != nil {
+			return nil, err
+		}
+
+		tuples = append(tuples, fmt.Sprintf("('%s', '%s')", database, table))
+	}
+
+	query := fmt.Sprintf(`
+		SELECT database, table, position, interval
+		FROM %s FINAL
+		WHERE (database, table) IN (%s)
+		ORDER BY database, table, position DESC
+	`, buildTableRef(a.adminDatabase, a.adminTable), strings.Join(tuples, ", "))
+
+	var rows []struct {
+		Database string `ch:"database"`
+		Table    string `ch:"table"`
+		Position uint64 `ch:"position"`
+		Interval uint64 `ch:"interval"`
+	}
+
+	if err := a.client.QueryMany(ctx, query, &rows); err != nil {
+		return nil, fmt.Errorf("failed to batch query processed ranges: %w", err)
+	}
+
+	result := make(map[string][]ProcessedRange, len(modelIDs))
+	for _, row := range rows {
+		id := modelid.Format(row.Database, row.Table)
+		result[id] = append(result[id], ProcessedRange{
+			Position: row.Position,
+			Interval: row.Interval,
+		})
+	}
+
+	a.log.WithFields(logrus.Fields{
+		"model_count": len(modelIDs),
+		"total_rows":  len(rows),
+	}).Debug("Batch retrieved processed ranges from admin table")
+
+	return result, nil
+}
+
+// GetAllLastScheduledExecutions returns the last execution time for multiple scheduled
+// models in a single query. This avoids the N+1 query problem when listing runs.
+func (a *service) GetAllLastScheduledExecutions(ctx context.Context, modelIDs []string) (map[string]*time.Time, error) {
+	if len(modelIDs) == 0 {
+		return make(map[string]*time.Time), nil
+	}
+
+	// Build the WHERE IN clause with (database, table) tuples
+	tuples := make([]string, 0, len(modelIDs))
+
+	for _, id := range modelIDs {
+		database, table, err := modelid.Parse(id)
+		if err != nil {
+			return nil, err
+		}
+
+		tuples = append(tuples, fmt.Sprintf("('%s', '%s')", database, table))
+	}
+
+	query := fmt.Sprintf(`
+		SELECT database, table, max(start_date_time) as last_execution
+		FROM %s FINAL
+		WHERE (database, table) IN (%s)
+		GROUP BY database, table
+	`, buildTableRef(a.scheduledAdminDatabase, a.scheduledAdminTable), strings.Join(tuples, ", "))
+
+	var rows []struct {
+		Database      string    `ch:"database"`
+		Table         string    `ch:"table"`
+		LastExecution time.Time `ch:"last_execution"`
+	}
+
+	if err := a.client.QueryMany(ctx, query, &rows); err != nil {
+		return nil, fmt.Errorf("failed to batch query scheduled executions: %w", err)
+	}
+
+	result := make(map[string]*time.Time, len(modelIDs))
+	for _, row := range rows {
+		// Skip zero/epoch timestamps (ClickHouse "zero" DateTime)
+		if row.LastExecution.IsZero() || row.LastExecution.Unix() == 0 {
+			continue
+		}
+
+		id := modelid.Format(row.Database, row.Table)
+		utcTime := row.LastExecution.UTC()
+		result[id] = &utcTime
+	}
+
+	a.log.WithFields(logrus.Fields{
+		"model_count":  len(modelIDs),
+		"result_count": len(result),
+	}).Debug("Batch retrieved last scheduled executions from admin table")
+
+	return result, nil
 }
 
 // Ensure service implements the interface

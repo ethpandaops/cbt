@@ -87,6 +87,36 @@ func (mr *MockServiceMockRecorder) FindGaps(ctx, modelID, minPos, maxPos, interv
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindGaps", reflect.TypeOf((*MockService)(nil).FindGaps), ctx, modelID, minPos, maxPos, interval)
 }
 
+// GetAllLastScheduledExecutions mocks base method.
+func (m *MockService) GetAllLastScheduledExecutions(ctx context.Context, modelIDs []string) (map[string]*time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllLastScheduledExecutions", ctx, modelIDs)
+	ret0, _ := ret[0].(map[string]*time.Time)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllLastScheduledExecutions indicates an expected call of GetAllLastScheduledExecutions.
+func (mr *MockServiceMockRecorder) GetAllLastScheduledExecutions(ctx, modelIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllLastScheduledExecutions", reflect.TypeOf((*MockService)(nil).GetAllLastScheduledExecutions), ctx, modelIDs)
+}
+
+// GetAllProcessedRanges mocks base method.
+func (m *MockService) GetAllProcessedRanges(ctx context.Context, modelIDs []string) (map[string][]admin.ProcessedRange, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllProcessedRanges", ctx, modelIDs)
+	ret0, _ := ret[0].(map[string][]admin.ProcessedRange)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllProcessedRanges indicates an expected call of GetAllProcessedRanges.
+func (mr *MockServiceMockRecorder) GetAllProcessedRanges(ctx, modelIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllProcessedRanges", reflect.TypeOf((*MockService)(nil).GetAllProcessedRanges), ctx, modelIDs)
+}
+
 // GetCoverage mocks base method.
 func (m *MockService) GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error) {
 	m.ctrl.T.Helper()
