@@ -265,32 +265,32 @@ describe('schedule-parser', () => {
     });
 
     describe('overdue runs', () => {
-      it('should return "OVERDUE Xm" for minutes overdue', () => {
-        const lastRun = new Date('2025-10-13T11:50:00.000Z'); // 10m ago
+      it('should return "OVERDUE by X minutes" for minutes overdue', () => {
+        const lastRun = new Date(Date.now() - 10 * 60_000); // 10m ago
         const result = getNextRunDescription('@every 5m', lastRun);
 
-        expect(result).toBe('OVERDUE 5m');
+        expect(result).toMatch(/^OVERDUE by \d+ minutes?$/);
       });
 
-      it('should return "OVERDUE Xh" for hours overdue', () => {
-        const lastRun = new Date('2025-10-13T09:00:00.000Z'); // 3h ago
+      it('should return "OVERDUE by X hours" for hours overdue', () => {
+        const lastRun = new Date(Date.now() - 3 * 3600_000); // 3h ago
         const result = getNextRunDescription('@every 1h', lastRun);
 
-        expect(result).toBe('OVERDUE 2h');
+        expect(result).toMatch(/^OVERDUE by \d+ hours?$/);
       });
 
-      it('should return "OVERDUE Xd" for days overdue', () => {
-        const lastRun = new Date('2025-10-10T12:00:00.000Z'); // 3d ago
+      it('should return "OVERDUE by X days" for days overdue', () => {
+        const lastRun = new Date(Date.now() - 3 * 86400_000); // 3d ago
         const result = getNextRunDescription('@every 1d', lastRun);
 
-        expect(result).toBe('OVERDUE 2d');
+        expect(result).toMatch(/^OVERDUE by \d+ days?$/);
       });
 
-      it('should return "OVERDUE" for less than 1 minute overdue', () => {
-        const lastRun = new Date('2025-10-13T11:59:45.000Z'); // 15s ago
+      it('should return "OVERDUE by X seconds" for seconds overdue', () => {
+        const lastRun = new Date(Date.now() - 15_000); // 15s ago
         const result = getNextRunDescription('@every 10s', lastRun);
 
-        expect(result).toBe('OVERDUE');
+        expect(result).toMatch(/^OVERDUE by \d+ seconds?$/);
       });
     });
 

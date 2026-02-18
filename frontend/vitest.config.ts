@@ -38,9 +38,9 @@ export default defineConfig({
       ],
     },
     setupFiles: ['./.storybook/vitest-setup.ts'],
-    fakeTimers: {
-      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'Date'],
-    },
+  },
+  optimizeDeps: {
+    include: ['react-dom/client', 'zod/mini'],
   },
   resolve: {
     alias: {

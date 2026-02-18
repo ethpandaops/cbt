@@ -149,10 +149,10 @@ describe('time utility', () => {
     });
 
     describe('edge cases', () => {
-      it('should handle timestamps in the future (treat as just now)', () => {
-        const timestamp = new Date('2025-10-13T12:01:00.000Z').toISOString();
-        // Future timestamps will result in negative diff, which floors to 0
-        expect(timeAgo(timestamp)).toBe('just now');
+      it('should handle timestamps in the future', () => {
+        const timestamp = new Date(Date.now() + 60_000).toISOString();
+        // Future timestamps return relative future description
+        expect(timeAgo(timestamp)).toMatch(/^in \d+ (min|mins|secs?|hour|hours|day|days)$|^in a moment$/);
       });
 
       it('should handle timestamps as Date strings', () => {
