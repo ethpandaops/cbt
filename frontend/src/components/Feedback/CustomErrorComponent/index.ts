@@ -1,0 +1,1 @@
+export { CustomErrorComponent } from './CustomErrorComponent';

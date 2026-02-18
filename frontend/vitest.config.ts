@@ -3,23 +3,44 @@ import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+/**
+ * Vitest config for Storybook tests
+ *
+ * The storybookTest plugin MUST be at the root plugins level, and when used,
+ * it affects the entire config. Therefore, we need separate configs for unit
+ * and storybook tests.
+ *
+ * Run via: pnpm test:storybook or pnpm test (default)
+ * For unit tests, see vitest.config.unit.ts
+ */
 export default defineConfig({
   plugins: [
     react(),
     storybookTest({
       configDir: path.join(__dirname, '.storybook'),
+      tags: {
+        exclude: ['test-exclude'],
+      },
     }),
   ],
   test: {
     name: 'storybook',
     globals: true,
+    environment: 'jsdom',
     browser: {
       enabled: true,
-      name: 'chromium',
-      provider: 'playwright',
       headless: true,
+      provider: 'playwright',
+      instances: [
+        {
+          browser: 'chromium',
+        },
+      ],
     },
     setupFiles: ['./.storybook/vitest-setup.ts'],
+    fakeTimers: {
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'Date'],
+    },
   },
   resolve: {
     alias: {

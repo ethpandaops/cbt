@@ -11,13 +11,13 @@ import {
   listTransformationsOptions,
   getIntervalTypesOptions,
 } from '@api/@tanstack/react-query.gen';
-import { XCircleIcon } from '@heroicons/react/24/outline';
-import { BackToDashboardButton } from '@/components/BackToDashboardButton';
-import { ModelHeader } from '@/components/ModelHeader';
-import { ModelInfoCard, type InfoField } from '@/components/ModelInfoCard';
-import { ModelDetailView } from '@/components/ModelDetailView';
-import { ModelSkeleton } from '@/components/ModelSkeleton';
-import { SQLCodeBlock } from '@/components/SQLCodeBlock';
+import { BackToDashboardButton } from '@/components/Elements/BackToDashboardButton';
+import { ErrorState } from '@/components/Feedback/ErrorState';
+import { ModelHeader } from '@/components/Domain/Models/ModelHeader';
+import { ModelInfoCard, type InfoField } from '@/components/Domain/Models/ModelInfoCard';
+import { ModelDetailView } from '@/components/Domain/Models/ModelDetailView';
+import { ModelSkeleton } from '@/components/Domain/Models/ModelSkeleton';
+import { SQLCodeBlock } from '@/components/Elements/SQLCodeBlock';
 import { timeAgo } from '@/utils/time';
 
 function ModelDetailComponent(): JSX.Element {
@@ -64,14 +64,7 @@ function ModelDetailComponent(): JSX.Element {
   }
 
   if (!model) {
-    return (
-      <div className="rounded-lg border border-red-500/50 bg-red-950/80 p-4 text-red-200">
-        <div className="flex items-center gap-2">
-          <XCircleIcon className="h-5 w-5 shrink-0" />
-          <span className="font-medium">Model not found: {decodedId}</span>
-        </div>
-      </div>
-    );
+    return <ErrorState message={`Model not found: ${decodedId}`} />;
   }
 
   if (model.type === 'external') {
@@ -100,8 +93,8 @@ function ModelDetailComponent(): JSX.Element {
 
     if (bounds) {
       fields.push(
-        { label: 'Min Position', value: bounds.min.toLocaleString(), variant: 'highlight', highlightColor: 'green' },
-        { label: 'Max Position', value: bounds.max.toLocaleString(), variant: 'highlight', highlightColor: 'green' }
+        { label: 'Min Position', value: bounds.min.toLocaleString(), variant: 'highlight', highlightColor: 'external' },
+        { label: 'Max Position', value: bounds.max.toLocaleString(), variant: 'highlight', highlightColor: 'external' }
       );
     }
 
@@ -109,7 +102,7 @@ function ModelDetailComponent(): JSX.Element {
       <div className="space-y-6">
         <ModelHeader modelId={decodedId} modelType="external" />
         <BackToDashboardButton />
-        <ModelInfoCard title="Model Information" fields={fields} borderColor="border-green-500/30" />
+        <ModelInfoCard title="Model Information" fields={fields} borderColor="border-external/30" />
       </div>
     );
   }
@@ -132,7 +125,12 @@ function ModelDetailComponent(): JSX.Element {
     const fields: InfoField[] = [
       { label: 'Database', value: model.database },
       { label: 'Table', value: model.table },
-      { label: 'Content Type', value: transformation?.content_type, variant: 'highlight', highlightColor: 'indigo' },
+      {
+        label: 'Content Type',
+        value: transformation?.content_type,
+        variant: 'highlight',
+        highlightColor: 'incremental',
+      },
     ];
 
     if (transformation?.description) {
@@ -144,7 +142,7 @@ function ModelDetailComponent(): JSX.Element {
         label: 'Schedule',
         value: transformation.schedule,
         variant: 'highlight',
-        highlightColor: 'emerald',
+        highlightColor: 'scheduled',
       });
     }
 
@@ -168,20 +166,20 @@ function ModelDetailComponent(): JSX.Element {
       <div className="space-y-6">
         <ModelHeader modelId={decodedId} modelType="scheduled" />
         <BackToDashboardButton />
-        <ModelInfoCard title="Transformation Details" fields={fields} borderColor="border-emerald-500/30" />
+        <ModelInfoCard title="Transformation Details" fields={fields} borderColor="border-scheduled/30" />
 
         {transformation?.content && transformation.content_type === 'sql' && (
           <SQLCodeBlock sql={transformation.content} title="Transformation Query" />
         )}
 
         {transformation?.content && transformation.content_type === 'exec' && (
-          <div className="overflow-hidden rounded-lg border border-emerald-500/30 bg-slate-900/80 shadow-lg">
-            <div className="border-b border-slate-700/50 bg-slate-800/60 px-4 py-2">
-              <span className="text-sm font-semibold text-slate-300">Execution Command</span>
+          <div className="overflow-hidden rounded-xl border border-scheduled/45 bg-linear-to-br from-surface/95 via-surface/86 to-secondary/30 shadow-lg ring-1 ring-border/50">
+            <div className="border-b border-border/55 bg-surface/75 px-4 py-2">
+              <span className="text-sm font-semibold text-foreground">Execution Command</span>
             </div>
             <div className="p-4">
               <pre className="overflow-auto text-sm">
-                <code className="font-mono text-slate-200">{transformation.content}</code>
+                <code className="font-mono text-foreground">{transformation.content}</code>
               </pre>
             </div>
           </div>
@@ -209,4 +207,12 @@ function ModelDetailComponent(): JSX.Element {
 
 export const Route = createFileRoute('/model/$id')({
   component: ModelDetailComponent,
+  head: () => ({
+    meta: [
+      { title: `Model Detail | ${import.meta.env.VITE_BASE_TITLE}` },
+      { name: 'description', content: 'Detailed view of model configuration, coverage, and dependencies' },
+      { property: 'og:description', content: 'Detailed view of model configuration, coverage, and dependencies' },
+      { name: 'twitter:description', content: 'Detailed view of model configuration, coverage, and dependencies' },
+    ],
+  }),
 });

@@ -1,6 +1,83 @@
+/**
+ * Main CSS Entry Point
+ *
+ * Import order:
+ * 1. Fonts
+ * 2. Tailwind base
+ * 3. CSS Variables (dynamic theming)
+ * 4. Theme configuration (@theme directive)
+ * 5. Custom styles
+ */
+
+/* Fonts */
+@import '@fontsource-variable/space-grotesk';
+
 @import 'tailwindcss';
 
+/* Tailwind CSS v4 plugins via @plugin directive */
+@plugin '@tailwindcss/forms';
+
+/* Enable class-based dark mode */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Two-Tier Token Architecture
+ *
+ * Tier 1: Primitive color scales (foundation)
+ * Tier 2: Semantic tokens (application layer)
+ */
 @theme {
+  /* Custom breakpoints */
+  --breakpoint-3xl: 120rem; /* 1920px */
+  --breakpoint-4xl: 160rem; /* 2560px */
+
+  /* ===== TIER 1: Primitive Color Scales ===== */
+
+  /* Neutral - grayscale foundation */
+  --color-neutral-50: #f6f6f6;
+  --color-neutral-100: #e7e7e7;
+  --color-neutral-200: #d1d1d1;
+  --color-neutral-300: #b0b0b0;
+  --color-neutral-400: #888888;
+  --color-neutral-500: #6d6d6d;
+  --color-neutral-600: #5d5d5d;
+  --color-neutral-700: #4f4f4f;
+  --color-neutral-800: #454545;
+  --color-neutral-900: #3d3d3d;
+  --color-neutral-950: #1a1a1a;
+
+  /* ===== TIER 2: Semantic Tokens ===== */
+
+  /* Brand colors */
+  --color-primary: var(--primary-value);
+  --color-secondary: var(--secondary-value);
+  --color-accent: var(--accent-value);
+
+  /* Surface colors */
+  --color-background: var(--background-value);
+  --color-surface: var(--surface-value);
+  --color-foreground: var(--foreground-value);
+  --color-muted: var(--muted-value);
+  --color-border: var(--border-value);
+
+  /* State colors */
+  --color-success: var(--color-green-500);
+  --color-warning: var(--color-amber-500);
+  --color-danger: var(--color-red-500);
+
+  /* CBT domain tokens — model types */
+  --color-external: var(--external-value);
+  --color-scheduled: var(--scheduled-value);
+  --color-incremental: var(--incremental-value);
+
+  /* CBT domain tokens — interval types */
+  --color-interval-slot: var(--color-blue-500);
+  --color-interval-epoch: var(--color-violet-500);
+  --color-interval-other: var(--color-cyan-500);
+
+  /* CBT domain token — OR edge */
+  --color-or-edge: var(--color-cyan-400);
+
+  /* Custom animations — CBT originals */
   --animate-border-glimmer: border-glimmer 3s linear infinite;
   --animate-glow-pulse: glow-pulse 2s ease-in-out infinite;
   --animate-glow-orbit-slow: glow-orbit-slow 25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
@@ -8,48 +85,143 @@
   --animate-glow-orbit-fast: glow-orbit-fast 15s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   --animate-soft-glow: soft-glow 6s ease-in-out infinite;
   --animate-shimmer: shimmer 2s ease-in-out infinite;
+  --animate-fade-in: fade-in 0.8s ease-out forwards;
+  --animate-fade-in-delay: fade-in 0.8s ease-out 0.2s forwards;
+  --animate-fade-in-delay-2: fade-in 0.8s ease-out 0.4s forwards;
+  --animate-fade-in-delay-3: fade-in 0.8s ease-out 0.6s forwards;
+  --animate-fade-in-delay-4: fade-in 0.8s ease-out 0.8s forwards;
+  --animate-fade-in-delay-5: fade-in 0.8s ease-out 1s forwards;
+  --animate-fade-in-delay-6: fade-in 0.8s ease-out 1.2s forwards;
+  --animate-highlight-new: highlight-new 0.5s ease-out;
+  --animate-row-new: row-new 0.3s ease-out;
+
+  @keyframes border-glimmer {
+    0%,
+    100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+
+  @keyframes glow-pulse {
+    0%,
+    100% {
+      opacity: 0.4;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  @keyframes glow-orbit-slow {
+    0% {
+      transform: rotate(0deg) translateX(120%) rotate(0deg);
+      opacity: 0.2;
+    }
+    25% {
+      opacity: 0.4;
+    }
+    50% {
+      opacity: 0.3;
+    }
+    75% {
+      opacity: 0.5;
+    }
+    100% {
+      transform: rotate(360deg) translateX(120%) rotate(-360deg);
+      opacity: 0.2;
+    }
+  }
+
+  @keyframes glow-orbit-medium {
+    0% {
+      transform: rotate(0deg) translateX(110%) rotate(0deg);
+      opacity: 0.15;
+    }
+    33% {
+      opacity: 0.35;
+    }
+    66% {
+      opacity: 0.25;
+    }
+    100% {
+      transform: rotate(360deg) translateX(110%) rotate(-360deg);
+      opacity: 0.15;
+    }
+  }
+
+  @keyframes glow-orbit-fast {
+    0% {
+      transform: rotate(0deg) translateX(100%) rotate(0deg);
+      opacity: 0.25;
+    }
+    50% {
+      opacity: 0.45;
+    }
+    100% {
+      transform: rotate(360deg) translateX(100%) rotate(-360deg);
+      opacity: 0.25;
+    }
+  }
+
+  @keyframes soft-glow {
+    0%,
+    100% {
+      opacity: 0.1;
+      filter: blur(30px);
+    }
+    50% {
+      opacity: 0.2;
+      filter: blur(20px);
+    }
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  @keyframes fade-in {
+    0% {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes highlight-new {
+    0% {
+      opacity: 0;
+    }
+    100% {
+      opacity: 1;
+    }
+  }
+
+  @keyframes row-new {
+    0% {
+      opacity: 0;
+    }
+    100% {
+      opacity: 1;
+    }
+  }
 }
 
-@keyframes border-glimmer {
-  0%, 100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-}
-
-@keyframes sweep-right {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(200%);
-  }
-}
-
-@keyframes glow-pulse {
-  0%, 100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-/* Conic gradient for border glimmer effect */
-.glimmer-border {
-  background: conic-gradient(
-    from var(--angle, 0deg),
-    transparent 0deg,
-    transparent 60deg,
-    rgba(34, 211, 238, 0.5) 90deg,
-    rgba(168, 85, 247, 0.8) 120deg,
-    rgba(236, 72, 153, 0.5) 150deg,
-    transparent 180deg,
-    transparent 360deg
-  );
-  animation: rotate-gradient 3s linear infinite;
+/* CSS property animation for smooth rotation */
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
 }
 
 @keyframes rotate-gradient {
@@ -61,81 +233,163 @@
   }
 }
 
-/* CSS property animation for smooth rotation */
-@property --angle {
-  syntax: '<angle>';
-  initial-value: 0deg;
-  inherits: false;
-}
+/* Semantic token mappings
+ *
+ * Maps semantic tokens to primitive color scales.
+ * Light mode uses neutral grays.
+ * Dark mode uses inverted neutral grays.
+ */
+@layer base {
+  :root {
+    /* Light mode */
+    --primary-value: #0b1d46;
+    --secondary-value: #dfe9ff;
+    --accent-value: #2e5eff;
+    --background-value: #f5f8ff;
+    --surface-value: #ffffff;
+    --foreground-value: #0d1a3a;
+    --muted-value: #40567f;
+    --border-value: #9fb4da;
 
-/* Smooth, graceful orbit animations */
-@keyframes glow-orbit-slow {
-  0% {
-    transform: rotate(0deg) translateX(120%) rotate(0deg);
-    opacity: 0.2;
-  }
-  25% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.3;
-  }
-  75% {
-    opacity: 0.5;
-  }
-  100% {
-    transform: rotate(360deg) translateX(120%) rotate(-360deg);
-    opacity: 0.2;
-  }
-}
+    /* CBT domain — light mode */
+    --external-value: #00c988;
+    --scheduled-value: #00cdb8;
+    --incremental-value: #1f57ff;
 
-@keyframes glow-orbit-medium {
-  0% {
-    transform: rotate(0deg) translateX(110%) rotate(0deg);
-    opacity: 0.15;
+    /* Set html background for overscroll */
+    background-color: var(--background-value);
   }
-  33% {
-    opacity: 0.35;
-  }
-  66% {
-    opacity: 0.25;
-  }
-  100% {
-    transform: rotate(360deg) translateX(110%) rotate(-360deg);
-    opacity: 0.15;
-  }
-}
 
-@keyframes glow-orbit-fast {
-  0% {
-    transform: rotate(0deg) translateX(100%) rotate(0deg);
-    opacity: 0.25;
-  }
-  50% {
-    opacity: 0.45;
-  }
-  100% {
-    transform: rotate(360deg) translateX(100%) rotate(-360deg);
-    opacity: 0.25;
-  }
-}
+  html.dark {
+    /* Dark mode */
+    --primary-value: #f4f8ff;
+    --secondary-value: #243a64;
+    --accent-value: #b4c2ff;
+    --background-value: #050a14;
+    --surface-value: #101c34;
+    --foreground-value: #f8fbff;
+    --muted-value: #d1dbf3;
+    --border-value: #45629b;
 
-@keyframes soft-glow {
-  0%, 100% {
-    opacity: 0.1;
-    filter: blur(30px);
-  }
-  50% {
-    opacity: 0.2;
-    filter: blur(20px);
-  }
-}
+    /* CBT domain — dark mode */
+    --external-value: #22d7a0;
+    --scheduled-value: #4de6d4;
+    --incremental-value: #5b79ff;
 
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
+    /* Set html background for overscroll */
+    background-color: var(--background-value);
   }
-  100% {
-    background-position: 200% 0;
+
+  html:not(.dark) .react-flow {
+    --xy-background-color: color-mix(in srgb, var(--color-background) 94%, white);
+    --xy-background-pattern-dots-color: color-mix(in srgb, var(--color-border) 78%, transparent);
+    --xy-controls-button-background-color: color-mix(in srgb, var(--color-surface) 92%, transparent);
+    --xy-controls-button-background-color-hover: color-mix(in srgb, var(--color-secondary) 86%, white);
+    --xy-controls-button-color: var(--color-primary);
+    --xy-controls-button-color-hover: var(--color-primary);
+    --xy-controls-button-border-color: color-mix(in srgb, var(--color-border) 86%, transparent);
+    --xy-minimap-background-color: color-mix(in srgb, var(--color-surface) 90%, transparent);
+    --xy-minimap-mask-background-color: color-mix(in srgb, var(--color-background) 54%, transparent);
+    --xy-attribution-background-color: color-mix(in srgb, var(--color-surface) 78%, transparent);
+    --xy-edge-label-background-color: var(--color-surface);
+    --xy-edge-label-color: var(--color-primary);
+  }
+
+  html.dark .react-flow {
+    --xy-background-color: var(--color-background);
+    --xy-background-pattern-dots-color: color-mix(in srgb, var(--color-border) 80%, transparent);
+    --xy-controls-button-background-color: color-mix(in srgb, var(--color-surface) 92%, transparent);
+    --xy-controls-button-background-color-hover: var(--color-secondary);
+    --xy-controls-button-color: var(--color-foreground);
+    --xy-controls-button-color-hover: var(--color-foreground);
+    --xy-controls-button-border-color: var(--color-border);
+    --xy-minimap-background-color: var(--color-surface);
+    --xy-minimap-mask-background-color: color-mix(in srgb, var(--color-background) 65%, transparent);
+    --xy-attribution-background-color: color-mix(in srgb, var(--color-surface) 82%, transparent);
+    --xy-edge-label-background-color: var(--color-surface);
+    --xy-edge-label-color: var(--color-foreground);
+  }
+
+  html.dark .react-flow__controls button {
+    border-radius: 0.5rem;
+  }
+
+  /* Apply Space Grotesk for all text */
+  body {
+    font-family: 'Space Grotesk Variable', 'Space Grotesk', system-ui, sans-serif;
+    color: var(--foreground-value);
+    background-color: var(--background-value);
+  }
+
+  html:not(.dark) body {
+    background-image:
+      radial-gradient(circle at 8% -12%, color-mix(in srgb, var(--color-incremental) 18%, transparent), transparent 36%),
+      radial-gradient(circle at 94% -10%, color-mix(in srgb, var(--color-scheduled) 18%, transparent), transparent 38%),
+      radial-gradient(circle at 56% 112%, color-mix(in srgb, #f59e0b 12%, transparent), transparent 42%),
+      linear-gradient(180deg, #f8fbff 0%, #edf3ff 100%);
+    background-attachment: fixed;
+  }
+
+  html.dark body {
+    background-image:
+      radial-gradient(circle at 12% -8%, color-mix(in srgb, var(--color-accent) 26%, transparent), transparent 38%),
+      radial-gradient(circle at 88% -12%, color-mix(in srgb, var(--color-scheduled) 14%, transparent), transparent 34%),
+      linear-gradient(180deg, #050a14 0%, #070d1a 100%);
+    background-attachment: fixed;
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: 'Space Grotesk Variable', 'Space Grotesk', system-ui, sans-serif;
+  }
+
+  /* Global focus styles */
+  *:focus-visible:not(button):not(a):not([role='button']):not(input):not(textarea):not(select) {
+    outline: 2px solid var(--primary-value);
+    outline-offset: 2px;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  [role='button']:focus-visible {
+    outline: none;
+  }
+
+  /* Initial state for fade-in animations */
+  .animate-fade-in,
+  .animate-fade-in-delay,
+  .animate-fade-in-delay-2,
+  .animate-fade-in-delay-3,
+  .animate-fade-in-delay-4,
+  .animate-fade-in-delay-5,
+  .animate-fade-in-delay-6 {
+    opacity: 0;
+  }
+
+  /* Conic gradient for border glimmer effect */
+  .glimmer-border {
+    background: conic-gradient(
+      from var(--angle, 0deg),
+      transparent 0deg,
+      transparent 60deg,
+      rgba(34, 211, 238, 0.5) 90deg,
+      rgba(168, 85, 247, 0.8) 120deg,
+      rgba(236, 72, 153, 0.5) 150deg,
+      transparent 180deg,
+      transparent 360deg
+    );
+    animation: rotate-gradient 3s linear infinite;
+  }
+
+  /* Hide scrollbars while maintaining scroll functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 }

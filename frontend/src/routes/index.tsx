@@ -1,8 +1,8 @@
 import { type JSX, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import type { ZoomRanges } from '@/types';
-import { IncrementalModelsSection } from '@/components/IncrementalModelsSection';
-import { ScheduledTransformationsSection } from '@/components/ScheduledTransformationsSection';
+import { IncrementalModelsSection } from '@/components/Domain/Models/IncrementalModelsSection';
+import { ScheduledTransformationsSection } from '@/components/Domain/Models/ScheduledTransformationsSection';
 
 function IndexComponent(): JSX.Element {
   // Zoom state for each interval type (keyed by interval type name)
@@ -16,33 +16,37 @@ function IndexComponent(): JSX.Element {
   };
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-8">
       {/* Section 1: Incremental Transformations (Transformations & External) */}
-      <section>
+      <section className="relative">
         <div className="mb-8 flex items-center gap-6">
           <div className="relative">
-            <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/30 to-purple-500/30 blur-xl" />
-            <h2 className="relative bg-gradient-to-r from-indigo-400 via-purple-400 to-indigo-400 bg-clip-text text-4xl font-black tracking-tight text-transparent">
+            <div className="absolute inset-0 bg-linear-to-r from-incremental/34 via-accent/30 to-incremental/25 blur-xl" />
+            <h2 className="relative bg-linear-to-r from-incremental via-accent to-incremental bg-clip-text text-4xl font-black tracking-tight text-transparent">
               Incremental Transformations
             </h2>
           </div>
-          <div className="h-px flex-1 bg-gradient-to-r from-indigo-500/40 via-purple-500/40 to-transparent" />
+          <div className="h-px flex-1 bg-linear-to-r from-incremental/50 via-accent/35 to-transparent" />
         </div>
-        <IncrementalModelsSection zoomRanges={zoomRanges} onZoomChange={handleZoomChange} />
+        <div className="relative">
+          <IncrementalModelsSection zoomRanges={zoomRanges} onZoomChange={handleZoomChange} />
+        </div>
       </section>
 
       {/* Section 2: Scheduled Transformation Model Runs */}
-      <section>
+      <section className="relative">
         <div className="mb-8 flex items-center gap-6">
           <div className="relative">
-            <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/30 to-teal-500/30 blur-xl" />
-            <h2 className="relative bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-400 bg-clip-text text-4xl font-black tracking-tight text-transparent">
+            <div className="absolute inset-0 bg-linear-to-r from-scheduled/34 via-accent/28 to-scheduled/25 blur-xl" />
+            <h2 className="relative bg-linear-to-r from-scheduled via-accent to-scheduled bg-clip-text text-4xl font-black tracking-tight text-transparent">
               Scheduled Transformations
             </h2>
           </div>
-          <div className="h-px flex-1 bg-gradient-to-r from-emerald-500/40 via-teal-500/40 to-transparent" />
+          <div className="h-px flex-1 bg-linear-to-r from-scheduled/50 via-accent/30 to-transparent" />
         </div>
-        <ScheduledTransformationsSection />
+        <div className="relative">
+          <ScheduledTransformationsSection />
+        </div>
       </section>
     </div>
   );
@@ -50,4 +54,18 @@ function IndexComponent(): JSX.Element {
 
 export const Route = createFileRoute('/')({
   component: IndexComponent,
+  head: () => ({
+    meta: [
+      { title: `Dashboard | ${import.meta.env.VITE_BASE_TITLE}` },
+      { name: 'description', content: 'Real-time coverage analytics for incremental and scheduled transformations' },
+      {
+        property: 'og:description',
+        content: 'Real-time coverage analytics for incremental and scheduled transformations',
+      },
+      {
+        name: 'twitter:description',
+        content: 'Real-time coverage analytics for incremental and scheduled transformations',
+      },
+    ],
+  }),
 });
