@@ -8,10 +8,11 @@ import reactPlugin from 'eslint-plugin-react';
 import reactHooksPlugin from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import prettier from 'eslint-plugin-prettier/recommended';
+import cbtRules from './eslint-rules/index.cjs';
 
 export default tseslint.config(
   {
-    ignores: ['build', 'node_modules', 'coverage', 'eslint_report.json', 'src/api', 'storybook-static'],
+    ignores: ['build', 'node_modules', 'coverage', 'eslint_report.json', 'src/api', 'storybook-static', 'eslint-rules'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -25,6 +26,7 @@ export default tseslint.config(
       react: reactPlugin,
       'react-hooks': reactHooksPlugin,
       'react-refresh': reactRefresh,
+      cbt: cbtRules,
     },
     rules: {
       ...reactPlugin.configs.recommended.rules,
@@ -49,11 +51,20 @@ export default tseslint.config(
           allowDirectConstAssertionInArrowFunctions: true,
         },
       ],
+      'cbt/no-hardcoded-colors': 'error',
+      'cbt/no-primitive-color-scales': 'error',
     },
     settings: {
       react: {
         version: 'detect',
       },
+    },
+  },
+  // Route files export Route alongside components — allow multiple exports
+  {
+    files: ['src/routes/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
     },
   },
   storybook.configs['flat/recommended'],

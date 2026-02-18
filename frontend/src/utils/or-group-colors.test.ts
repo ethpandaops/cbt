@@ -19,9 +19,9 @@ describe('or-group-colors', () => {
         expect(typeof color.ring).toBe('string');
         expect(typeof color.hex).toBe('string');
 
-        // Validate Tailwind CSS class format
-        expect(color.bg).toMatch(/^bg-\w+-\d+\/\d+$/);
-        expect(color.text).toMatch(/^text-\w+-\d+$/);
+        // Validate Tailwind CSS class format (includes dark: variant)
+        expect(color.bg).toMatch(/^bg-\w+-\d+\/\d+ dark:bg-\w+-\d+\/\d+$/);
+        expect(color.text).toMatch(/^text-\w+-\d+ dark:text-\w+-\d+$/);
         expect(color.ring).toMatch(/^ring-\w+-\d+\/\d+$/);
 
         // Validate hex color format

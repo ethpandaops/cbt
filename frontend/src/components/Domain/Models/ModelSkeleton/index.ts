@@ -1,0 +1,1 @@
+export { ModelSkeleton } from './ModelSkeleton';

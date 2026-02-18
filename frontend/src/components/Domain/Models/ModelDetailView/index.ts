@@ -1,0 +1,1 @@
+export { ModelDetailView } from './ModelDetailView';

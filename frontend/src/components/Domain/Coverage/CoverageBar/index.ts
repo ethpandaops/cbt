@@ -1,0 +1,1 @@
+export { CoverageBar } from './CoverageBar';

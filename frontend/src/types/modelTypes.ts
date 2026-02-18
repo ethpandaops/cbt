@@ -1,5 +1,7 @@
 /**
- * Shared configuration for model types across the application
+ * Shared configuration for model types across the application.
+ *
+ * Uses semantic color tokens defined in index.css (external, scheduled, incremental).
  */
 
 export type ModelType = 'external' | 'scheduled' | 'incremental';
@@ -10,8 +12,10 @@ export interface TypeConfig {
   badgeText: string;
   badgeRing: string;
   label: string;
-  color: 'green' | 'emerald' | 'indigo';
+  dotColor: string;
+  labelColor: string;
   handleColor?: string;
+  hoverOverlay?: string;
   highlightedClasses?: string;
   dimmedClasses?: string;
   defaultClasses?: string;
@@ -19,48 +23,54 @@ export interface TypeConfig {
 
 export const MODEL_TYPE_CONFIG: Record<ModelType, TypeConfig> = {
   external: {
-    gradient: 'from-green-400 via-emerald-400 to-green-400',
-    badgeBg: 'bg-green-500/20',
-    badgeText: 'text-green-300',
-    badgeRing: 'ring-green-500/50',
+    gradient: 'from-external via-external/80 to-external',
+    badgeBg: 'bg-external/22 dark:bg-external/20',
+    badgeText: 'text-emerald-900 dark:text-external',
+    badgeRing: 'ring-external/50',
     label: 'EXTERNAL',
-    color: 'green',
-    handleColor: '!bg-green-500',
+    dotColor: 'bg-external',
+    labelColor: 'text-emerald-800 dark:text-external',
+    handleColor: '!bg-external',
+    hoverOverlay: 'bg-external/0 group-hover:bg-external/5',
     highlightedClasses:
-      'border-green-400 bg-gradient-to-br from-green-900/60 to-green-800/60 ring-green-400/50 shadow-green-500/30',
+      'border-external bg-linear-to-br from-external/26 via-external/18 to-external/10 ring-external/55 shadow-external/30',
     dimmedClasses:
-      'border-green-500/20 bg-gradient-to-br from-slate-900/40 to-slate-950/40 opacity-30 ring-green-500/10',
+      'border-external/20 bg-linear-to-br from-background/45 to-background/70 opacity-35 ring-external/10 dark:opacity-30',
     defaultClasses:
-      'border-green-500/50 bg-gradient-to-br from-slate-800 to-slate-900 ring-green-500/30 hover:shadow-green-500/20',
+      'border-external/55 bg-linear-to-br from-surface via-surface/90 to-secondary/35 ring-external/35 hover:shadow-external/20',
   },
   scheduled: {
-    gradient: 'from-emerald-400 via-teal-400 to-emerald-400',
-    badgeBg: 'bg-emerald-500/20',
-    badgeText: 'text-emerald-300',
-    badgeRing: 'ring-emerald-500/50',
+    gradient: 'from-scheduled via-scheduled/80 to-scheduled',
+    badgeBg: 'bg-scheduled/22 dark:bg-scheduled/20',
+    badgeText: 'text-teal-900 dark:text-scheduled',
+    badgeRing: 'ring-scheduled/50',
     label: 'SCHEDULED',
-    color: 'emerald',
-    handleColor: '!bg-emerald-500',
+    dotColor: 'bg-scheduled',
+    labelColor: 'text-teal-800 dark:text-scheduled',
+    handleColor: '!bg-scheduled',
+    hoverOverlay: 'bg-scheduled/0 group-hover:bg-scheduled/5',
     highlightedClasses:
-      'border-emerald-400 bg-gradient-to-br from-emerald-900/60 to-emerald-800/60 ring-emerald-400/50 shadow-emerald-500/30',
+      'border-scheduled bg-linear-to-br from-scheduled/26 via-scheduled/18 to-scheduled/10 ring-scheduled/55 shadow-scheduled/30',
     dimmedClasses:
-      'border-emerald-500/20 bg-gradient-to-br from-slate-900/40 to-slate-950/40 opacity-30 ring-emerald-500/10',
+      'border-scheduled/20 bg-linear-to-br from-background/45 to-background/70 opacity-35 ring-scheduled/10 dark:opacity-30',
     defaultClasses:
-      'border-emerald-500/50 bg-gradient-to-br from-slate-800 to-slate-900 ring-emerald-500/30 hover:shadow-emerald-500/20',
+      'border-scheduled/55 bg-linear-to-br from-surface via-surface/90 to-secondary/35 ring-scheduled/35 hover:shadow-scheduled/20',
   },
   incremental: {
-    gradient: 'from-indigo-400 via-purple-400 to-indigo-400',
-    badgeBg: 'bg-indigo-500/20',
-    badgeText: 'text-indigo-300',
-    badgeRing: 'ring-indigo-500/50',
+    gradient: 'from-incremental via-incremental/80 to-incremental',
+    badgeBg: 'bg-incremental/22 dark:bg-incremental/20',
+    badgeText: 'text-blue-900 dark:text-incremental',
+    badgeRing: 'ring-incremental/50',
     label: 'INCREMENTAL',
-    color: 'indigo',
-    handleColor: '!bg-indigo-500',
+    dotColor: 'bg-incremental',
+    labelColor: 'text-blue-800 dark:text-incremental',
+    handleColor: '!bg-incremental',
+    hoverOverlay: 'bg-incremental/0 group-hover:bg-incremental/5',
     highlightedClasses:
-      'border-indigo-400 bg-gradient-to-br from-indigo-900/60 to-indigo-800/60 ring-indigo-400/50 shadow-indigo-500/30',
+      'border-incremental bg-linear-to-br from-incremental/26 via-incremental/18 to-incremental/10 ring-incremental/55 shadow-incremental/30',
     dimmedClasses:
-      'border-indigo-500/20 bg-gradient-to-br from-slate-900/40 to-slate-950/40 opacity-30 ring-indigo-500/10',
+      'border-incremental/20 bg-linear-to-br from-background/45 to-background/70 opacity-35 ring-incremental/10 dark:opacity-30',
     defaultClasses:
-      'border-indigo-500/50 bg-gradient-to-br from-slate-800 to-slate-900 ring-indigo-500/30 hover:shadow-indigo-500/20',
+      'border-incremental/55 bg-linear-to-br from-surface via-surface/90 to-secondary/35 ring-incremental/35 hover:shadow-incremental/20',
   },
 };

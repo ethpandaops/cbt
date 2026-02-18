@@ -7,12 +7,14 @@ import './index.css';
 import { routeTree } from './routeTree.gen';
 
 // Import custom error component
-import { CustomErrorComponent } from './components/CustomErrorComponent';
+import { CustomErrorComponent } from './components/Feedback/CustomErrorComponent';
 
-// Create a new router instance with custom error component
 const router = createRouter({
   routeTree,
   defaultErrorComponent: CustomErrorComponent,
+  scrollRestoration: true,
+  defaultPendingMinMs: 0,
+  defaultPreload: 'intent',
 });
 
 // Register the router instance for type safety

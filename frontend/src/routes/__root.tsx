@@ -1,5 +1,5 @@
-import { type JSX } from 'react';
-import { createRootRoute, Outlet, Link, useRouterState, useNavigate } from '@tanstack/react-router';
+import type { JSX } from 'react';
+import { createRootRoute, Outlet, Link, HeadContent, useRouterState, useNavigate } from '@tanstack/react-router';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { Tab, TabGroup, TabList } from '@headlessui/react';
 import {
@@ -12,7 +12,10 @@ import {
   listScheduledRunsOptions,
 } from '@api/@tanstack/react-query.gen';
 import Logo from '/logo.png';
-import { ModelSearchCombobox } from '@/components/ModelSearchCombobox';
+import { ModelSearchCombobox } from '@/components/Forms/ModelSearchCombobox';
+import { CustomErrorComponent } from '@/components/Feedback/CustomErrorComponent';
+import { ThemeProvider } from '@/providers/ThemeProvider';
+import { ThemeToggle } from '@/components/Layout/ThemeToggle';
 
 const queryClient = new QueryClient();
 
@@ -85,119 +88,91 @@ function RootComponent(): JSX.Element {
   };
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <BackgroundPoller />
-      <div className="relative min-h-dvh bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-        {/* Ambient background decoration */}
-        <div className="pointer-events-none fixed inset-0 overflow-hidden">
-          <div className="absolute -left-48 -top-48 size-96 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 blur-3xl" />
-          <div className="absolute -right-48 top-48 size-96 rounded-full bg-gradient-to-br from-blue-500/20 to-cyan-500/20 blur-3xl" />
-          <div className="absolute -bottom-48 left-1/2 size-96 -translate-x-1/2 rounded-full bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 blur-3xl" />
-        </div>
-
-        <header className="relative z-30 border-b border-slate-700/50 bg-slate-900/60 shadow-xl backdrop-blur-xl">
-          <div className="mx-auto max-w-screen-2xl px-4 py-6 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-4 md:gap-6">
-              <div className="relative group shrink-0">
-                {/* Glass morphism container with Apple-style frosted glass effect */}
-                <div className="absolute inset-0 rounded-2xl bg-white/5 backdrop-blur-xl" />
-
-                {/* Subtle gradient overlay for depth */}
-                <div className="absolute inset-0 rounded-2xl bg-linear-to-br from-white/10 via-transparent to-white/5" />
-
-                {/* Very subtle inner shadow for glass edge effect */}
-                <div
-                  className="absolute inset-0 rounded-2xl shadow-inner"
-                  style={{
-                    boxShadow: 'inset 0 1px 2px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 1px 0 rgba(0, 0, 0, 0.1)',
-                  }}
-                />
-
-                {/* Animated border glimmer container */}
-                <div className="absolute -inset-0.5 rounded-2xl opacity-75 group-hover:opacity-100 transition-opacity">
-                  {/* Rotating conic gradient */}
-                  <div className="glimmer-border absolute inset-0 rounded-2xl" style={{ padding: '2px' }}>
-                    <div className="size-full rounded-2xl bg-slate-900/95" />
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <BackgroundPoller />
+        <HeadContent />
+        <div className="relative min-h-dvh bg-background">
+          <header className="relative z-30 border-b border-border/50 bg-surface/60 shadow-sm backdrop-blur-xl">
+            <div className="mx-auto max-w-screen-2xl px-4 py-6 sm:px-6 lg:px-8">
+              <div className="flex items-center gap-4 md:gap-6">
+                <div className="group relative shrink-0">
+                  <div className="absolute -inset-0.5 rounded-2xl opacity-75 transition-opacity group-hover:opacity-100">
+                    <div className="glimmer-border absolute inset-0 rounded-2xl" style={{ padding: '2px' }}>
+                      <div className="size-full rounded-2xl bg-surface" />
+                    </div>
                   </div>
-
-                  {/* Additional glow layer */}
-                  <div
-                    className="absolute inset-0 rounded-2xl bg-linear-to-r from-cyan-500/0 via-purple-500/30 to-pink-500/0 blur-md"
-                    style={{
-                      background:
-                        'linear-gradient(105deg, transparent 40%, rgba(34, 211, 238, 0.3) 50%, transparent 60%)',
-                      backgroundSize: '200% 200%',
-                      animation: 'border-glimmer 3s linear infinite',
-                    }}
+                  <img
+                    src={Logo}
+                    className="relative size-12 rounded-2xl object-contain transition-all duration-500 group-hover:scale-105 sm:size-14 md:size-20"
+                    alt="Logo"
                   />
                 </div>
-
-                {/* Logo image */}
-                <img
-                  src={Logo}
-                  className="relative size-12 rounded-2xl object-contain transition-all duration-500 group-hover:scale-105 sm:size-14 md:size-20"
-                  alt="Logo"
-                />
-
-                {/* Extra shimmer highlight */}
-                <div
-                  className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"
-                  style={{
-                    background:
-                      'linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.1) 50%, transparent 60%)',
-                    backgroundSize: '200% 200%',
-                    animation: 'border-glimmer 2s linear infinite',
-                  }}
-                />
-              </div>
-              <div className="flex min-w-0 flex-1 items-center justify-between gap-4">
-                <div className="min-w-0 shrink">
-                  <Link to="/" className="group inline-flex items-baseline gap-3 transition-all">
-                    <h1 className="bg-linear-to-r from-orange-400 via-amber-400 to-orange-400 bg-clip-text text-2xl font-black tracking-tight text-transparent transition-all group-hover:from-orange-300 group-hover:via-amber-300 group-hover:to-orange-300 sm:text-3xl">
-                      <span className="md:hidden">CBT</span>
-                      <span className="hidden md:inline">CBT Dashboard</span>
-                    </h1>
-                  </Link>
-                  <p className="mt-1.5 hidden text-sm/6 font-medium text-slate-400 lg:block">
-                    ClickHouse Build Tool · Real-time Model Coverage Analytics
-                  </p>
-                </div>
-
-                {/* Search - Icon on mobile/tablet, full on large screens */}
-                <div className="hidden flex-1 lg:block lg:max-w-xl">
-                  <ModelSearchCombobox variant="full" />
-                </div>
-
-                <nav className="flex shrink-0 items-center gap-2">
-                  {/* Mobile/tablet search icon */}
-                  <div className="lg:hidden">
-                    <ModelSearchCombobox variant="icon" />
+                <div className="flex min-w-0 flex-1 items-center justify-between gap-4">
+                  <div className="min-w-0 shrink">
+                    <Link to="/" className="group inline-flex items-baseline gap-3 transition-all">
+                      <h1 className="text-2xl font-black tracking-tight text-accent transition-all group-hover:text-accent/80 sm:text-3xl">
+                        <span className="md:hidden">CBT</span>
+                        <span className="hidden md:inline">CBT Dashboard</span>
+                      </h1>
+                    </Link>
+                    <p className="mt-1.5 hidden text-sm/6 font-medium text-muted lg:block">
+                      ClickHouse Build Tool · Real-time Model Coverage Analytics
+                    </p>
                   </div>
 
-                  <TabGroup selectedIndex={selectedIndex} onChange={handleTabChange}>
-                    <TabList className="flex items-center gap-1 rounded-lg bg-slate-800/40 p-1">
-                      <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-slate-300 transition-all hover:bg-slate-700/60 hover:text-indigo-400 data-[selected]:bg-indigo-500/20 data-[selected]:text-indigo-300 data-[selected]:shadow-sm focus:outline-hidden sm:px-4 sm:py-2 sm:text-sm">
-                        Dashboard
-                      </Tab>
-                      <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-slate-300 transition-all hover:bg-slate-700/60 hover:text-indigo-400 data-[selected]:bg-indigo-500/20 data-[selected]:text-indigo-300 data-[selected]:shadow-sm focus:outline-hidden sm:px-4 sm:py-2 sm:text-sm">
-                        DAG View
-                      </Tab>
-                    </TabList>
-                  </TabGroup>
-                </nav>
+                  {/* Search - Icon on mobile/tablet, full on large screens */}
+                  <div className="hidden flex-1 lg:block lg:max-w-xl">
+                    <ModelSearchCombobox variant="full" />
+                  </div>
+
+                  <nav className="flex shrink-0 items-center gap-2">
+                    {/* Mobile/tablet search icon */}
+                    <div className="lg:hidden">
+                      <ModelSearchCombobox variant="icon" />
+                    </div>
+
+                    <TabGroup selectedIndex={selectedIndex} onChange={handleTabChange}>
+                      <TabList className="flex items-center gap-1 rounded-lg bg-secondary/40 p-1">
+                        <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-foreground/80 transition-all hover:bg-secondary/60 hover:text-accent focus:outline-hidden data-[selected]:bg-accent/20 data-[selected]:text-accent data-[selected]:shadow-xs sm:px-4 sm:py-2 sm:text-sm">
+                          Dashboard
+                        </Tab>
+                        <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-foreground/80 transition-all hover:bg-secondary/60 hover:text-accent focus:outline-hidden data-[selected]:bg-accent/20 data-[selected]:text-accent data-[selected]:shadow-xs sm:px-4 sm:py-2 sm:text-sm">
+                          DAG View
+                        </Tab>
+                      </TabList>
+                    </TabGroup>
+                    <ThemeToggle />
+                  </nav>
+                </div>
               </div>
             </div>
-          </div>
-        </header>
+          </header>
 
-        <main className="relative mx-auto max-w-screen-2xl px-4 py-10 sm:px-6 lg:px-8">
-          <Outlet />
-        </main>
-      </div>
-    </QueryClientProvider>
+          <main className="relative mx-auto max-w-screen-2xl px-4 py-10 sm:px-6 lg:px-8">
+            <Outlet />
+          </main>
+        </div>
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }
 
 export const Route = createRootRoute({
   component: RootComponent,
+  errorComponent: CustomErrorComponent,
+  head: () => ({
+    meta: [
+      { title: import.meta.env.VITE_BASE_TITLE },
+      { charSet: 'utf-8' },
+      { name: 'viewport', content: 'width=device-width, initial-scale=1.0, maximum-scale=5.0' },
+      { name: 'description', content: 'ClickHouse Build Tool - Real-time Model Coverage Analytics' },
+      { property: 'og:title', content: import.meta.env.VITE_BASE_TITLE },
+      { property: 'og:description', content: 'ClickHouse Build Tool - Real-time Model Coverage Analytics' },
+      { property: 'og:type', content: 'website' },
+      { name: 'twitter:card', content: 'summary' },
+      { name: 'twitter:title', content: import.meta.env.VITE_BASE_TITLE },
+    ],
+    links: [{ rel: 'canonical', href: import.meta.env.VITE_BASE_URL }],
+  }),
 });

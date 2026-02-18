@@ -27,3 +27,12 @@ storybook-static
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright
+.playwright-mcp
+
+# Tanstack
+.tanstack
+
+# ESLint
+.eslintcache
