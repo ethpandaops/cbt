@@ -4,8 +4,7 @@ export default defineConfig({
   input: '../api/openapi.yaml',
   output: {
     path: 'src/api',
-    format: 'prettier',
-    lint: 'eslint',
+    postProcess: ['eslint', 'prettier'],
   },
   plugins: [
     {
