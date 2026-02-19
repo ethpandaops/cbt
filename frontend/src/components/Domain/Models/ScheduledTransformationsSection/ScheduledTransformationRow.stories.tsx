@@ -31,6 +31,8 @@ const baseModel: TransformationModel = {
   content_type: 'sql',
   content: 'SELECT * FROM beacon_blocks',
   schedule: '@every 30m',
+  has_override: false,
+  is_disabled: false,
 };
 
 export const Default: Story = {
@@ -224,5 +226,27 @@ export const ComplexCron: Story = {
       description: 'Runs during business hours only, weekdays',
     },
     lastRun: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+  },
+};
+
+export const WithOverrideIcon: Story = {
+  args: {
+    model: {
+      ...baseModel,
+      has_override: true,
+      is_disabled: false,
+    },
+    lastRun: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
+  },
+};
+
+export const DisabledIcon: Story = {
+  args: {
+    model: {
+      ...baseModel,
+      has_override: true,
+      is_disabled: true,
+    },
+    lastRun: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
   },
 };

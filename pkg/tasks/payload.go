@@ -44,21 +44,31 @@ type IncrementalTaskPayload struct {
 }
 
 // GetModelID returns the model ID
+//
+//nolint:gocritic // value receiver is intentional for immutable payload semantics.
 func (p IncrementalTaskPayload) GetModelID() string { return p.ModelID }
 
 // GetEnqueuedAt returns the enqueued time
+//
+//nolint:gocritic // value receiver is intentional for immutable payload semantics.
 func (p IncrementalTaskPayload) GetEnqueuedAt() time.Time { return p.EnqueuedAt }
 
 // GetType returns the task type
+//
+//nolint:gocritic // value receiver is intentional for immutable payload semantics.
 func (p IncrementalTaskPayload) GetType() TaskType { return TaskTypeIncremental }
 
 // QueueName returns the queue name for this task
+//
+//nolint:gocritic // value receiver is intentional for immutable payload semantics.
 func (p IncrementalTaskPayload) QueueName() string { return p.ModelID }
 
 // UniqueID returns a unique identifier for this task
 // Uses model.id:direction to ensure only one task per direction can run at a time.
 // This prevents duplicate work when intervals expand (e.g., model:100:25 -> model:100:50)
 // and leverages the natural separation between forward fill (frontier) and backfill (historical gaps).
+//
+//nolint:gocritic // value receiver is intentional for immutable payload semantics.
 func (p IncrementalTaskPayload) UniqueID() string {
 	return fmt.Sprintf("%s:%s", p.ModelID, p.Direction)
 }
@@ -72,16 +82,26 @@ type ScheduledTaskPayload struct {
 }
 
 // GetModelID returns the model ID
+//
+//nolint:gocritic // value receiver is intentional for immutable payload semantics.
 func (p ScheduledTaskPayload) GetModelID() string { return p.ModelID }
 
 // GetEnqueuedAt returns the enqueued time
+//
+//nolint:gocritic // value receiver is intentional for immutable payload semantics.
 func (p ScheduledTaskPayload) GetEnqueuedAt() time.Time { return p.EnqueuedAt }
 
 // GetType returns the task type
+//
+//nolint:gocritic // value receiver is intentional for immutable payload semantics.
 func (p ScheduledTaskPayload) GetType() TaskType { return TaskTypeScheduled }
 
 // QueueName returns the queue name for this task
+//
+//nolint:gocritic // value receiver is intentional for immutable payload semantics.
 func (p ScheduledTaskPayload) QueueName() string { return p.ModelID }
 
 // UniqueID returns a unique identifier for this task
+//
+//nolint:gocritic // value receiver is intentional for immutable payload semantics.
 func (p ScheduledTaskPayload) UniqueID() string { return p.ModelID }

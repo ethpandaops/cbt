@@ -14,6 +14,7 @@ import (
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/coordinator"
 	"github.com/ethpandaops/cbt/pkg/frontend"
+	"github.com/ethpandaops/cbt/pkg/liveconfig"
 	"github.com/ethpandaops/cbt/pkg/management"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/observability"
@@ -35,6 +36,7 @@ type Service struct {
 	worker      worker.Service
 	admin       admin.Service
 	models      models.Service
+	management  management.Service
 	api         api.Service
 
 	// Servers
@@ -143,6 +145,7 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 		worker:       workerService,
 		admin:        adminManager,
 		models:       modelsService,
+		management:   mgmtService,
 		api:          apiService,
 	}, nil
 }
@@ -175,6 +178,27 @@ func (a *Service) Start() error {
 	// Start models service
 	if err := a.models.Start(); err != nil {
 		return fmt.Errorf("failed to start models: %w", err)
+	}
+
+	// Create live override applier now that DAG is built
+	cacheManager := a.admin.GetCacheManager()
+	if cacheManager != nil {
+		liveOverrides := liveconfig.NewApplier(
+			a.models.GetDAG(), cacheManager, a.log,
+		)
+
+		// Apply any persisted overrides from Redis before scheduler starts
+		if _, err := liveOverrides.CheckAndApply(ctx); err != nil {
+			a.log.WithError(err).Warn("Failed to apply persisted config overrides on startup")
+		}
+
+		// Wire into scheduler
+		a.scheduler.SetLiveOverrides(liveOverrides)
+
+		// Wire base config provider into management service
+		if a.management != nil {
+			a.management.SetBaseConfigProvider(liveOverrides)
+		}
 	}
 
 	// Start coordinator service

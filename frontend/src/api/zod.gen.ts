@@ -10,6 +10,8 @@ export const zModelSummary = z.object({
   type: z.enum(['external', 'transformation']),
   database: z.string(),
   table: z.string(),
+  has_override: z.optional(z.boolean()),
+  is_disabled: z.optional(z.boolean()),
   description: z.optional(z.string()),
 });
 
@@ -17,6 +19,8 @@ export const zExternalModel = z.object({
   id: z.string(),
   database: z.string(),
   table: z.string(),
+  has_override: z.optional(z.boolean()),
+  is_disabled: z.optional(z.boolean()),
   description: z.optional(z.string()),
   interval: z.optional(
     z.object({
@@ -51,6 +55,8 @@ export const zTransformationModelBase = z.object({
   type: z.enum(['scheduled', 'incremental']),
   content_type: z.enum(['sql', 'exec']),
   content: z.string(),
+  has_override: z.optional(z.boolean()),
+  is_disabled: z.optional(z.boolean()),
   tags: z.optional(z.array(z.string())),
   depends_on: z.optional(z.array(z.union([z.string(), z.array(z.string())]))),
   metadata: z.optional(
@@ -172,6 +178,16 @@ export const zScheduledRun = z.object({
 });
 
 /**
+ * Position bounds for a model
+ */
+export const zBoundsInfo = z.object({
+  min: z.int(),
+  max: z.int(),
+  has_data: z.boolean(),
+  lag_applied: z.optional(z.int()),
+});
+
+/**
  * Information about a gap in coverage
  */
 export const zGapInfo = z.object({
@@ -193,16 +209,6 @@ export const zModelCoverageInfo = z.object({
 });
 
 /**
- * Position bounds for a model
- */
-export const zBoundsInfo = z.object({
-  min: z.int(),
-  max: z.int(),
-  has_data: z.boolean(),
-  lag_applied: z.optional(z.int()),
-});
-
-/**
  * Debug information for a single dependency
  */
 export const zDependencyDebugInfo = z.object({
@@ -214,23 +220,11 @@ export const zDependencyDebugInfo = z.object({
   gaps: z.optional(z.array(zGapInfo)),
   coverage_status: z.optional(z.enum(['full_coverage', 'has_gaps', 'no_data', 'not_initialized'])),
   blocking: z.optional(z.boolean()),
-  get or_group_members(): z.ZodMiniOptional {
-    return z.optional(
-      z.array(
-        z.lazy((): any => {
-          return zDependencyDebugInfo;
-        })
-      )
-    );
+  get or_group_members() {
+    return z.optional(z.array(z.lazy((): any => zDependencyDebugInfo)));
   },
-  get child_dependencies(): z.ZodMiniOptional {
-    return z.optional(
-      z.array(
-        z.lazy((): any => {
-          return zDependencyDebugInfo;
-        })
-      )
-    );
+  get child_dependencies() {
+    return z.optional(z.array(z.lazy((): any => zDependencyDebugInfo)));
   },
 });
 
@@ -290,6 +284,8 @@ export const zExternalModelWritable = z.object({
   id: z.string(),
   database: z.string(),
   table: z.string(),
+  has_override: z.optional(z.boolean()),
+  is_disabled: z.optional(z.boolean()),
   description: z.optional(z.string()),
   interval: z.optional(
     z.object({
@@ -313,9 +309,83 @@ export const zTransformationModelBaseWritable = z.object({
   type: z.enum(['scheduled', 'incremental']),
   content_type: z.enum(['sql', 'exec']),
   content: z.string(),
+  has_override: z.optional(z.boolean()),
+  is_disabled: z.optional(z.boolean()),
   tags: z.optional(z.array(z.string())),
   depends_on: z.optional(z.array(z.union([z.string(), z.array(z.string())]))),
 });
+
+export const zScheduledTransformationWritable = z.intersection(
+  zTransformationModelBaseWritable,
+  z.object({
+    type: z.optional(z.enum(['scheduled'])),
+    schedule: z.string(),
+  })
+);
+
+export const zIncrementalTransformationWritable = z.intersection(
+  zTransformationModelBaseWritable,
+  z.object({
+    type: z.optional(z.enum(['incremental'])),
+    interval: z.object({
+      min: z.int(),
+      max: z.int(),
+      type: z.string(),
+    }),
+    schedules: z.optional(
+      z.object({
+        forwardfill: z.optional(z.string()),
+        backfill: z.optional(z.string()),
+      })
+    ),
+    limits: z.optional(
+      z.object({
+        min: z.optional(z.int()),
+        max: z.optional(z.int()),
+      })
+    ),
+    fill: z.optional(
+      z.object({
+        direction: z.optional(z.enum(['head', 'tail'])),
+        allow_gap_skipping: z.optional(z.boolean()),
+        buffer: z.optional(z.int()),
+      })
+    ),
+  })
+);
+
+export const zTransformationModelWritable = z.intersection(
+  zTransformationModelBaseWritable,
+  z.object({
+    schedule: z.optional(z.string()),
+    interval: z.optional(
+      z.object({
+        min: z.optional(z.int()),
+        max: z.optional(z.int()),
+        type: z.optional(z.string()),
+      })
+    ),
+    schedules: z.optional(
+      z.object({
+        forwardfill: z.optional(z.string()),
+        backfill: z.optional(z.string()),
+      })
+    ),
+    limits: z.optional(
+      z.object({
+        min: z.optional(z.int()),
+        max: z.optional(z.int()),
+      })
+    ),
+    fill: z.optional(
+      z.object({
+        direction: z.optional(z.enum(['head', 'tail'])),
+        allow_gap_skipping: z.optional(z.boolean()),
+        buffer: z.optional(z.int()),
+      })
+    ),
+  })
+);
 
 export const zListAllModelsData = z.object({
   body: z.optional(z.never()),

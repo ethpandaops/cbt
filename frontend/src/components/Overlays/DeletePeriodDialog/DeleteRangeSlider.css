@@ -1,0 +1,65 @@
+/* Delete Range Slider - Danger-themed variant */
+.delete-range-slider .range-slider {
+  height: 4px !important;
+  background: color-mix(in srgb, var(--color-secondary) 86%, var(--color-surface)) !important;
+  border-radius: 999px !important;
+}
+
+.delete-range-slider .range-slider__range {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-danger) 80%, transparent) 0%,
+    color-mix(in srgb, var(--color-danger) 94%, white) 100%
+  ) !important;
+  height: 4px !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-danger) 30%, transparent) !important;
+}
+
+.delete-range-slider .range-slider__thumb {
+  width: 20px !important;
+  height: 20px !important;
+  background: var(--color-surface) !important;
+  border: 2px solid var(--color-danger) !important;
+  border-radius: 50% !important;
+  cursor: grab !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-border) 70%, transparent),
+    0 6px 14px color-mix(in srgb, var(--color-danger) 28%, transparent) !important;
+  transition:
+    transform 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.15s ease,
+    box-shadow 0.15s ease !important;
+}
+
+.delete-range-slider .range-slider__thumb:hover {
+  transform: translate(-50%, -50%) scale(1.15) !important;
+  border-color: var(--color-danger) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-danger) 65%, transparent),
+    0 8px 18px color-mix(in srgb, var(--color-danger) 34%, transparent) !important;
+}
+
+.delete-range-slider .range-slider__thumb[data-active] {
+  border-color: var(--color-danger) !important;
+  cursor: grabbing !important;
+  transform: translate(-50%, -50%) scale(1.2) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-danger) 70%, transparent),
+    0 10px 24px color-mix(in srgb, var(--color-danger) 40%, transparent) !important;
+}
+
+.delete-range-slider .range-slider__thumb[data-lower]:hover,
+.delete-range-slider .range-slider__thumb[data-upper]:hover {
+  transform: translate(-50%, -50%) scale(1.15) !important;
+  background: var(--color-danger) !important;
+}
+
+.delete-range-slider .range-slider__thumb[data-lower][data-active],
+.delete-range-slider .range-slider__thumb[data-upper][data-active] {
+  transform: translate(-50%, -50%) scale(1.2) !important;
+}
+
+.delete-range-slider .range-slider[data-disabled] {
+  opacity: 0.5 !important;
+  pointer-events: none !important;
+}

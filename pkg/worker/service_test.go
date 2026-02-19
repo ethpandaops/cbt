@@ -631,6 +631,34 @@ func (m *mockAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin
 	return &mockServiceBoundsLock{}, nil
 }
 
+func (m *mockAdminService) GetConfigOverride(_ context.Context, _ string) (*admin.ConfigOverride, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) GetAllConfigOverrides(_ context.Context) ([]admin.ConfigOverride, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) SetConfigOverride(_ context.Context, _ *admin.ConfigOverride) error {
+	return nil
+}
+
+func (m *mockAdminService) DeleteConfigOverride(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAdminService) DeleteAllConfigOverrides(_ context.Context) error {
+	return nil
+}
+
+func (m *mockAdminService) GetConfigOverrideVersion(_ context.Context) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetCacheManager() *admin.CacheManager {
+	return nil
+}
+
 // mockServiceBoundsLock implements admin.BoundsLock for testing
 type mockServiceBoundsLock struct{}
 

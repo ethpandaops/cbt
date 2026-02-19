@@ -1,12 +1,27 @@
 import { type JSX, useState } from 'react';
-import { ArrowPathIcon, PencilSquareIcon, TrashIcon } from '@heroicons/react/24/outline';
+import {
+  ArrowPathIcon,
+  PencilSquareIcon,
+  TrashIcon,
+  AdjustmentsHorizontalIcon,
+  PlayIcon,
+} from '@heroicons/react/24/outline';
 import { WrenchScrewdriverIcon } from '@heroicons/react/24/solid';
-import type { IntervalTypeTransformation } from '@/api/types.gen';
+import type { IntervalTypeTransformation, Range } from '@/api/types.gen';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotification } from '@/hooks/useNotification';
 import { adminFetch } from '@/utils/admin-api';
 import { EditBoundsDialog } from '@/components/Overlays/EditBoundsDialog';
 import { DeletePeriodDialog } from '@/components/Overlays/DeletePeriodDialog';
+import { ConfigOverrideDialog } from '@/components/Overlays/ConfigOverrideDialog';
+
+interface ConfigOverride {
+  model_id: string;
+  model_type: string;
+  enabled?: boolean;
+  override: Record<string, unknown> | null;
+  updated_at: string;
+}
 
 interface ModelAdminActionsProps {
   modelId: string;
@@ -15,6 +30,10 @@ interface ModelAdminActionsProps {
   currentMax?: number;
   onBoundsChanged?: () => void;
   transformations?: IntervalTypeTransformation[];
+  coverageRanges?: Array<Range>;
+  currentOverride?: ConfigOverride | null;
+  baseConfig?: Record<string, unknown> | null;
+  onOverrideChanged?: () => void;
 }
 
 export function ModelAdminActions({
@@ -24,9 +43,13 @@ export function ModelAdminActions({
   currentMax,
   onBoundsChanged,
   transformations,
+  coverageRanges,
+  currentOverride,
+  baseConfig,
+  onOverrideChanged,
 }: ModelAdminActionsProps): JSX.Element | null {
   const { managementEnabled, session } = useAuth();
-  const { showSuccess, showError } = useNotification();
+  const { showSuccess, showError, showNotification } = useNotification();
   const [loading, setLoading] = useState(false);
   const [boundsOpen, setBoundsOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -34,16 +57,19 @@ export function ModelAdminActions({
   const [refreshLoading, setRefreshLoading] = useState(false);
   const [deletePeriodOpen, setDeletePeriodOpen] = useState(false);
   const [isDeletingPeriod, setIsDeletingPeriod] = useState(false);
+  const [configOverrideOpen, setConfigOverrideOpen] = useState(false);
+  const [isSavingOverride, setIsSavingOverride] = useState(false);
+  const [isDeletingOverride, setIsDeletingOverride] = useState(false);
+  const [runNowLoading, setRunNowLoading] = useState(false);
 
   if (!managementEnabled || !session?.authenticated) {
     return null;
   }
 
-  if (modelType === 'scheduled') {
-    return null;
-  }
-
   const encodedId = encodeURIComponent(modelId);
+
+  const isModelDisabled = currentOverride?.enabled === false;
+  const isTransformation = modelType === 'incremental' || modelType === 'scheduled';
 
   const handleConsolidate = async (): Promise<void> => {
     setLoading(true);
@@ -166,10 +192,204 @@ export function ModelAdminActions({
     }
   };
 
+  const handleRunNow = async (): Promise<void> => {
+    if (modelType !== 'scheduled' || isModelDisabled) return;
+
+    setRunNowLoading(true);
+
+    try {
+      const resp = await adminFetch(`/api/v1/admin/models/${encodedId}/run-now`, {
+        method: 'POST',
+      });
+
+      if (resp.ok) {
+        showSuccess('Scheduled run enqueued');
+      } else if (resp.status === 409) {
+        const errorData = await resp.json().catch(() => ({ error: 'Scheduled run already in progress' }));
+        showNotification({
+          message: errorData.error ?? 'Scheduled run already in progress',
+          variant: 'warning',
+        });
+      } else {
+        const errorData = await resp.json().catch(() => ({ error: 'Request failed' }));
+        showError(errorData.error ?? `Error ${resp.status}`);
+      }
+    } catch {
+      showError('Network error');
+    } finally {
+      setRunNowLoading(false);
+    }
+  };
+
+  const handleSaveOverride = async (json: string): Promise<void> => {
+    setIsSavingOverride(true);
+
+    try {
+      const parsed = JSON.parse(json);
+      const body: Record<string, unknown> = {};
+
+      if (parsed.enabled != null && isTransformation) {
+        body.enabled = parsed.enabled;
+      }
+
+      if (parsed.config != null) {
+        body.config = parsed.config;
+      }
+
+      const resp = await adminFetch(`/api/v1/admin/models/${encodedId}/config-override`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (resp.ok) {
+        showSuccess('Config override saved');
+        setConfigOverrideOpen(false);
+        onOverrideChanged?.();
+      } else {
+        const errorData = await resp.json().catch(() => ({ error: 'Request failed' }));
+        showError(errorData.error ?? `Error ${resp.status}`);
+      }
+    } catch {
+      showError('Invalid JSON or network error');
+    } finally {
+      setIsSavingOverride(false);
+    }
+  };
+
+  const handleDeleteOverride = async (): Promise<void> => {
+    setIsDeletingOverride(true);
+
+    try {
+      const resp = await adminFetch(`/api/v1/admin/models/${encodedId}/config-override`, {
+        method: 'DELETE',
+      });
+
+      if (resp.ok) {
+        showSuccess('Config override removed');
+        setConfigOverrideOpen(false);
+        onOverrideChanged?.();
+      } else {
+        const errorData = await resp.json().catch(() => ({ error: 'Request failed' }));
+        showError(errorData.error ?? `Error ${resp.status}`);
+      }
+    } catch {
+      showError('Network error');
+    } finally {
+      setIsDeletingOverride(false);
+    }
+  };
+
+  const handleToggleEnabled = async (): Promise<void> => {
+    if (!isTransformation) return;
+
+    const newEnabled = isModelDisabled;
+
+    // If re-enabling and there's no other override data, just delete the override entirely
+    if (newEnabled && (!currentOverride?.override || Object.keys(currentOverride.override).length === 0)) {
+      await handleDeleteOverride();
+      return;
+    }
+
+    setIsSavingOverride(true);
+
+    try {
+      const body: Record<string, unknown> = { enabled: newEnabled };
+
+      if (currentOverride?.override) {
+        body.config = currentOverride.override;
+      }
+
+      const resp = await adminFetch(`/api/v1/admin/models/${encodedId}/config-override`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (resp.ok) {
+        showSuccess(newEnabled ? 'Model enabled' : 'Model disabled');
+        onOverrideChanged?.();
+      } else {
+        const errorData = await resp.json().catch(() => ({ error: 'Request failed' }));
+        showError(errorData.error ?? `Error ${resp.status}`);
+      }
+    } catch {
+      showError('Network error');
+    } finally {
+      setIsSavingOverride(false);
+    }
+  };
+
+  const overrideBusy = isSavingOverride || isDeletingOverride;
+
+  const adminBar = (
+    <div className="mt-4 mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border/40 bg-surface/50 px-4 py-2">
+      <WrenchScrewdriverIcon className="size-4 text-accent" />
+      <span className="text-xs font-semibold tracking-wide text-accent uppercase">Admin</span>
+      <div className="mx-1 h-4 w-px bg-border/50" />
+
+      {/* Enable/disable toggle for transformations */}
+      {isTransformation && (
+        <button
+          type="button"
+          onClick={() => void handleToggleEnabled()}
+          disabled={overrideBusy}
+          className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium shadow-xs transition-all disabled:opacity-50 ${
+            isModelDisabled
+              ? 'border-danger/50 bg-danger/10 text-danger hover:bg-danger/20'
+              : 'border-success/50 bg-success/10 text-success hover:bg-success/20'
+          }`}
+        >
+          <span className={`size-2 rounded-full ${isModelDisabled ? 'bg-danger' : 'bg-success'}`} />
+          {isModelDisabled ? 'Disabled' : 'Enabled'}
+        </button>
+      )}
+
+      {modelType === 'scheduled' && (
+        <button
+          type="button"
+          onClick={() => void handleRunNow()}
+          disabled={runNowLoading || isModelDisabled}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-surface px-2.5 py-1 text-xs font-medium text-foreground shadow-xs transition-all hover:bg-secondary/50 hover:text-accent disabled:opacity-50"
+        >
+          <PlayIcon className="size-3.5" />
+          {runNowLoading ? 'Running...' : 'Run Now'}
+        </button>
+      )}
+
+      {/* Config override button */}
+      <button
+        type="button"
+        onClick={() => setConfigOverrideOpen(true)}
+        className={`inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-surface px-2.5 py-1 text-xs font-medium shadow-xs transition-all hover:bg-secondary/50 hover:text-accent disabled:opacity-50 ${
+          currentOverride ? 'text-warning' : 'text-foreground'
+        }`}
+      >
+        <AdjustmentsHorizontalIcon className="size-3.5" />
+        {currentOverride ? 'Override Active' : 'Config Override'}
+      </button>
+    </div>
+  );
+
+  const overrideDialog = (
+    <ConfigOverrideDialog
+      open={configOverrideOpen}
+      onClose={() => setConfigOverrideOpen(false)}
+      onSave={json => void handleSaveOverride(json)}
+      onDelete={() => void handleDeleteOverride()}
+      modelId={modelId}
+      modelType={modelType}
+      currentOverride={currentOverride}
+      baseConfig={baseConfig}
+      isSaving={isSavingOverride}
+      isDeleting={isDeletingOverride}
+    />
+  );
+
   if (modelType === 'external') {
     return (
       <>
-        <div className="mt-4 mb-4 flex items-center gap-3 rounded-lg border border-border/40 bg-surface/50 px-4 py-2">
+        <div className="mt-4 mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border/40 bg-surface/50 px-4 py-2">
           <WrenchScrewdriverIcon className="size-4 text-accent" />
           <span className="text-xs font-semibold tracking-wide text-accent uppercase">Admin</span>
           <div className="mx-1 h-4 w-px bg-border/50" />
@@ -190,6 +410,17 @@ export function ModelAdminActions({
             <ArrowPathIcon className={`size-3.5 ${refreshLoading ? 'animate-spin' : ''}`} />
             Refresh Bounds
           </button>
+          {/* Config override button */}
+          <button
+            type="button"
+            onClick={() => setConfigOverrideOpen(true)}
+            className={`inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-surface px-2.5 py-1 text-xs font-medium shadow-xs transition-all hover:bg-secondary/50 hover:text-accent disabled:opacity-50 ${
+              currentOverride ? 'text-warning' : 'text-foreground'
+            }`}
+          >
+            <AdjustmentsHorizontalIcon className="size-3.5" />
+            {currentOverride ? 'Override Active' : 'Config Override'}
+          </button>
         </div>
         <EditBoundsDialog
           open={boundsOpen}
@@ -201,6 +432,16 @@ export function ModelAdminActions({
           isSaving={isSaving}
           isDeleting={isDeleting}
         />
+        {overrideDialog}
+      </>
+    );
+  }
+
+  if (modelType === 'scheduled') {
+    return (
+      <>
+        {adminBar}
+        {overrideDialog}
       </>
     );
   }
@@ -208,10 +449,26 @@ export function ModelAdminActions({
   // Incremental model
   return (
     <>
-      <div className="mt-4 mb-4 flex items-center gap-3 rounded-lg border border-border/40 bg-surface/50 px-4 py-2">
+      <div className="mt-4 mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border/40 bg-surface/50 px-4 py-2">
         <WrenchScrewdriverIcon className="size-4 text-accent" />
         <span className="text-xs font-semibold tracking-wide text-accent uppercase">Admin</span>
         <div className="mx-1 h-4 w-px bg-border/50" />
+
+        {/* Enable/disable toggle */}
+        <button
+          type="button"
+          onClick={() => void handleToggleEnabled()}
+          disabled={overrideBusy}
+          className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium shadow-xs transition-all disabled:opacity-50 ${
+            isModelDisabled
+              ? 'border-danger/50 bg-danger/10 text-danger hover:bg-danger/20'
+              : 'border-success/50 bg-success/10 text-success hover:bg-success/20'
+          }`}
+        >
+          <span className={`size-2 rounded-full ${isModelDisabled ? 'bg-danger' : 'bg-success'}`} />
+          {isModelDisabled ? 'Disabled' : 'Enabled'}
+        </button>
+
         <button
           type="button"
           onClick={() => void handleConsolidate()}
@@ -229,6 +486,18 @@ export function ModelAdminActions({
           <TrashIcon className="size-3.5" />
           Delete Period
         </button>
+
+        {/* Config override button */}
+        <button
+          type="button"
+          onClick={() => setConfigOverrideOpen(true)}
+          className={`inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-surface px-2.5 py-1 text-xs font-medium shadow-xs transition-all hover:bg-secondary/50 hover:text-accent disabled:opacity-50 ${
+            currentOverride ? 'text-warning' : 'text-foreground'
+          }`}
+        >
+          <AdjustmentsHorizontalIcon className="size-3.5" />
+          {currentOverride ? 'Override Active' : 'Config Override'}
+        </button>
       </div>
       <DeletePeriodDialog
         open={deletePeriodOpen}
@@ -236,7 +505,9 @@ export function ModelAdminActions({
         onDelete={(startPos, endPos, cascade) => void handleDeletePeriod(startPos, endPos, cascade)}
         isDeleting={isDeletingPeriod}
         transformations={transformations}
+        coverageRanges={coverageRanges}
       />
+      {overrideDialog}
     </>
   );
 }

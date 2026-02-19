@@ -63,6 +63,17 @@ type Service interface {
 	GetIncrementalAdminTable() string
 	GetScheduledAdminDatabase() string
 	GetScheduledAdminTable() string
+
+	// Config override operations
+	GetConfigOverride(ctx context.Context, modelID string) (*ConfigOverride, error)
+	GetAllConfigOverrides(ctx context.Context) ([]ConfigOverride, error)
+	SetConfigOverride(ctx context.Context, override *ConfigOverride) error
+	DeleteConfigOverride(ctx context.Context, modelID string) error
+	DeleteAllConfigOverrides(ctx context.Context) error
+	GetConfigOverrideVersion(ctx context.Context) (int64, error)
+
+	// GetCacheManager returns the underlying cache manager
+	GetCacheManager() *CacheManager
 }
 
 // GapInfo represents a gap in the processed data
@@ -888,6 +899,65 @@ func (a *service) GetAllLastScheduledExecutions(ctx context.Context, modelIDs []
 	}).Debug("Batch retrieved last scheduled executions from admin table")
 
 	return result, nil
+}
+
+// GetConfigOverride retrieves a config override for a specific model.
+func (a *service) GetConfigOverride(ctx context.Context, modelID string) (*ConfigOverride, error) {
+	if a.cacheManager == nil {
+		return nil, ErrCacheManagerUnavailable
+	}
+
+	return a.cacheManager.GetConfigOverride(ctx, modelID)
+}
+
+// GetAllConfigOverrides retrieves all config overrides.
+func (a *service) GetAllConfigOverrides(ctx context.Context) ([]ConfigOverride, error) {
+	if a.cacheManager == nil {
+		return nil, ErrCacheManagerUnavailable
+	}
+
+	return a.cacheManager.GetAllConfigOverrides(ctx)
+}
+
+// SetConfigOverride stores a config override.
+func (a *service) SetConfigOverride(ctx context.Context, override *ConfigOverride) error {
+	if a.cacheManager == nil {
+		return ErrCacheManagerUnavailable
+	}
+
+	return a.cacheManager.SetConfigOverride(ctx, override)
+}
+
+// DeleteConfigOverride removes a config override for a specific model.
+func (a *service) DeleteConfigOverride(ctx context.Context, modelID string) error {
+	if a.cacheManager == nil {
+		return ErrCacheManagerUnavailable
+	}
+
+	return a.cacheManager.DeleteConfigOverride(ctx, modelID)
+}
+
+// DeleteAllConfigOverrides removes all config overrides.
+func (a *service) DeleteAllConfigOverrides(ctx context.Context) error {
+	if a.cacheManager == nil {
+		return ErrCacheManagerUnavailable
+	}
+
+	return a.cacheManager.DeleteAllConfigOverrides(ctx)
+}
+
+// GetConfigOverrideVersion returns the current config override version counter.
+func (a *service) GetConfigOverrideVersion(ctx context.Context) (int64, error) {
+	if a.cacheManager == nil {
+		return 0, ErrCacheManagerUnavailable
+	}
+
+	return a.cacheManager.GetConfigOverrideVersion(ctx)
+}
+
+// GetCacheManager returns the underlying cache manager.
+func (a *service) GetCacheManager() *CacheManager {
+	return a.cacheManager
 }
 
 // Ensure service implements the interface

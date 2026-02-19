@@ -99,90 +99,65 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
  */
 export const listAllModels = <ThrowOnError extends boolean = false>(
   options?: Options<ListAllModelsData, ThrowOnError>
-) => {
-  return (options?.client ?? client).get<ListAllModelsResponses, ListAllModelsErrors, ThrowOnError>({
-    requestValidator: async data => {
-      return await zListAllModelsData.parseAsync(data);
-    },
-    responseValidator: async data => {
-      return await zListAllModelsResponse.parseAsync(data);
-    },
+) =>
+  (options?.client ?? client).get<ListAllModelsResponses, ListAllModelsErrors, ThrowOnError>({
+    requestValidator: async data => await zListAllModelsData.parseAsync(data),
+    responseValidator: async data => await zListAllModelsResponse.parseAsync(data),
     url: '/models',
     ...options,
   });
-};
 
 /**
  * List external models
  */
 export const listExternalModels = <ThrowOnError extends boolean = false>(
   options?: Options<ListExternalModelsData, ThrowOnError>
-) => {
-  return (options?.client ?? client).get<ListExternalModelsResponses, ListExternalModelsErrors, ThrowOnError>({
-    requestValidator: async data => {
-      return await zListExternalModelsData.parseAsync(data);
-    },
-    responseValidator: async data => {
-      return await zListExternalModelsResponse.parseAsync(data);
-    },
+) =>
+  (options?.client ?? client).get<ListExternalModelsResponses, ListExternalModelsErrors, ThrowOnError>({
+    requestValidator: async data => await zListExternalModelsData.parseAsync(data),
+    responseValidator: async data => await zListExternalModelsResponse.parseAsync(data),
     url: '/models/external',
     ...options,
   });
-};
 
 /**
  * Get external model by ID
  */
 export const getExternalModel = <ThrowOnError extends boolean = false>(
   options: Options<GetExternalModelData, ThrowOnError>
-) => {
-  return (options.client ?? client).get<GetExternalModelResponses, GetExternalModelErrors, ThrowOnError>({
-    requestValidator: async data => {
-      return await zGetExternalModelData.parseAsync(data);
-    },
-    responseValidator: async data => {
-      return await zGetExternalModelResponse.parseAsync(data);
-    },
+) =>
+  (options.client ?? client).get<GetExternalModelResponses, GetExternalModelErrors, ThrowOnError>({
+    requestValidator: async data => await zGetExternalModelData.parseAsync(data),
+    responseValidator: async data => await zGetExternalModelResponse.parseAsync(data),
     url: '/models/external/{id}',
     ...options,
   });
-};
 
 /**
  * List transformation models
  */
 export const listTransformations = <ThrowOnError extends boolean = false>(
   options?: Options<ListTransformationsData, ThrowOnError>
-) => {
-  return (options?.client ?? client).get<ListTransformationsResponses, ListTransformationsErrors, ThrowOnError>({
-    requestValidator: async data => {
-      return await zListTransformationsData.parseAsync(data);
-    },
-    responseValidator: async data => {
-      return await zListTransformationsResponse.parseAsync(data);
-    },
+) =>
+  (options?.client ?? client).get<ListTransformationsResponses, ListTransformationsErrors, ThrowOnError>({
+    requestValidator: async data => await zListTransformationsData.parseAsync(data),
+    responseValidator: async data => await zListTransformationsResponse.parseAsync(data),
     url: '/models/transformations',
     ...options,
   });
-};
 
 /**
  * Get transformation model by ID
  */
 export const getTransformation = <ThrowOnError extends boolean = false>(
   options: Options<GetTransformationData, ThrowOnError>
-) => {
-  return (options.client ?? client).get<GetTransformationResponses, GetTransformationErrors, ThrowOnError>({
-    requestValidator: async data => {
-      return await zGetTransformationData.parseAsync(data);
-    },
-    responseValidator: async data => {
-      return await zGetTransformationResponse.parseAsync(data);
-    },
+) =>
+  (options.client ?? client).get<GetTransformationResponses, GetTransformationErrors, ThrowOnError>({
+    requestValidator: async data => await zGetTransformationData.parseAsync(data),
+    responseValidator: async data => await zGetTransformationResponse.parseAsync(data),
     url: '/models/transformations/{id}',
     ...options,
   });
-};
 
 /**
  * List external model bounds
@@ -191,18 +166,13 @@ export const getTransformation = <ThrowOnError extends boolean = false>(
  */
 export const listExternalBounds = <ThrowOnError extends boolean = false>(
   options?: Options<ListExternalBoundsData, ThrowOnError>
-) => {
-  return (options?.client ?? client).get<ListExternalBoundsResponses, ListExternalBoundsErrors, ThrowOnError>({
-    requestValidator: async data => {
-      return await zListExternalBoundsData.parseAsync(data);
-    },
-    responseValidator: async data => {
-      return await zListExternalBoundsResponse.parseAsync(data);
-    },
+) =>
+  (options?.client ?? client).get<ListExternalBoundsResponses, ListExternalBoundsErrors, ThrowOnError>({
+    requestValidator: async data => await zListExternalBoundsData.parseAsync(data),
+    responseValidator: async data => await zListExternalBoundsResponse.parseAsync(data),
     url: '/models/external/bounds',
     ...options,
   });
-};
 
 /**
  * Get external model bounds by ID
@@ -211,18 +181,13 @@ export const listExternalBounds = <ThrowOnError extends boolean = false>(
  */
 export const getExternalBounds = <ThrowOnError extends boolean = false>(
   options: Options<GetExternalBoundsData, ThrowOnError>
-) => {
-  return (options.client ?? client).get<GetExternalBoundsResponses, GetExternalBoundsErrors, ThrowOnError>({
-    requestValidator: async data => {
-      return await zGetExternalBoundsData.parseAsync(data);
-    },
-    responseValidator: async data => {
-      return await zGetExternalBoundsResponse.parseAsync(data);
-    },
+) =>
+  (options.client ?? client).get<GetExternalBoundsResponses, GetExternalBoundsErrors, ThrowOnError>({
+    requestValidator: async data => await zGetExternalBoundsData.parseAsync(data),
+    responseValidator: async data => await zGetExternalBoundsResponse.parseAsync(data),
     url: '/models/external/{id}/bounds',
     ...options,
   });
-};
 
 /**
  * List transformation coverage
@@ -231,22 +196,13 @@ export const getExternalBounds = <ThrowOnError extends boolean = false>(
  */
 export const listTransformationCoverage = <ThrowOnError extends boolean = false>(
   options?: Options<ListTransformationCoverageData, ThrowOnError>
-) => {
-  return (options?.client ?? client).get<
-    ListTransformationCoverageResponses,
-    ListTransformationCoverageErrors,
-    ThrowOnError
-  >({
-    requestValidator: async data => {
-      return await zListTransformationCoverageData.parseAsync(data);
-    },
-    responseValidator: async data => {
-      return await zListTransformationCoverageResponse.parseAsync(data);
-    },
+) =>
+  (options?.client ?? client).get<ListTransformationCoverageResponses, ListTransformationCoverageErrors, ThrowOnError>({
+    requestValidator: async data => await zListTransformationCoverageData.parseAsync(data),
+    responseValidator: async data => await zListTransformationCoverageResponse.parseAsync(data),
     url: '/models/transformations/coverage',
     ...options,
   });
-};
 
 /**
  * Get transformation coverage by ID
@@ -255,22 +211,13 @@ export const listTransformationCoverage = <ThrowOnError extends boolean = false>
  */
 export const getTransformationCoverage = <ThrowOnError extends boolean = false>(
   options: Options<GetTransformationCoverageData, ThrowOnError>
-) => {
-  return (options.client ?? client).get<
-    GetTransformationCoverageResponses,
-    GetTransformationCoverageErrors,
-    ThrowOnError
-  >({
-    requestValidator: async data => {
-      return await zGetTransformationCoverageData.parseAsync(data);
-    },
-    responseValidator: async data => {
-      return await zGetTransformationCoverageResponse.parseAsync(data);
-    },
+) =>
+  (options.client ?? client).get<GetTransformationCoverageResponses, GetTransformationCoverageErrors, ThrowOnError>({
+    requestValidator: async data => await zGetTransformationCoverageData.parseAsync(data),
+    responseValidator: async data => await zGetTransformationCoverageResponse.parseAsync(data),
     url: '/models/transformations/{id}/coverage',
     ...options,
   });
-};
 
 /**
  * Debug coverage and dependency status for a specific position
@@ -290,18 +237,13 @@ export const getTransformationCoverage = <ThrowOnError extends boolean = false>(
  */
 export const debugCoverageAtPosition = <ThrowOnError extends boolean = false>(
   options: Options<DebugCoverageAtPositionData, ThrowOnError>
-) => {
-  return (options.client ?? client).get<DebugCoverageAtPositionResponses, DebugCoverageAtPositionErrors, ThrowOnError>({
-    requestValidator: async data => {
-      return await zDebugCoverageAtPositionData.parseAsync(data);
-    },
-    responseValidator: async data => {
-      return await zDebugCoverageAtPositionResponse.parseAsync(data);
-    },
+) =>
+  (options.client ?? client).get<DebugCoverageAtPositionResponses, DebugCoverageAtPositionErrors, ThrowOnError>({
+    requestValidator: async data => await zDebugCoverageAtPositionData.parseAsync(data),
+    responseValidator: async data => await zDebugCoverageAtPositionResponse.parseAsync(data),
     url: '/models/transformations/{id}/coverage/{position}',
     ...options,
   });
-};
 
 /**
  * Get interval type transformations
@@ -313,18 +255,13 @@ export const debugCoverageAtPosition = <ThrowOnError extends boolean = false>(
  */
 export const getIntervalTypes = <ThrowOnError extends boolean = false>(
   options?: Options<GetIntervalTypesData, ThrowOnError>
-) => {
-  return (options?.client ?? client).get<GetIntervalTypesResponses, GetIntervalTypesErrors, ThrowOnError>({
-    requestValidator: async data => {
-      return await zGetIntervalTypesData.parseAsync(data);
-    },
-    responseValidator: async data => {
-      return await zGetIntervalTypesResponse.parseAsync(data);
-    },
+) =>
+  (options?.client ?? client).get<GetIntervalTypesResponses, GetIntervalTypesErrors, ThrowOnError>({
+    requestValidator: async data => await zGetIntervalTypesData.parseAsync(data),
+    responseValidator: async data => await zGetIntervalTypesResponse.parseAsync(data),
     url: '/interval/types',
     ...options,
   });
-};
 
 /**
  * List scheduled transformation runs
@@ -333,18 +270,13 @@ export const getIntervalTypes = <ThrowOnError extends boolean = false>(
  */
 export const listScheduledRuns = <ThrowOnError extends boolean = false>(
   options?: Options<ListScheduledRunsData, ThrowOnError>
-) => {
-  return (options?.client ?? client).get<ListScheduledRunsResponses, ListScheduledRunsErrors, ThrowOnError>({
-    requestValidator: async data => {
-      return await zListScheduledRunsData.parseAsync(data);
-    },
-    responseValidator: async data => {
-      return await zListScheduledRunsResponse.parseAsync(data);
-    },
+) =>
+  (options?.client ?? client).get<ListScheduledRunsResponses, ListScheduledRunsErrors, ThrowOnError>({
+    requestValidator: async data => await zListScheduledRunsData.parseAsync(data),
+    responseValidator: async data => await zListScheduledRunsResponse.parseAsync(data),
     url: '/models/transformations/runs',
     ...options,
   });
-};
 
 /**
  * Get scheduled transformation run by ID
@@ -353,15 +285,10 @@ export const listScheduledRuns = <ThrowOnError extends boolean = false>(
  */
 export const getScheduledRun = <ThrowOnError extends boolean = false>(
   options: Options<GetScheduledRunData, ThrowOnError>
-) => {
-  return (options.client ?? client).get<GetScheduledRunResponses, GetScheduledRunErrors, ThrowOnError>({
-    requestValidator: async data => {
-      return await zGetScheduledRunData.parseAsync(data);
-    },
-    responseValidator: async data => {
-      return await zGetScheduledRunResponse.parseAsync(data);
-    },
+) =>
+  (options.client ?? client).get<GetScheduledRunResponses, GetScheduledRunErrors, ThrowOnError>({
+    requestValidator: async data => await zGetScheduledRunData.parseAsync(data),
+    responseValidator: async data => await zGetScheduledRunResponse.parseAsync(data),
     url: '/models/transformations/{id}/runs',
     ...options,
   });
-};

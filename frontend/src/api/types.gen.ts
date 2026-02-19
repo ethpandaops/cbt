@@ -18,6 +18,14 @@ export type ModelSummary = {
   type: 'external' | 'transformation';
   database: string;
   table: string;
+  /**
+   * Whether this model has a config override record
+   */
+  has_override?: boolean;
+  /**
+   * Whether this model is disabled by override
+   */
+  is_disabled?: boolean;
   description?: string;
 };
 
@@ -28,6 +36,14 @@ export type ExternalModel = {
   id: string;
   database: string;
   table: string;
+  /**
+   * Whether this model has a config override record
+   */
+  has_override?: boolean;
+  /**
+   * Whether this model is disabled by override
+   */
+  is_disabled?: boolean;
   description?: string;
   /**
    * Interval configuration for external source
@@ -93,6 +109,14 @@ export type TransformationModelBase = {
    * SQL query or exec command defining the transformation
    */
   content: string;
+  /**
+   * Whether this model has a config override record
+   */
+  has_override?: boolean;
+  /**
+   * Whether this model is disabled by override
+   */
+  is_disabled?: boolean;
   /**
    * Tags for categorization
    */
@@ -549,7 +573,7 @@ export type IntervalTypeTransformation = {
   format?: 'datetime' | 'date' | 'time' | 'duration' | 'relative';
 };
 
-export type _Error = {
+export type Error = {
   /**
    * Human-readable error message
    */
@@ -567,6 +591,14 @@ export type ExternalModelWritable = {
   id: string;
   database: string;
   table: string;
+  /**
+   * Whether this model has a config override record
+   */
+  has_override?: boolean;
+  /**
+   * Whether this model is disabled by override
+   */
+  is_disabled?: boolean;
   description?: string;
   /**
    * Interval configuration for external source
@@ -617,6 +649,14 @@ export type TransformationModelBaseWritable = {
    */
   content: string;
   /**
+   * Whether this model has a config override record
+   */
+  has_override?: boolean;
+  /**
+   * Whether this model is disabled by override
+   */
+  is_disabled?: boolean;
+  /**
    * Tags for categorization
    */
   tags?: Array<string>;
@@ -627,6 +667,145 @@ export type TransformationModelBaseWritable = {
    *
    */
   depends_on?: Array<string | Array<string>>;
+};
+
+export type ScheduledTransformationWritable = TransformationModelBaseWritable & {
+  type?: 'scheduled';
+  /**
+   * Cron expression (REQUIRED for scheduled type)
+   */
+  schedule: string;
+};
+
+export type IncrementalTransformationWritable = TransformationModelBaseWritable & {
+  type?: 'incremental';
+  /**
+   * Interval configuration (REQUIRED for incremental type)
+   */
+  interval: {
+    /**
+     * Minimum interval size (0 = allow any partial size)
+     */
+    min: number;
+    /**
+     * Maximum interval size for processing
+     */
+    max: number;
+    /**
+     * Type of interval (e.g., "second", "slot", "epoch", "block")
+     */
+    type: string;
+  };
+  /**
+   * Forwardfill and backfill schedules (for incremental type)
+   */
+  schedules?: {
+    /**
+     * Forward fill schedule
+     */
+    forwardfill?: string;
+    /**
+     * Backfill schedule
+     */
+    backfill?: string;
+  };
+  /**
+   * Position limits for incremental processing
+   */
+  limits?: {
+    /**
+     * Minimum position limit
+     */
+    min?: number;
+    /**
+     * Maximum position limit
+     */
+    max?: number;
+  };
+  /**
+   * Fill behavior configuration for incremental processing
+   */
+  fill?: {
+    /**
+     * Fill direction (head or tail)
+     */
+    direction?: 'head' | 'tail';
+    /**
+     * Whether to allow skipping gaps in dependency data
+     */
+    allow_gap_skipping?: boolean;
+    /**
+     * Stay N positions behind dependency max (0 = no buffer)
+     */
+    buffer?: number;
+  };
+};
+
+export type TransformationModelWritable = TransformationModelBaseWritable & {
+  /**
+   * Cron expression (present when type=scheduled)
+   */
+  schedule?: string;
+  /**
+   * Interval configuration (present when type=incremental)
+   */
+  interval?: {
+    /**
+     * Minimum interval size
+     */
+    min?: number;
+    /**
+     * Maximum interval size
+     */
+    max?: number;
+    /**
+     * Type of interval (e.g., "second", "slot", "epoch", "block")
+     */
+    type?: string;
+  };
+  /**
+   * Schedules (present when type=incremental)
+   */
+  schedules?: {
+    /**
+     * Forward fill schedule
+     */
+    forwardfill?: string;
+    /**
+     * Backfill schedule
+     */
+    backfill?: string;
+  };
+  /**
+   * Limits (present when type=incremental)
+   */
+  limits?: {
+    /**
+     * Minimum position limit
+     */
+    min?: number;
+    /**
+     * Maximum position limit
+     */
+    max?: number;
+  };
+  /**
+   * Fill behavior (present when type=incremental)
+   */
+  fill?: {
+    /**
+     * Fill direction (head or tail)
+     */
+    direction?: 'head' | 'tail';
+    /**
+     * Whether to allow skipping gaps in dependency data
+     */
+    allow_gap_skipping?: boolean;
+    /**
+     * Stay N positions behind dependency max (0 = no buffer)
+     */
+    buffer?: number;
+  };
 };
 
 export type ListAllModelsData = {
@@ -653,7 +832,7 @@ export type ListAllModelsErrors = {
   /**
    * Internal server error
    */
-  500: _Error;
+  500: Error;
 };
 
 export type ListAllModelsError = ListAllModelsErrors[keyof ListAllModelsErrors];
@@ -686,7 +865,7 @@ export type ListExternalModelsErrors = {
   /**
    * Internal server error
    */
-  500: _Error;
+  500: Error;
 };
 
 export type ListExternalModelsError = ListExternalModelsErrors[keyof ListExternalModelsErrors];
@@ -719,11 +898,11 @@ export type GetExternalModelErrors = {
   /**
    * Resource not found
    */
-  404: _Error;
+  404: Error;
   /**
    * Internal server error
    */
-  500: _Error;
+  500: Error;
 };
 
 export type GetExternalModelError = GetExternalModelErrors[keyof GetExternalModelErrors];
@@ -761,7 +940,7 @@ export type ListTransformationsErrors = {
   /**
    * Internal server error
    */
-  500: _Error;
+  500: Error;
 };
 
 export type ListTransformationsError = ListTransformationsErrors[keyof ListTransformationsErrors];
@@ -794,11 +973,11 @@ export type GetTransformationErrors = {
   /**
    * Resource not found
    */
-  404: _Error;
+  404: Error;
   /**
    * Internal server error
    */
-  500: _Error;
+  500: Error;
 };
 
 export type GetTransformationError = GetTransformationErrors[keyof GetTransformationErrors];
@@ -823,7 +1002,7 @@ export type ListExternalBoundsErrors = {
   /**
    * Internal server error
    */
-  500: _Error;
+  500: Error;
 };
 
 export type ListExternalBoundsError = ListExternalBoundsErrors[keyof ListExternalBoundsErrors];
@@ -856,11 +1035,11 @@ export type GetExternalBoundsErrors = {
   /**
    * Resource not found
    */
-  404: _Error;
+  404: Error;
   /**
    * Internal server error
    */
-  500: _Error;
+  500: Error;
 };
 
 export type GetExternalBoundsError = GetExternalBoundsErrors[keyof GetExternalBoundsErrors];
@@ -890,7 +1069,7 @@ export type ListTransformationCoverageErrors = {
   /**
    * Internal server error
    */
-  500: _Error;
+  500: Error;
 };
 
 export type ListTransformationCoverageError = ListTransformationCoverageErrors[keyof ListTransformationCoverageErrors];
@@ -924,15 +1103,15 @@ export type GetTransformationCoverageErrors = {
   /**
    * Model is not incremental type
    */
-  400: _Error;
+  400: Error;
   /**
    * Resource not found
    */
-  404: _Error;
+  404: Error;
   /**
    * Internal server error
    */
-  500: _Error;
+  500: Error;
 };
 
 export type GetTransformationCoverageError = GetTransformationCoverageErrors[keyof GetTransformationCoverageErrors];
@@ -967,15 +1146,15 @@ export type DebugCoverageAtPositionErrors = {
   /**
    * Model is not incremental type
    */
-  400: _Error;
+  400: Error;
   /**
    * Resource not found
    */
-  404: _Error;
+  404: Error;
   /**
    * Internal server error
    */
-  500: _Error;
+  500: Error;
 };
 
 export type DebugCoverageAtPositionError = DebugCoverageAtPositionErrors[keyof DebugCoverageAtPositionErrors];
@@ -1000,7 +1179,7 @@ export type GetIntervalTypesErrors = {
   /**
    * Internal server error
    */
-  500: _Error;
+  500: Error;
 };
 
 export type GetIntervalTypesError = GetIntervalTypesErrors[keyof GetIntervalTypesErrors];
@@ -1034,7 +1213,7 @@ export type ListScheduledRunsErrors = {
   /**
    * Internal server error
    */
-  500: _Error;
+  500: Error;
 };
 
 export type ListScheduledRunsError = ListScheduledRunsErrors[keyof ListScheduledRunsErrors];
@@ -1067,15 +1246,15 @@ export type GetScheduledRunErrors = {
   /**
    * Model is not scheduled type
    */
-  400: _Error;
+  400: Error;
   /**
    * Resource not found
    */
-  404: _Error;
+  404: Error;
   /**
    * Internal server error
    */
-  500: _Error;
+  500: Error;
 };
 
 export type GetScheduledRunError = GetScheduledRunErrors[keyof GetScheduledRunErrors];

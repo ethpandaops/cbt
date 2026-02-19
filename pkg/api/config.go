@@ -1,5 +1,5 @@
 // Package api provides a REST API layer for exposing model metadata and transformation state.
-package api
+package api //nolint:revive // package name follows existing project layout.
 
 import "errors"
 

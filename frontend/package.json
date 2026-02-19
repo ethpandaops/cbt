@@ -22,6 +22,9 @@
     "build-storybook": "storybook build"
   },
   "dependencies": {
+    "@codemirror/lang-json": "6.0.2",
+    "@codemirror/lint": "6.9.4",
+    "@codemirror/view": "6.39.14",
     "@dagrejs/dagre": "2.0.4",
     "@dagrejs/graphlib": "3.0.4",
     "@fontsource-variable/space-grotesk": "5.2.10",
@@ -31,6 +34,7 @@
     "@tanstack/react-query": "5.90.21",
     "@tanstack/react-router": "1.160.2",
     "@tanstack/router-plugin": "1.161.0",
+    "@uiw/react-codemirror": "4.25.4",
     "@xyflow/react": "12.10.0",
     "cel-js": "0.8.2",
     "clsx": "2.1.1",

@@ -26,6 +26,7 @@ import {
   getZoomOutScale,
 } from '@/utils/zoom-helpers';
 import { useTransformationSelection } from '@/hooks/useTransformationSelection';
+import { getErrorMessage } from '@/utils/error';
 
 interface IncrementalModelsSectionProps {
   zoomRanges: ZoomRanges;
@@ -92,7 +93,7 @@ export function IncrementalModelsSection({ zoomRanges, onZoomChange }: Increment
   }
 
   if (error) {
-    return <ErrorState message={error.message} variant="compact" />;
+    return <ErrorState message={getErrorMessage(error)} variant="compact" />;
   }
 
   // Build dependency map for transformation models with OR group support
@@ -159,6 +160,8 @@ export function IncrementalModelsSection({ zoomRanges, onZoomChange }: Increment
       id: model.id,
       type: 'transformation',
       intervalType: model.interval?.type || 'unknown',
+      hasOverride: model.has_override,
+      isDisabled: model.is_disabled,
       depends_on: model.depends_on,
       data: {
         coverage: modelCoverage?.ranges,
@@ -172,6 +175,8 @@ export function IncrementalModelsSection({ zoomRanges, onZoomChange }: Increment
       id: model.id,
       type: 'external',
       intervalType: model.interval?.type || 'unknown',
+      hasOverride: model.has_override,
+      isDisabled: model.is_disabled,
       data: {
         bounds: modelBounds ? { min: modelBounds.min, max: modelBounds.max } : undefined,
       },

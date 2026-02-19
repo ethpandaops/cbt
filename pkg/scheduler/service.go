@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/coordinator"
+	"github.com/ethpandaops/cbt/pkg/liveconfig"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation/incremental"
 	"github.com/ethpandaops/cbt/pkg/observability"
@@ -58,8 +59,8 @@ type Service interface {
 	// Stop gracefully shuts down the scheduler service
 	Stop() error
 
-	// Note: These methods are internal and used by asynq handlers
-	// They are exposed in the interface for testing purposes
+	// SetLiveOverrides sets the live override applier (must be called before Start)
+	SetLiveOverrides(lo *liveconfig.Applier)
 }
 
 // CoordinatorClient defines the minimal interface needed from coordinator
@@ -90,7 +91,8 @@ type service struct {
 	ticker       tickerService
 	tickerCancel context.CancelFunc // To stop ticker when demoted
 
-	elector LeaderElector
+	elector       LeaderElector
+	liveOverrides *liveconfig.Applier
 }
 
 // NewService creates a new scheduler service
@@ -173,6 +175,12 @@ func (s *service) Start(ctx context.Context) error {
 			s.log.WithError(runErr).Error("Scheduler server stopped with error")
 		}
 	}()
+
+	// Start live override polling on all instances
+	if s.liveOverrides != nil {
+		s.wg.Add(1)
+		go s.pollLiveOverrides(ctx)
+	}
 
 	s.log.Info("Scheduler service started (participating in leader election)")
 
@@ -302,16 +310,18 @@ func (s *service) handleLeaderElection(ctx context.Context) {
 
 // buildScheduledTasks constructs the list of scheduled tasks from DAG config
 func (s *service) buildScheduledTasks() []scheduledTask {
-	var scheduledTasks []scheduledTask
+	systemTasks := s.buildSystemScheduledTasks()
+	externalTasks := s.buildExternalScheduledTasks()
+	transformationTasks := s.buildTransformationScheduledTasks()
 
-	// System tasks
-	scheduledTasks = append(scheduledTasks, s.buildSystemScheduledTasks()...)
-
-	// External model tasks
-	scheduledTasks = append(scheduledTasks, s.buildExternalScheduledTasks()...)
-
-	// Transformation tasks
-	scheduledTasks = append(scheduledTasks, s.buildTransformationScheduledTasks()...)
+	scheduledTasks := make(
+		[]scheduledTask,
+		0,
+		len(systemTasks)+len(externalTasks)+len(transformationTasks),
+	)
+	scheduledTasks = append(scheduledTasks, systemTasks...)
+	scheduledTasks = append(scheduledTasks, externalTasks...)
+	scheduledTasks = append(scheduledTasks, transformationTasks...)
 
 	return scheduledTasks
 }
@@ -616,6 +626,12 @@ func extractExternalTaskComponents(taskType string) (modelID string, err error) 
 func (s *service) HandleScheduledForward(_ context.Context, t *asynq.Task) error {
 	modelID := extractModelID(t.Type())
 
+	if s.isModelDisabled(modelID) {
+		s.log.WithField("model_id", modelID).Debug("Skipping forward fill for live-disabled model")
+
+		return nil
+	}
+
 	trans, err := s.dag.GetTransformationNode(modelID)
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get transformation node")
@@ -728,6 +744,12 @@ func (s *service) triggerInitialExternalScans(ctx context.Context) {
 func (s *service) HandleScheduledBackfill(_ context.Context, t *asynq.Task) error {
 	modelID := extractModelID(t.Type())
 
+	if s.isModelDisabled(modelID) {
+		s.log.WithField("model_id", modelID).Debug("Skipping backfill for live-disabled model")
+
+		return nil
+	}
+
 	trans, err := s.dag.GetTransformationNode(modelID)
 	if err != nil {
 		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get transformation node")
@@ -765,6 +787,12 @@ func (s *service) HandleConsolidation(ctx context.Context, _ *asynq.Task) error 
 // HandleScheduledTransformation handles the execution of scheduled (cron-based) transformations
 func (s *service) HandleScheduledTransformation(_ context.Context, t *asynq.Task) error {
 	modelID := extractModelID(t.Type())
+
+	if s.isModelDisabled(modelID) {
+		s.log.WithField("model_id", modelID).Debug("Skipping scheduled transformation for live-disabled model")
+
+		return nil
+	}
 
 	trans, err := s.dag.GetTransformationNode(modelID)
 	if err != nil {
@@ -843,6 +871,53 @@ func (s *service) enqueueScheduledTask(payload tasks.TaskPayload) error {
 	// For incremental: model_id:direction (preventing duplicate forward/backfill tasks)
 	// Use 1 second uniqueness - just prevents rapid-fire duplicates, task ID handles actual deduplication
 	return enqueuer.EnqueueTransformation(payload, asynq.Unique(1*time.Second))
+}
+
+// SetLiveOverrides sets the live override applier. Must be called before Start.
+func (s *service) SetLiveOverrides(lo *liveconfig.Applier) {
+	s.liveOverrides = lo
+}
+
+// pollLiveOverrides polls for live config override changes every 5 seconds.
+// Runs on all instances. When changes are detected and this instance is the
+// leader, it rebuilds the ticker task list.
+func (s *service) pollLiveOverrides(ctx context.Context) {
+	defer s.wg.Done()
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.done:
+			return
+		case <-ticker.C:
+			changed, err := s.liveOverrides.CheckAndApply(ctx)
+			if err != nil {
+				s.log.WithError(err).Warn("Failed to check live overrides")
+
+				continue
+			}
+
+			if changed && s.ticker != nil {
+				// Leader: rebuild task list with updated config
+				newTasks := s.buildScheduledTasks()
+				s.ticker.UpdateTasks(newTasks)
+				s.log.Info("Rebuilt scheduled tasks after live override change")
+			}
+		}
+	}
+}
+
+// isModelDisabled checks if a model is live-disabled via config overrides.
+func (s *service) isModelDisabled(modelID string) bool {
+	if s.liveOverrides == nil {
+		return false
+	}
+
+	return s.liveOverrides.IsModelDisabled(modelID)
 }
 
 // Ensure service implements the interface

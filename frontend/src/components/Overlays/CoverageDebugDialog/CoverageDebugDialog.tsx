@@ -13,6 +13,7 @@ import {
 import type { DependencyDebugInfo, GapInfo, Range, IntervalTypeTransformation } from '@/api/types.gen';
 import { debugCoverageAtPositionOptions, getIntervalTypesOptions } from '@/api/@tanstack/react-query.gen';
 import { transformValue, formatValue } from '@/utils/interval-transform';
+import { getErrorMessage } from '@/utils/error';
 import { TransformationSelector } from '@/components/Forms/TransformationSelector';
 import { useTransformationSelection } from '@/hooks/useTransformationSelection';
 
@@ -213,7 +214,7 @@ export function CoverageDebugDialog({
               </div>
             ) : error ? (
               <div className="rounded-xl border border-danger/45 bg-danger/12 p-3 ring-1 ring-danger/20 sm:p-4">
-                <p className="text-sm text-danger sm:text-base">Error loading debug data: {error.message}</p>
+                <p className="text-sm text-danger sm:text-base">Error loading debug data: {getErrorMessage(error)}</p>
               </div>
             ) : data ? (
               <div className="space-y-4 sm:space-y-6">

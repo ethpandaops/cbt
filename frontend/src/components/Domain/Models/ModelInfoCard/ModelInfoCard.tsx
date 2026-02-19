@@ -5,6 +5,8 @@ export interface InfoField {
   value: ReactNode;
   variant?: 'default' | 'highlight';
   highlightColor?: 'external' | 'incremental' | 'scheduled' | 'warning' | 'accent';
+  overridden?: boolean;
+  originalValue?: ReactNode;
 }
 
 export interface ModelInfoCardProps {
@@ -82,14 +84,29 @@ export function ModelInfoCard({
       <h2 className="mb-3 text-base font-bold text-foreground sm:mb-4 sm:text-lg">{title}</h2>
       <dl className={`grid ${gridCols} gap-x-4 gap-y-3 text-sm sm:gap-x-6 sm:gap-y-4`}>
         {fields.map((field, index) => (
-          <div key={index} className={`${getFieldClassName(field)} min-w-0`}>
-            <dt className={getLabelClassName(field)}>{field.label}</dt>
+          <div
+            key={index}
+            className={`${getFieldClassName(field)} min-w-0 ${field.overridden ? 'ring-danger/40' : ''}`}
+          >
+            <dt className={`${getLabelClassName(field)} flex items-center gap-1.5`}>
+              {field.label}
+              {field.overridden && (
+                <span className="rounded-sm bg-danger/15 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-danger uppercase">
+                  Live
+                </span>
+              )}
+            </dt>
             <dd
               className={`${getValueClassName(field)} truncate`}
               title={typeof field.value === 'string' ? field.value : undefined}
             >
               {field.value}
             </dd>
+            {field.overridden && field.originalValue != null && (
+              <dd className="mt-1 truncate text-xs text-muted" title="Original value">
+                was: {field.originalValue}
+              </dd>
+            )}
           </div>
         ))}
       </dl>

@@ -1,11 +1,23 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import type { IntervalTypeTransformation } from '@/api/types.gen';
+import type { IntervalTypeTransformation, Range } from '@/api/types.gen';
 import { DeletePeriodDialog } from './DeletePeriodDialog';
 
 const sampleTransformations: IntervalTypeTransformation[] = [
   { name: 'Slot', expression: 'math.floor((value - 1606824023) / 12)' },
   { name: 'Datetime', expression: 'value * 1000', format: 'datetime' },
   { name: 'Timestamp' },
+];
+
+const sampleCoverageRanges: Range[] = [
+  { position: 100, interval: 200 },
+  { position: 400, interval: 150 },
+  { position: 700, interval: 300 },
+];
+
+const largeCoverageRanges: Range[] = [
+  { position: 1606824023, interval: 2592000 },
+  { position: 1609416023, interval: 2592000 },
+  { position: 1614600023, interval: 5184000 },
 ];
 
 const meta: Meta<typeof DeletePeriodDialog> = {
@@ -49,15 +61,21 @@ export const WithTransformations: Story = {
   },
 };
 
-export const WithDatetimeSelected: Story = {
+export const WithCoverageRanges: Story = {
   args: {
     open: true,
     onClose: () => {},
     onDelete: () => {},
-    transformations: [
-      { name: 'Datetime', expression: 'value * 1000', format: 'datetime' },
-      { name: 'Slot', expression: 'math.floor((value - 1606824023) / 12)' },
-      { name: 'Timestamp' },
-    ],
+    coverageRanges: sampleCoverageRanges,
+  },
+};
+
+export const WithCoverageAndTransformations: Story = {
+  args: {
+    open: true,
+    onClose: () => {},
+    onDelete: () => {},
+    transformations: sampleTransformations,
+    coverageRanges: largeCoverageRanges,
   },
 };

@@ -1,5 +1,6 @@
 import { type JSX } from 'react';
 import { Link } from '@tanstack/react-router';
+import { PencilSquareIcon, StopCircleIcon } from '@heroicons/react/24/outline';
 import type { TransformationModel } from '@/api/types.gen';
 import { timeAgo } from '@/utils/time';
 import { getNextRunDescription, formatNextRun } from '@/utils/schedule-parser';
@@ -35,6 +36,8 @@ export function ScheduledTransformationRow({
   const nextRunText = isValidLastRun ? getNextRunDescription(model.schedule, lastRunAt) : null;
   const nextRunFormatted = isValidLastRun ? formatNextRun(model.schedule, lastRunAt) : null;
   const isOverdue = nextRunText?.startsWith('OVERDUE');
+  const showDisabledIcon = !!model.is_disabled;
+  const showOverrideIcon = !showDisabledIcon && !!model.has_override;
 
   // Status indicator colors
   const statusColors = {
@@ -72,6 +75,20 @@ export function ScheduledTransformationRow({
               >
                 {model.id}
               </span>
+              {showDisabledIcon && (
+                <StopCircleIcon
+                  className="size-4 shrink-0 text-danger"
+                  aria-label="Model disabled"
+                  title="Model disabled"
+                />
+              )}
+              {showOverrideIcon && (
+                <PencilSquareIcon
+                  className="size-4 shrink-0 text-warning"
+                  aria-label="Config override active"
+                  title="Config override active"
+                />
+              )}
               {status && (
                 <span
                   className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ring-1 ${statusColors[status] || statusColors.pending}`}

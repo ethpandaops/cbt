@@ -72,6 +72,34 @@ func (mr *MockServiceMockRecorder) ConsolidateHistoricalData(ctx, modelID any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsolidateHistoricalData", reflect.TypeOf((*MockService)(nil).ConsolidateHistoricalData), ctx, modelID)
 }
 
+// DeleteAllConfigOverrides mocks base method.
+func (m *MockService) DeleteAllConfigOverrides(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAllConfigOverrides", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAllConfigOverrides indicates an expected call of DeleteAllConfigOverrides.
+func (mr *MockServiceMockRecorder) DeleteAllConfigOverrides(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAllConfigOverrides", reflect.TypeOf((*MockService)(nil).DeleteAllConfigOverrides), ctx)
+}
+
+// DeleteConfigOverride mocks base method.
+func (m *MockService) DeleteConfigOverride(ctx context.Context, modelID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteConfigOverride", ctx, modelID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteConfigOverride indicates an expected call of DeleteConfigOverride.
+func (mr *MockServiceMockRecorder) DeleteConfigOverride(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteConfigOverride", reflect.TypeOf((*MockService)(nil).DeleteConfigOverride), ctx, modelID)
+}
+
 // DeleteExternalBounds mocks base method.
 func (m *MockService) DeleteExternalBounds(ctx context.Context, modelID string) error {
 	m.ctrl.T.Helper()
@@ -116,6 +144,21 @@ func (mr *MockServiceMockRecorder) FindGaps(ctx, modelID, minPos, maxPos, interv
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindGaps", reflect.TypeOf((*MockService)(nil).FindGaps), ctx, modelID, minPos, maxPos, interval)
 }
 
+// GetAllConfigOverrides mocks base method.
+func (m *MockService) GetAllConfigOverrides(ctx context.Context) ([]admin.ConfigOverride, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllConfigOverrides", ctx)
+	ret0, _ := ret[0].([]admin.ConfigOverride)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllConfigOverrides indicates an expected call of GetAllConfigOverrides.
+func (mr *MockServiceMockRecorder) GetAllConfigOverrides(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllConfigOverrides", reflect.TypeOf((*MockService)(nil).GetAllConfigOverrides), ctx)
+}
+
 // GetAllLastScheduledExecutions mocks base method.
 func (m *MockService) GetAllLastScheduledExecutions(ctx context.Context, modelIDs []string) (map[string]*time.Time, error) {
 	m.ctrl.T.Helper()
@@ -144,6 +187,50 @@ func (m *MockService) GetAllProcessedRanges(ctx context.Context, modelIDs []stri
 func (mr *MockServiceMockRecorder) GetAllProcessedRanges(ctx, modelIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllProcessedRanges", reflect.TypeOf((*MockService)(nil).GetAllProcessedRanges), ctx, modelIDs)
+}
+
+// GetCacheManager mocks base method.
+func (m *MockService) GetCacheManager() *admin.CacheManager {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCacheManager")
+	ret0, _ := ret[0].(*admin.CacheManager)
+	return ret0
+}
+
+// GetCacheManager indicates an expected call of GetCacheManager.
+func (mr *MockServiceMockRecorder) GetCacheManager() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCacheManager", reflect.TypeOf((*MockService)(nil).GetCacheManager))
+}
+
+// GetConfigOverride mocks base method.
+func (m *MockService) GetConfigOverride(ctx context.Context, modelID string) (*admin.ConfigOverride, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetConfigOverride", ctx, modelID)
+	ret0, _ := ret[0].(*admin.ConfigOverride)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetConfigOverride indicates an expected call of GetConfigOverride.
+func (mr *MockServiceMockRecorder) GetConfigOverride(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfigOverride", reflect.TypeOf((*MockService)(nil).GetConfigOverride), ctx, modelID)
+}
+
+// GetConfigOverrideVersion mocks base method.
+func (m *MockService) GetConfigOverrideVersion(ctx context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetConfigOverrideVersion", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetConfigOverrideVersion indicates an expected call of GetConfigOverrideVersion.
+func (mr *MockServiceMockRecorder) GetConfigOverrideVersion(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfigOverrideVersion", reflect.TypeOf((*MockService)(nil).GetConfigOverrideVersion), ctx)
 }
 
 // GetCoverage mocks base method.
@@ -333,6 +420,20 @@ func (m *MockService) RecordScheduledCompletion(ctx context.Context, modelID str
 func (mr *MockServiceMockRecorder) RecordScheduledCompletion(ctx, modelID, startDateTime any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordScheduledCompletion", reflect.TypeOf((*MockService)(nil).RecordScheduledCompletion), ctx, modelID, startDateTime)
+}
+
+// SetConfigOverride mocks base method.
+func (m *MockService) SetConfigOverride(ctx context.Context, override *admin.ConfigOverride) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetConfigOverride", ctx, override)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetConfigOverride indicates an expected call of SetConfigOverride.
+func (mr *MockServiceMockRecorder) SetConfigOverride(ctx, override any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetConfigOverride", reflect.TypeOf((*MockService)(nil).SetConfigOverride), ctx, override)
 }
 
 // SetExternalBounds mocks base method.

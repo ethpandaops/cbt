@@ -27,6 +27,8 @@ const transformationModel: IncrementalModelItem = {
   id: 'beacon_api.beacon_api_eth_v1_beacon_states_state_id_validators',
   type: 'transformation',
   intervalType: 'slot_number',
+  hasOverride: false,
+  isDisabled: false,
   data: {
     coverage: [
       { position: 100, interval: 200 },
@@ -40,6 +42,8 @@ const externalModel: IncrementalModelItem = {
   id: 'beacon_api.beacon_api_eth_v1_beacon_blob_sidecars',
   type: 'external',
   intervalType: 'slot_number',
+  hasOverride: false,
+  isDisabled: false,
   data: {
     bounds: { min: 200, max: 800 },
   },
@@ -49,6 +53,8 @@ const scheduledModel: IncrementalModelItem = {
   id: 'beacon_api.scheduled_transformation',
   type: 'transformation',
   intervalType: 'none',
+  hasOverride: false,
+  isDisabled: false,
   data: {},
 };
 
@@ -115,5 +121,29 @@ export const ZoomedIn: Story = {
     model: transformationModel,
     zoomStart: 350,
     zoomEnd: 600,
+  },
+};
+
+export const WithOverrideIcon: Story = {
+  args: {
+    model: {
+      ...transformationModel,
+      hasOverride: true,
+      isDisabled: false,
+    },
+    zoomStart: 0,
+    zoomEnd: 1000,
+  },
+};
+
+export const DisabledIcon: Story = {
+  args: {
+    model: {
+      ...transformationModel,
+      hasOverride: true,
+      isDisabled: true,
+    },
+    zoomStart: 0,
+    zoomEnd: 1000,
   },
 };

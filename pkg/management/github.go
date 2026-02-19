@@ -320,7 +320,7 @@ func (h *GitHubHandler) checkOrgMembership(
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // request host is fixed to githubAPIBase.
 	if err != nil {
 		return false, fmt.Errorf("do request: %w", err)
 	}
@@ -345,7 +345,7 @@ func (h *GitHubHandler) githubAPIGet(
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // request host is fixed to githubAPIBase.
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
 	}

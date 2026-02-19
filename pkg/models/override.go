@@ -185,9 +185,14 @@ func (e *ExternalOverride) applyToTransformation(_ Transformation) {
 	// No-op: external overrides don't apply to transformation models
 }
 
-func (e *ExternalOverride) applyToExternal(config *external.Config) {
+// ApplyToExternalConfig applies override configuration to an external model config.
+func (e *ExternalOverride) ApplyToExternalConfig(config *external.Config) {
 	e.applyLagOverride(config)
 	e.applyCacheOverride(config)
+}
+
+func (e *ExternalOverride) applyToExternal(config *external.Config) {
+	e.ApplyToExternalConfig(config)
 }
 
 func (e *ExternalOverride) applyLagOverride(config *external.Config) {

@@ -22,6 +22,12 @@ var (
 	ErrShutdownErrors = errors.New("errors during shutdown")
 	// ErrRefreshInProgress is returned when a bounds refresh is already in flight
 	ErrRefreshInProgress = errors.New("bounds refresh already in progress")
+	// ErrScheduledRunInProgress is returned when a scheduled run task is already in flight
+	ErrScheduledRunInProgress = errors.New("scheduled run already in progress")
+	// ErrNotScheduledModel is returned when trying to run-now a non-scheduled model
+	ErrNotScheduledModel = errors.New("model is not a scheduled transformation")
+	// ErrQueueManagerNil is returned when coordinator queue manager is not initialized.
+	ErrQueueManagerNil = errors.New("queue manager is nil")
 )
 
 // Service defines the public interface for the coordinator
@@ -40,6 +46,9 @@ type Service interface {
 
 	// TriggerBoundsRefresh enqueues a full external scan for admin-initiated bounds refresh
 	TriggerBoundsRefresh(ctx context.Context, modelID string) error
+
+	// TriggerScheduledRun enqueues an immediate run for a scheduled transformation
+	TriggerScheduledRun(ctx context.Context, modelID string) error
 }
 
 // Direction represents the processing direction for tasks
@@ -156,7 +165,7 @@ func (s *service) Stop() error {
 
 	if len(errs) > 0 {
 		// Combine all errors into a single error message
-		var errStrs []string
+		errStrs := make([]string, 0, len(errs))
 		for _, err := range errs {
 			errStrs = append(errStrs, err.Error())
 		}

@@ -24,6 +24,8 @@ type Service interface {
 	RegisterRoutes(router fiber.Router)
 	// GetFrontendConfig returns the configuration to inject into the frontend.
 	GetFrontendConfig() FrontendConfig
+	// SetBaseConfigProvider sets the provider for original config snapshots.
+	SetBaseConfigProvider(p BaseConfigProvider)
 }
 
 type svc struct {
@@ -65,6 +67,11 @@ func NewService(
 	return s
 }
 
+// SetBaseConfigProvider sets the provider for original config snapshots.
+func (s *svc) SetBaseConfigProvider(p BaseConfigProvider) {
+	s.handlers.SetBaseConfigProvider(p)
+}
+
 // GetFrontendConfig returns the management configuration for the frontend.
 func (s *svc) GetFrontendConfig() FrontendConfig {
 	return FrontendConfig{
@@ -77,6 +84,8 @@ func (s *svc) GetFrontendConfig() FrontendConfig {
 func (s *svc) RegisterRoutes(router fiber.Router) {
 	// Auth status endpoint (always public).
 	router.Get("/auth/session", s.handleAuthSession)
+	// Public read for model override status/config (write operations remain under /admin).
+	router.Get("/models/:id/config-override", s.handlers.GetConfigOverride)
 
 	// GitHub OAuth routes.
 	if s.config.Auth.GitHubEnabled() {
@@ -99,6 +108,14 @@ func (s *svc) RegisterRoutes(router fiber.Router) {
 	adminGroup.Put("/models/:id/bounds", s.handlers.UpdateBounds)
 	adminGroup.Delete("/models/:id/bounds", s.handlers.DeleteBounds)
 	adminGroup.Post("/models/:id/refresh-bounds", s.handlers.TriggerRefreshBounds)
+	adminGroup.Post("/models/:id/run-now", s.handlers.TriggerScheduledRun)
+
+	// Config override routes
+	adminGroup.Get("/models/:id/config-override", s.handlers.GetConfigOverride)
+	adminGroup.Put("/models/:id/config-override", s.handlers.SetConfigOverride)
+	adminGroup.Delete("/models/:id/config-override", s.handlers.DeleteConfigOverride)
+	adminGroup.Get("/config-overrides", s.handlers.ListConfigOverrides)
+	adminGroup.Delete("/config-overrides", s.handlers.ClearAllConfigOverrides)
 }
 
 // handleAuthSession returns the current authentication status.

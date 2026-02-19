@@ -43,7 +43,7 @@ type Config struct {
 // AuthConfig holds authentication configuration for the management API.
 type AuthConfig struct {
 	// Password is a simple bearer token. Empty means disabled.
-	Password string `yaml:"password"`
+	Password string `yaml:"password"` //nolint:gosec // configuration field name is intentional.
 	// GitHub holds GitHub OAuth configuration. Nil means disabled.
 	GitHub *GitHubConfig `yaml:"github"`
 }
@@ -51,12 +51,12 @@ type AuthConfig struct {
 // GitHubConfig holds GitHub OAuth flow configuration.
 type GitHubConfig struct {
 	ClientID      string        `yaml:"client_id"`
-	ClientSecret  string        `yaml:"client_secret"`
+	ClientSecret  string        `yaml:"client_secret"` //nolint:gosec // configuration field name is intentional.
 	CallbackURL   string        `yaml:"callback_url"`
 	Org           string        `yaml:"org"`
 	AllowedUsers  []string      `yaml:"allowed_users"`
 	SessionTTL    time.Duration `yaml:"session_ttl"`
-	SessionSecret string        `yaml:"session_secret"`
+	SessionSecret string        `yaml:"session_secret"` //nolint:gosec // configuration field name is intentional.
 }
 
 // PasswordEnabled reports whether password authentication is configured.

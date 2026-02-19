@@ -99,7 +99,7 @@ function RootComponent(): JSX.Element {
             <HeadContent />
             <div className="relative min-h-dvh bg-background">
               <header className="relative z-30 border-b border-border/50 bg-surface/60 shadow-sm backdrop-blur-xl">
-                <div className="mx-auto max-w-screen-2xl px-4 py-6 sm:px-6 lg:px-8">
+                <div className="mx-auto max-w-screen-4xl px-4 py-6 sm:px-6 lg:px-8">
                   <div className="flex items-center gap-4 md:gap-6">
                     <div className="group relative shrink-0">
                       <div className="absolute -inset-0.5 rounded-2xl opacity-75 transition-opacity group-hover:opacity-100">
@@ -155,7 +155,7 @@ function RootComponent(): JSX.Element {
                 </div>
               </header>
 
-              <main className="relative mx-auto max-w-screen-2xl px-4 py-10 sm:px-6 lg:px-8">
+              <main className="relative mx-auto max-w-screen-4xl px-4 py-10 sm:px-6 lg:px-8">
                 <Outlet />
               </main>
             </div>

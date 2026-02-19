@@ -14,6 +14,7 @@ import { DagGraph, type DagData } from '@/components/Domain/DAG/DagGraph';
 import { LoadingState } from '@/components/Feedback/LoadingState';
 import { ErrorState } from '@/components/Feedback/ErrorState';
 import { BackToDashboardButton } from '@/components/Elements/BackToDashboardButton';
+import { getErrorMessage } from '@/utils/error';
 
 function DagComponent(): JSX.Element {
   // Fetch all model data
@@ -45,13 +46,7 @@ function DagComponent(): JSX.Element {
   }
 
   if (allModels.error || transformations.error || externalModels.error) {
-    return (
-      <ErrorState
-        message={
-          allModels.error?.message || transformations.error?.message || externalModels.error?.message || 'Unknown error'
-        }
-      />
-    );
+    return <ErrorState message={getErrorMessage(allModels.error ?? transformations.error ?? externalModels.error)} />;
   }
 
   return (

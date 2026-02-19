@@ -6,6 +6,7 @@ import { ScheduledTransformationsSectionSkeleton } from './ScheduledTransformati
 import { ErrorState } from '@/components/Feedback/ErrorState';
 import { getOrderedDependencies } from '@/utils/dependency-resolver';
 import type { DependencyWithOrGroups } from '@/utils/dependency-resolver';
+import { getErrorMessage } from '@/utils/error';
 
 export function ScheduledTransformationsSection(): JSX.Element {
   const [hoveredModel, setHoveredModel] = useState<string | null>(null);
@@ -25,7 +26,7 @@ export function ScheduledTransformationsSection(): JSX.Element {
   }
 
   if (scheduledTransformations.error || runs.error) {
-    return <ErrorState message={scheduledTransformations.error?.message || runs.error?.message || 'Unknown error'} />;
+    return <ErrorState message={getErrorMessage(scheduledTransformations.error ?? runs.error)} />;
   }
 
   // Build dependency map for transformation models with OR group support

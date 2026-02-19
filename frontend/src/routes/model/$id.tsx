@@ -1,6 +1,6 @@
-import { type JSX } from 'react';
+import { type JSX, useCallback } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   listAllModelsOptions,
   getExternalModelOptions,
@@ -19,7 +19,85 @@ import { ModelDetailView } from '@/components/Domain/Models/ModelDetailView';
 import { ModelSkeleton } from '@/components/Domain/Models/ModelSkeleton';
 import { ModelAdminActions } from '@/components/Domain/Models/ModelAdminActions';
 import { SQLCodeBlock } from '@/components/Elements/SQLCodeBlock';
+import { adminFetch } from '@/utils/admin-api';
 import { timeAgo } from '@/utils/time';
+
+interface ConfigOverride {
+  model_id: string;
+  model_type: string;
+  enabled?: boolean;
+  override: Record<string, unknown> | null;
+  updated_at: string;
+}
+
+interface ConfigOverrideResponse {
+  base_config?: Record<string, unknown>;
+  model_id?: string;
+  model_type?: string;
+  enabled?: boolean;
+  override?: Record<string, unknown> | null;
+  updated_at?: string;
+}
+
+function useConfigOverride(modelId: string): {
+  override: ConfigOverride | null;
+  baseConfig: Record<string, unknown> | null;
+  invalidate: () => void;
+} {
+  const encodedId = encodeURIComponent(modelId);
+  const queryClient = useQueryClient();
+
+  const query = useQuery<ConfigOverrideResponse | null>({
+    queryKey: ['config-override', modelId],
+    queryFn: async () => {
+      const resp = await adminFetch(`/api/v1/models/${encodedId}/config-override`);
+      if (!resp.ok) return null;
+      return resp.json();
+    },
+    enabled: !!modelId,
+    staleTime: 10_000,
+  });
+
+  const invalidate = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['config-override', modelId] });
+    // Also invalidate model data queries so the UI reflects overridden values
+    void queryClient.invalidateQueries({
+      queryKey: getExternalModelOptions({ path: { id: modelId } }).queryKey,
+    });
+    void queryClient.invalidateQueries({
+      queryKey: getTransformationOptions({ path: { id: modelId } }).queryKey,
+    });
+  }, [queryClient, modelId]);
+
+  const data = query.data;
+  const baseConfig = data?.base_config ?? null;
+
+  // Build ConfigOverride only when the response contains override fields
+  const override: ConfigOverride | null =
+    data?.model_id != null
+      ? {
+          model_id: data.model_id,
+          model_type: data.model_type!,
+          enabled: data.enabled,
+          override: data.override ?? null,
+          updated_at: data.updated_at!,
+        }
+      : null;
+
+  return { override, baseConfig, invalidate };
+}
+
+/** Resolve a nested value from the override object. Returns undefined if not set. */
+function getOverrideValue(override: Record<string, unknown> | null | undefined, ...path: string[]): unknown {
+  let current: unknown = override;
+
+  for (const key of path) {
+    if (current == null || typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+
+  return current;
+}
 
 function ModelDetailComponent(): JSX.Element {
   const { id } = Route.useParams();
@@ -31,6 +109,9 @@ function ModelDetailComponent(): JSX.Element {
 
   // Fetch interval types for transformation selector
   const intervalTypes = useQuery(getIntervalTypesOptions());
+
+  // Fetch config override data (public read)
+  const { override: currentOverride, baseConfig, invalidate: invalidateOverride } = useConfigOverride(decodedId);
 
   // Conditional queries based on model type
   const externalModel = useQuery({
@@ -109,6 +190,10 @@ function ModelDetailComponent(): JSX.Element {
           currentMin={bounds?.min}
           currentMax={bounds?.max}
           onBoundsChanged={() => void externalBounds.refetch()}
+          coverageRanges={coverage.data?.coverage?.find(c => c.id === decodedId)?.ranges}
+          currentOverride={currentOverride}
+          baseConfig={baseConfig}
+          onOverrideChanged={invalidateOverride}
         />
         <ModelInfoCard title="Model Information" fields={fields} borderColor="border-external/30" />
       </div>
@@ -128,8 +213,17 @@ function ModelDetailComponent(): JSX.Element {
     return <ModelSkeleton />;
   }
 
+  const ov = currentOverride?.override;
+
   if (!isIncremental) {
     // Scheduled transformation - no coverage
+    const scheduleOverride = getOverrideValue(ov, 'schedule') as string | undefined;
+    const tagsOverride = getOverrideValue(ov, 'tags') as string[] | undefined;
+
+    // Use baseConfig for accurate comparison (base_config comes from pre-override snapshot)
+    const baseSchedule = (baseConfig?.schedule as string | undefined) ?? transformation?.schedule;
+    const baseTags = (baseConfig?.tags as string[] | undefined) ?? transformation?.tags ?? [];
+
     const fields: InfoField[] = [
       { label: 'Database', value: model.database },
       { label: 'Table', value: model.table },
@@ -145,13 +239,19 @@ function ModelDetailComponent(): JSX.Element {
       fields.push({ label: 'Description', value: transformation.description });
     }
 
-    if (transformation?.schedule) {
-      fields.push({
-        label: 'Schedule',
-        value: transformation.schedule,
-        variant: 'highlight',
-        highlightColor: 'scheduled',
-      });
+    {
+      const effectiveSchedule = scheduleOverride ?? baseSchedule;
+
+      if (effectiveSchedule) {
+        fields.push({
+          label: 'Schedule',
+          value: effectiveSchedule,
+          variant: 'highlight',
+          highlightColor: 'scheduled',
+          ...(scheduleOverride != null &&
+            scheduleOverride !== baseSchedule && { overridden: true, originalValue: baseSchedule }),
+        });
+      }
     }
 
     if (transformation?.metadata?.last_run_at) {
@@ -162,8 +262,17 @@ function ModelDetailComponent(): JSX.Element {
       fields.push({ label: 'Status', value: transformation.metadata.last_run_status });
     }
 
-    if (transformation?.tags && transformation.tags.length > 0) {
-      fields.push({ label: 'Tags', value: transformation.tags.join(', ') });
+    {
+      const effectiveTags = tagsOverride ?? baseTags;
+
+      if (effectiveTags.length > 0 || tagsOverride != null) {
+        const tagsChanged = tagsOverride != null && JSON.stringify(tagsOverride) !== JSON.stringify(baseTags);
+        fields.push({
+          label: 'Tags',
+          value: effectiveTags.join(', ') || 'none',
+          ...(tagsChanged && { overridden: true, originalValue: baseTags.join(', ') || 'none' }),
+        });
+      }
     }
 
     if (transformation?.depends_on && transformation.depends_on.length > 0) {
@@ -174,6 +283,13 @@ function ModelDetailComponent(): JSX.Element {
       <div className="space-y-6">
         <ModelHeader modelId={decodedId} modelType="scheduled" />
         <BackToDashboardButton />
+        <ModelAdminActions
+          modelId={decodedId}
+          modelType="scheduled"
+          currentOverride={currentOverride}
+          baseConfig={baseConfig}
+          onOverrideChanged={invalidateOverride}
+        />
         <ModelInfoCard title="Transformation Details" fields={fields} borderColor="border-scheduled/30" />
 
         {transformation?.content && transformation.content_type === 'sql' && (
@@ -205,6 +321,10 @@ function ModelDetailComponent(): JSX.Element {
         modelId={decodedId}
         modelType="incremental"
         transformations={intervalTypes.data?.interval_types?.[transformation?.interval?.type || ''] || []}
+        coverageRanges={coverage.data?.coverage?.find(c => c.id === decodedId)?.ranges}
+        currentOverride={currentOverride}
+        baseConfig={baseConfig}
+        onOverrideChanged={invalidateOverride}
       />
       <ModelDetailView
         decodedId={decodedId}
@@ -213,6 +333,8 @@ function ModelDetailComponent(): JSX.Element {
         allBounds={allBounds}
         allTransformations={allTransformations}
         intervalTypes={intervalTypes}
+        currentOverride={currentOverride}
+        baseConfig={baseConfig}
       />
     </div>
   );

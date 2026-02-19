@@ -25,7 +25,6 @@ var (
 	errMockDAGError       = errors.New("mock DAG error")
 	errNotATransformation = errors.New("not a transformation")
 	errNotImplemented     = errors.New("not implemented")
-	errValidationError    = errors.New("validation error")
 )
 
 // Test service creation (ethPandaOps requirement)
@@ -358,6 +357,34 @@ func (m *mockAdminService) GetAllLastScheduledExecutions(_ context.Context, _ []
 }
 func (m *mockAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
 	return &mockCoordinatorBoundsLock{}, nil
+}
+
+func (m *mockAdminService) GetConfigOverride(_ context.Context, _ string) (*admin.ConfigOverride, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) GetAllConfigOverrides(_ context.Context) ([]admin.ConfigOverride, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) SetConfigOverride(_ context.Context, _ *admin.ConfigOverride) error {
+	return nil
+}
+
+func (m *mockAdminService) DeleteConfigOverride(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAdminService) DeleteAllConfigOverrides(_ context.Context) error {
+	return nil
+}
+
+func (m *mockAdminService) GetConfigOverrideVersion(_ context.Context) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetCacheManager() *admin.CacheManager {
+	return nil
 }
 
 type mockCoordinatorBoundsLock struct{}
