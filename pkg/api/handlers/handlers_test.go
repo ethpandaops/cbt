@@ -195,6 +195,10 @@ func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64)
 	return nil, nil
 }
 
+func (m *mockAdminService) DeletePeriod(_ context.Context, _ string, _, _ uint64) (uint64, error) {
+	return 0, nil
+}
+
 func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (uint64, error) {
 	return 0, nil
 }
@@ -204,6 +208,10 @@ func (m *mockAdminService) GetExternalBounds(_ context.Context, _ string) (*admi
 }
 
 func (m *mockAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
+	return nil
+}
+
+func (m *mockAdminService) DeleteExternalBounds(_ context.Context, _ string) error {
 	return nil
 }
 

@@ -3,6 +3,7 @@ package frontend
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -13,6 +14,12 @@ import (
 	static "github.com/ethpandaops/cbt/frontend"
 )
 
+// InjectedConfig holds runtime configuration injected into the frontend HTML.
+type InjectedConfig struct {
+	ManagementEnabled bool     `json:"managementEnabled,omitempty"`
+	AuthMethods       []string `json:"authMethods,omitempty"`
+}
+
 type handler struct {
 	// cachedIndex holds the index.html content read at startup.
 	cachedIndex []byte
@@ -21,7 +28,9 @@ type handler struct {
 }
 
 // NewHandler creates a new frontend HTTP handler with SPA fallback support.
-func NewHandler() (http.Handler, error) {
+// If cfg is non-nil, its fields are injected as window.__CONFIG__ into
+// index.html.
+func NewHandler(cfg *InjectedConfig) (http.Handler, error) {
 	frontendFS, err := fs.Sub(static.FS, "build/frontend")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load frontend filesystem: %w", err)
@@ -30,6 +39,13 @@ func NewHandler() (http.Handler, error) {
 	raw, err := fs.ReadFile(frontendFS, "index.html")
 	if err != nil {
 		return nil, fmt.Errorf("read index.html: %w", err)
+	}
+
+	if cfg != nil {
+		raw, err = injectConfig(raw, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("inject config: %w", err)
+		}
 	}
 
 	h := &handler{
@@ -93,4 +109,19 @@ func serveAndClose(f fs.File, stat fs.FileInfo, w http.ResponseWriter, r *http.R
 	}
 
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), rs)
+}
+
+// injectConfig serializes cfg as JSON and injects a <script> tag setting
+// window.__CONFIG__ before the closing </head> tag.
+func injectConfig(html []byte, cfg *InjectedConfig) ([]byte, error) {
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal config: %w", err)
+	}
+
+	tag := fmt.Sprintf(
+		`<script>window.__CONFIG__=%s;</script>`, data,
+	)
+
+	return bytes.Replace(html, []byte("</head>"), []byte(tag+"</head>"), 1), nil
 }

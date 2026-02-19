@@ -1,9 +1,9 @@
 import { type JSX } from 'react';
 import { Link } from '@tanstack/react-router';
-import type { TransformationModel } from '@api/types.gen';
-import { timeAgo } from '@utils/time';
-import { getNextRunDescription, formatNextRun } from '@utils/schedule-parser';
-import { getOrGroupColor } from '@utils/or-group-colors';
+import type { TransformationModel } from '@/api/types.gen';
+import { timeAgo } from '@/utils/time';
+import { getNextRunDescription, formatNextRun } from '@/utils/schedule-parser';
+import { getOrGroupColor } from '@/utils/or-group-colors';
 
 export interface ScheduledTransformationRowProps {
   model: TransformationModel;

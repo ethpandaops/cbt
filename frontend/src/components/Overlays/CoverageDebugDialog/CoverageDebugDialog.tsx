@@ -10,11 +10,11 @@ import {
   PlusIcon,
   MinusIcon,
 } from '@heroicons/react/24/outline';
-import type { DependencyDebugInfo, GapInfo, Range, IntervalTypeTransformation } from '@api/types.gen';
-import { debugCoverageAtPositionOptions, getIntervalTypesOptions } from '@api/@tanstack/react-query.gen';
-import { transformValue, formatValue } from '@utils/interval-transform';
+import type { DependencyDebugInfo, GapInfo, Range, IntervalTypeTransformation } from '@/api/types.gen';
+import { debugCoverageAtPositionOptions, getIntervalTypesOptions } from '@/api/@tanstack/react-query.gen';
+import { transformValue, formatValue } from '@/utils/interval-transform';
 import { TransformationSelector } from '@/components/Forms/TransformationSelector';
-import { useTransformationSelection } from '@hooks/useTransformationSelection';
+import { useTransformationSelection } from '@/hooks/useTransformationSelection';
 
 interface CoverageDebugDialogProps {
   isOpen: boolean;

@@ -1,4 +1,4 @@
-import type { Range } from '@api/types.gen';
+import type { Range } from '@/api/types.gen';
 
 // Re-export model type configuration
 export * from './modelTypes';

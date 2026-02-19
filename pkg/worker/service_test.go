@@ -596,6 +596,11 @@ func (m *mockAdminService) GetExternalBounds(_ context.Context, _ string) (*admi
 func (m *mockAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
 	return nil
 }
+
+func (m *mockAdminService) DeleteExternalBounds(_ context.Context, _ string) error {
+	return nil
+}
+
 func (m *mockAdminService) GetIncrementalAdminDatabase() string { return "admin_db" }
 func (m *mockAdminService) GetIncrementalAdminTable() string    { return "admin_table" }
 func (m *mockAdminService) GetScheduledAdminDatabase() string   { return "admin" }
@@ -605,6 +610,10 @@ func (m *mockAdminService) RecordScheduledCompletion(_ context.Context, _ string
 }
 func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
 	return nil, nil
+}
+
+func (m *mockAdminService) DeletePeriod(_ context.Context, _ string, _, _ uint64) (uint64, error) {
+	return 0, nil
 }
 
 func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {

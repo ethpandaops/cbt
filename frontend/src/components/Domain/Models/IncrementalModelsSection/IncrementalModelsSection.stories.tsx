@@ -8,14 +8,14 @@ import {
   listExternalModelsQueryKey,
   listExternalBoundsQueryKey,
   getIntervalTypesQueryKey,
-} from '@api/@tanstack/react-query.gen';
+} from '@/api/@tanstack/react-query.gen';
 import type {
   ListTransformationsResponse,
   ListTransformationCoverageResponse,
   ListExternalModelsResponse,
   ListExternalBoundsResponse,
   GetIntervalTypesResponse,
-} from '@api/types.gen';
+} from '@/api/types.gen';
 
 const meta = {
   title: 'Components/IncrementalModelsSection',

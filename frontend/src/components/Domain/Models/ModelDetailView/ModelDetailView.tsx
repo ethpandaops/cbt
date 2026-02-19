@@ -7,7 +7,7 @@ import type {
   ListExternalBoundsResponse,
   ListTransformationsResponse,
   GetIntervalTypesResponse,
-} from '@api/types.gen';
+} from '@/api/types.gen';
 import { ReactFlowProvider } from '@xyflow/react';
 import { ArrowsPointingOutIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { ModelInfoCard, type InfoField } from '@/components/Domain/Models/ModelInfoCard';
@@ -21,14 +21,14 @@ import { TransformationSelector } from '@/components/Forms/TransformationSelecto
 import { ZoomPresets } from '@/components/Navigation/ZoomPresets';
 import { DagGraph, type DagData } from '@/components/Domain/DAG/DagGraph';
 import type { IncrementalModelItem } from '@/types';
-import { getOrderedDependencies } from '@utils/dependency-resolver';
+import { getOrderedDependencies } from '@/utils/dependency-resolver';
 import {
   calculateDefaultZoomRange,
   calculateZoomRangeForWindow,
   getZoomInScale,
   getZoomOutScale,
-} from '@utils/zoom-helpers';
-import { useTransformationSelection } from '@hooks/useTransformationSelection';
+} from '@/utils/zoom-helpers';
+import { useTransformationSelection } from '@/hooks/useTransformationSelection';
 
 export interface ModelDetailViewProps {
   decodedId: string;

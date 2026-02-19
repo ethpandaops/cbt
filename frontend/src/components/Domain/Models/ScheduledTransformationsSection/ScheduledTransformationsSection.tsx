@@ -1,11 +1,11 @@
 import { type JSX, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { listTransformationsOptions, listScheduledRunsOptions } from '@api/@tanstack/react-query.gen';
+import { listTransformationsOptions, listScheduledRunsOptions } from '@/api/@tanstack/react-query.gen';
 import { ScheduledTransformationRow } from './ScheduledTransformationRow';
 import { ScheduledTransformationsSectionSkeleton } from './ScheduledTransformationsSectionSkeleton';
 import { ErrorState } from '@/components/Feedback/ErrorState';
-import { getOrderedDependencies } from '@utils/dependency-resolver';
-import type { DependencyWithOrGroups } from '@utils/dependency-resolver';
+import { getOrderedDependencies } from '@/utils/dependency-resolver';
+import type { DependencyWithOrGroups } from '@/utils/dependency-resolver';
 
 export function ScheduledTransformationsSection(): JSX.Element {
   const [hoveredModel, setHoveredModel] = useState<string | null>(null);

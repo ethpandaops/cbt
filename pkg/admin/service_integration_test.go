@@ -338,6 +338,149 @@ func TestIntegration_ConsolidateHistoricalData(t *testing.T) {
 	assert.Greater(t, rowCount, uint64(1))
 }
 
+func TestIntegration_DeletePeriod_FullyContained(t *testing.T) {
+	svc, _ := setupIntegrationService(t)
+	ctx := context.Background()
+
+	// Insert [100, 200)
+	err := svc.RecordCompletion(ctx, "test_db.del_contained", 100, 100)
+	require.NoError(t, err)
+
+	// Delete [130, 170) — should leave [100, 130) + [170, 200)
+	deleted, err := svc.DeletePeriod(ctx, "test_db.del_contained", 130, 170)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), deleted)
+
+	ranges, err := svc.GetProcessedRanges(ctx, "test_db.del_contained")
+	require.NoError(t, err)
+	require.Len(t, ranges, 2)
+
+	// Verify coverage outside the deleted window
+	covered, err := svc.GetCoverage(ctx, "test_db.del_contained", 100, 130)
+	require.NoError(t, err)
+	assert.True(t, covered)
+
+	covered, err = svc.GetCoverage(ctx, "test_db.del_contained", 170, 200)
+	require.NoError(t, err)
+	assert.True(t, covered)
+}
+
+func TestIntegration_DeletePeriod_SpansRows(t *testing.T) {
+	svc, _ := setupIntegrationService(t)
+	ctx := context.Background()
+
+	// Insert [100, 150) and [160, 200)
+	err := svc.RecordCompletion(ctx, "test_db.del_spans", 100, 50)
+	require.NoError(t, err)
+
+	err = svc.RecordCompletion(ctx, "test_db.del_spans", 160, 40)
+	require.NoError(t, err)
+
+	// Delete [140, 170) — should leave [100, 140) + [170, 200)
+	deleted, err := svc.DeletePeriod(ctx, "test_db.del_spans", 140, 170)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(2), deleted)
+
+	ranges, err := svc.GetProcessedRanges(ctx, "test_db.del_spans")
+	require.NoError(t, err)
+	require.Len(t, ranges, 2)
+}
+
+func TestIntegration_DeletePeriod_NoOverlap(t *testing.T) {
+	svc, _ := setupIntegrationService(t)
+	ctx := context.Background()
+
+	// Insert [100, 200)
+	err := svc.RecordCompletion(ctx, "test_db.del_nooverlap", 100, 100)
+	require.NoError(t, err)
+
+	// Delete [300, 400) — no overlap
+	deleted, err := svc.DeletePeriod(ctx, "test_db.del_nooverlap", 300, 400)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0), deleted)
+
+	// Original range should be unchanged
+	ranges, err := svc.GetProcessedRanges(ctx, "test_db.del_nooverlap")
+	require.NoError(t, err)
+	require.Len(t, ranges, 1)
+	assert.Equal(t, uint64(100), ranges[0].Position)
+	assert.Equal(t, uint64(100), ranges[0].Interval)
+}
+
+func TestIntegration_DeletePeriod_FullDeletion(t *testing.T) {
+	svc, _ := setupIntegrationService(t)
+	ctx := context.Background()
+
+	// Insert [100, 200)
+	err := svc.RecordCompletion(ctx, "test_db.del_full", 100, 100)
+	require.NoError(t, err)
+
+	// Delete exactly [100, 200) — removes everything
+	deleted, err := svc.DeletePeriod(ctx, "test_db.del_full", 100, 200)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), deleted)
+
+	ranges, err := svc.GetProcessedRanges(ctx, "test_db.del_full")
+	require.NoError(t, err)
+	assert.Empty(t, ranges)
+}
+
+func TestIntegration_DeletePeriod_OverlappingRows(t *testing.T) {
+	svc, _ := setupIntegrationService(t)
+	ctx := context.Background()
+
+	// Insert overlapping rows: [100, 200) and [140, 180)
+	err := svc.RecordCompletion(ctx, "test_db.del_overlap", 100, 100)
+	require.NoError(t, err)
+
+	err = svc.RecordCompletion(ctx, "test_db.del_overlap", 140, 40)
+	require.NoError(t, err)
+
+	// Delete [130, 160) — remainder covers outside deleted window
+	deleted, err := svc.DeletePeriod(ctx, "test_db.del_overlap", 130, 160)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(2), deleted)
+
+	ranges, err := svc.GetProcessedRanges(ctx, "test_db.del_overlap")
+	require.NoError(t, err)
+
+	// Should have remainders covering [100, 130), [160, 200), [160, 180)
+	assert.GreaterOrEqual(t, len(ranges), 2)
+
+	// Verify coverage outside the deleted window is preserved
+	covered, err := svc.GetCoverage(ctx, "test_db.del_overlap", 100, 130)
+	require.NoError(t, err)
+	assert.True(t, covered)
+}
+
+func TestIntegration_DeletePeriod_VerifyNoDataLoss(t *testing.T) {
+	svc, _ := setupIntegrationService(t)
+	ctx := context.Background()
+
+	// Insert 3 contiguous rows: [0, 100), [100, 200), [200, 300)
+	for i := uint64(0); i < 3; i++ {
+		err := svc.RecordCompletion(ctx, "test_db.del_nodataloss", i*100, 100)
+		require.NoError(t, err)
+	}
+
+	// Delete the middle: [100, 200)
+	deleted, err := svc.DeletePeriod(ctx, "test_db.del_nodataloss", 100, 200)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), deleted)
+
+	// Should still have [0, 100) and [200, 300)
+	nextPos, err := svc.GetNextUnprocessedPosition(ctx, "test_db.del_nodataloss")
+	require.NoError(t, err)
+	assert.Equal(t, uint64(300), nextPos)
+
+	// Should find gap at [100, 200)
+	gaps, err := svc.FindGaps(ctx, "test_db.del_nodataloss", 0, 300, 100)
+	require.NoError(t, err)
+	require.Len(t, gaps, 1)
+	assert.Equal(t, uint64(100), gaps[0].StartPos)
+	assert.Equal(t, uint64(200), gaps[0].EndPos)
+}
+
 func TestIntegration_AdminTableInfo(t *testing.T) {
 	svc, _ := setupIntegrationService(t)
 

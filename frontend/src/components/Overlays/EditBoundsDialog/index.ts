@@ -1,0 +1,1 @@
+export { EditBoundsDialog } from './EditBoundsDialog';

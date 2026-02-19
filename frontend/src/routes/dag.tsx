@@ -8,7 +8,7 @@ import {
   listExternalBoundsOptions,
   listTransformationCoverageOptions,
   getIntervalTypesOptions,
-} from '@api/@tanstack/react-query.gen';
+} from '@/api/@tanstack/react-query.gen';
 import { ReactFlowProvider } from '@xyflow/react';
 import { DagGraph, type DagData } from '@/components/Domain/DAG/DagGraph';
 import { LoadingState } from '@/components/Feedback/LoadingState';

@@ -1,10 +1,10 @@
 import { type JSX } from 'react';
 import { Link } from '@tanstack/react-router';
 import type { IncrementalModelItem } from '@/types';
-import type { IntervalTypeTransformation } from '@api/types.gen';
+import type { IntervalTypeTransformation } from '@/api/types.gen';
 import { CoverageBar } from '@/components/Domain/Coverage/CoverageBar';
 import { TypeBadge } from '@/components/Elements/TypeBadge';
-import { getOrGroupColor } from '@utils/or-group-colors';
+import { getOrGroupColor } from '@/utils/or-group-colors';
 
 export interface ModelCoverageRowProps {
   model: IncrementalModelItem;

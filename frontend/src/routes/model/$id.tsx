@@ -10,13 +10,14 @@ import {
   listTransformationCoverageOptions,
   listTransformationsOptions,
   getIntervalTypesOptions,
-} from '@api/@tanstack/react-query.gen';
+} from '@/api/@tanstack/react-query.gen';
 import { BackToDashboardButton } from '@/components/Elements/BackToDashboardButton';
 import { ErrorState } from '@/components/Feedback/ErrorState';
 import { ModelHeader } from '@/components/Domain/Models/ModelHeader';
 import { ModelInfoCard, type InfoField } from '@/components/Domain/Models/ModelInfoCard';
 import { ModelDetailView } from '@/components/Domain/Models/ModelDetailView';
 import { ModelSkeleton } from '@/components/Domain/Models/ModelSkeleton';
+import { ModelAdminActions } from '@/components/Domain/Models/ModelAdminActions';
 import { SQLCodeBlock } from '@/components/Elements/SQLCodeBlock';
 import { timeAgo } from '@/utils/time';
 
@@ -102,6 +103,13 @@ function ModelDetailComponent(): JSX.Element {
       <div className="space-y-6">
         <ModelHeader modelId={decodedId} modelType="external" />
         <BackToDashboardButton />
+        <ModelAdminActions
+          modelId={decodedId}
+          modelType="external"
+          currentMin={bounds?.min}
+          currentMax={bounds?.max}
+          onBoundsChanged={() => void externalBounds.refetch()}
+        />
         <ModelInfoCard title="Model Information" fields={fields} borderColor="border-external/30" />
       </div>
     );
@@ -193,6 +201,11 @@ function ModelDetailComponent(): JSX.Element {
     <div>
       <ModelHeader modelId={decodedId} modelType="incremental" />
       <BackToDashboardButton />
+      <ModelAdminActions
+        modelId={decodedId}
+        modelType="incremental"
+        transformations={intervalTypes.data?.interval_types?.[transformation?.interval?.type || ''] || []}
+      />
       <ModelDetailView
         decodedId={decodedId}
         transformation={transformation}

@@ -20,6 +20,8 @@ import (
 var (
 	// ErrShutdownErrors is returned when errors occur during shutdown
 	ErrShutdownErrors = errors.New("errors during shutdown")
+	// ErrRefreshInProgress is returned when a bounds refresh is already in flight
+	ErrRefreshInProgress = errors.New("bounds refresh already in progress")
 )
 
 // Service defines the public interface for the coordinator
@@ -35,6 +37,9 @@ type Service interface {
 
 	// ProcessExternalScan handles external model scan processing
 	ProcessExternalScan(modelID, scanType string)
+
+	// TriggerBoundsRefresh enqueues a full external scan for admin-initiated bounds refresh
+	TriggerBoundsRefresh(ctx context.Context, modelID string) error
 }
 
 // Direction represents the processing direction for tasks

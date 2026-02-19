@@ -6,9 +6,9 @@ import {
   listExternalModelsOptions,
   listExternalBoundsOptions,
   getIntervalTypesOptions,
-} from '@api/@tanstack/react-query.gen';
+} from '@/api/@tanstack/react-query.gen';
 import type { ZoomRanges, IncrementalModelItem } from '@/types';
-import type { IntervalTypeTransformation } from '@api/types.gen';
+import type { IntervalTypeTransformation } from '@/api/types.gen';
 import { Tooltip } from 'react-tooltip';
 import { ModelCoverageRow } from '@/components/Domain/Coverage/ModelCoverageRow';
 import { ZoomControls } from '@/components/Navigation/ZoomControls';
@@ -17,15 +17,15 @@ import { IncrementalModelsSectionSkeleton } from './IncrementalModelsSectionSkel
 import { ErrorState } from '@/components/Feedback/ErrorState';
 import { TransformationSelector } from '@/components/Forms/TransformationSelector';
 import { ZoomPresets } from '@/components/Navigation/ZoomPresets';
-import { getOrderedDependencies } from '@utils/dependency-resolver';
-import type { DependencyWithOrGroups } from '@utils/dependency-resolver';
+import { getOrderedDependencies } from '@/utils/dependency-resolver';
+import type { DependencyWithOrGroups } from '@/utils/dependency-resolver';
 import {
   calculateDefaultZoomRange,
   calculateZoomRangeForWindow,
   getZoomInScale,
   getZoomOutScale,
-} from '@utils/zoom-helpers';
-import { useTransformationSelection } from '@hooks/useTransformationSelection';
+} from '@/utils/zoom-helpers';
+import { useTransformationSelection } from '@/hooks/useTransformationSelection';
 
 interface IncrementalModelsSectionProps {
   zoomRanges: ZoomRanges;

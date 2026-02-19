@@ -10,12 +10,15 @@ import {
   listTransformationCoverageOptions,
   getIntervalTypesOptions,
   listScheduledRunsOptions,
-} from '@api/@tanstack/react-query.gen';
+} from '@/api/@tanstack/react-query.gen';
 import Logo from '/logo.png';
 import { ModelSearchCombobox } from '@/components/Forms/ModelSearchCombobox';
 import { CustomErrorComponent } from '@/components/Feedback/CustomErrorComponent';
 import { ThemeProvider } from '@/providers/ThemeProvider';
+import { AuthProvider } from '@/providers/AuthProvider';
+import { NotificationProvider } from '@/providers/NotificationProvider';
 import { ThemeToggle } from '@/components/Layout/ThemeToggle';
+import { AdminMenu } from '@/components/Layout/AdminMenu';
 
 const queryClient = new QueryClient();
 
@@ -89,71 +92,76 @@ function RootComponent(): JSX.Element {
 
   return (
     <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <BackgroundPoller />
-        <HeadContent />
-        <div className="relative min-h-dvh bg-background">
-          <header className="relative z-30 border-b border-border/50 bg-surface/60 shadow-sm backdrop-blur-xl">
-            <div className="mx-auto max-w-screen-2xl px-4 py-6 sm:px-6 lg:px-8">
-              <div className="flex items-center gap-4 md:gap-6">
-                <div className="group relative shrink-0">
-                  <div className="absolute -inset-0.5 rounded-2xl opacity-75 transition-opacity group-hover:opacity-100">
-                    <div className="glimmer-border absolute inset-0 rounded-2xl" style={{ padding: '2px' }}>
-                      <div className="size-full rounded-2xl bg-surface" />
+      <AuthProvider>
+        <NotificationProvider>
+          <QueryClientProvider client={queryClient}>
+            <BackgroundPoller />
+            <HeadContent />
+            <div className="relative min-h-dvh bg-background">
+              <header className="relative z-30 border-b border-border/50 bg-surface/60 shadow-sm backdrop-blur-xl">
+                <div className="mx-auto max-w-screen-2xl px-4 py-6 sm:px-6 lg:px-8">
+                  <div className="flex items-center gap-4 md:gap-6">
+                    <div className="group relative shrink-0">
+                      <div className="absolute -inset-0.5 rounded-2xl opacity-75 transition-opacity group-hover:opacity-100">
+                        <div className="glimmer-border absolute inset-0 rounded-2xl" style={{ padding: '2px' }}>
+                          <div className="size-full rounded-2xl bg-surface" />
+                        </div>
+                      </div>
+                      <img
+                        src={Logo}
+                        className="relative size-12 rounded-2xl object-contain transition-all duration-500 group-hover:scale-105 sm:size-14 md:size-20"
+                        alt="Logo"
+                      />
+                    </div>
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-4">
+                      <div className="min-w-0 shrink">
+                        <Link to="/" className="group inline-flex items-baseline gap-3 transition-all">
+                          <h1 className="text-2xl font-black tracking-tight text-accent transition-all group-hover:text-accent/80 sm:text-3xl">
+                            <span className="md:hidden">CBT</span>
+                            <span className="hidden md:inline">CBT Dashboard</span>
+                          </h1>
+                        </Link>
+                        <p className="mt-1.5 hidden text-sm/6 font-medium text-muted lg:block">
+                          ClickHouse Build Tool · Real-time Model Coverage Analytics
+                        </p>
+                      </div>
+
+                      {/* Search - Icon on mobile/tablet, full on large screens */}
+                      <div className="hidden flex-1 lg:block lg:max-w-xl">
+                        <ModelSearchCombobox variant="full" />
+                      </div>
+
+                      <nav className="flex shrink-0 items-center gap-2">
+                        {/* Mobile/tablet search icon */}
+                        <div className="lg:hidden">
+                          <ModelSearchCombobox variant="icon" />
+                        </div>
+
+                        <TabGroup selectedIndex={selectedIndex} onChange={handleTabChange}>
+                          <TabList className="flex items-center gap-1 rounded-lg bg-secondary/40 p-1">
+                            <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-foreground/80 transition-all hover:bg-secondary/60 hover:text-accent focus:outline-hidden data-[selected]:bg-accent/20 data-[selected]:text-accent data-[selected]:shadow-xs sm:px-4 sm:py-2 sm:text-sm">
+                              Dashboard
+                            </Tab>
+                            <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-foreground/80 transition-all hover:bg-secondary/60 hover:text-accent focus:outline-hidden data-[selected]:bg-accent/20 data-[selected]:text-accent data-[selected]:shadow-xs sm:px-4 sm:py-2 sm:text-sm">
+                              DAG View
+                            </Tab>
+                          </TabList>
+                        </TabGroup>
+                        <AdminMenu />
+                        <ThemeToggle />
+                      </nav>
                     </div>
                   </div>
-                  <img
-                    src={Logo}
-                    className="relative size-12 rounded-2xl object-contain transition-all duration-500 group-hover:scale-105 sm:size-14 md:size-20"
-                    alt="Logo"
-                  />
                 </div>
-                <div className="flex min-w-0 flex-1 items-center justify-between gap-4">
-                  <div className="min-w-0 shrink">
-                    <Link to="/" className="group inline-flex items-baseline gap-3 transition-all">
-                      <h1 className="text-2xl font-black tracking-tight text-accent transition-all group-hover:text-accent/80 sm:text-3xl">
-                        <span className="md:hidden">CBT</span>
-                        <span className="hidden md:inline">CBT Dashboard</span>
-                      </h1>
-                    </Link>
-                    <p className="mt-1.5 hidden text-sm/6 font-medium text-muted lg:block">
-                      ClickHouse Build Tool · Real-time Model Coverage Analytics
-                    </p>
-                  </div>
+              </header>
 
-                  {/* Search - Icon on mobile/tablet, full on large screens */}
-                  <div className="hidden flex-1 lg:block lg:max-w-xl">
-                    <ModelSearchCombobox variant="full" />
-                  </div>
-
-                  <nav className="flex shrink-0 items-center gap-2">
-                    {/* Mobile/tablet search icon */}
-                    <div className="lg:hidden">
-                      <ModelSearchCombobox variant="icon" />
-                    </div>
-
-                    <TabGroup selectedIndex={selectedIndex} onChange={handleTabChange}>
-                      <TabList className="flex items-center gap-1 rounded-lg bg-secondary/40 p-1">
-                        <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-foreground/80 transition-all hover:bg-secondary/60 hover:text-accent focus:outline-hidden data-[selected]:bg-accent/20 data-[selected]:text-accent data-[selected]:shadow-xs sm:px-4 sm:py-2 sm:text-sm">
-                          Dashboard
-                        </Tab>
-                        <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-foreground/80 transition-all hover:bg-secondary/60 hover:text-accent focus:outline-hidden data-[selected]:bg-accent/20 data-[selected]:text-accent data-[selected]:shadow-xs sm:px-4 sm:py-2 sm:text-sm">
-                          DAG View
-                        </Tab>
-                      </TabList>
-                    </TabGroup>
-                    <ThemeToggle />
-                  </nav>
-                </div>
-              </div>
+              <main className="relative mx-auto max-w-screen-2xl px-4 py-10 sm:px-6 lg:px-8">
+                <Outlet />
+              </main>
             </div>
-          </header>
-
-          <main className="relative mx-auto max-w-screen-2xl px-4 py-10 sm:px-6 lg:px-8">
-            <Outlet />
-          </main>
-        </div>
-      </QueryClientProvider>
+          </QueryClientProvider>
+        </NotificationProvider>
+      </AuthProvider>
     </ThemeProvider>
   );
 }
@@ -173,6 +181,5 @@ export const Route = createRootRoute({
       { name: 'twitter:card', content: 'summary' },
       { name: 'twitter:title', content: import.meta.env.VITE_BASE_TITLE },
     ],
-    links: [{ rel: 'canonical', href: import.meta.env.VITE_BASE_URL }],
   }),
 });

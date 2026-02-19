@@ -3,8 +3,8 @@ import { Combobox, Transition } from '@headlessui/react';
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { listAllModelsOptions } from '@api/@tanstack/react-query.gen';
-import type { ModelSummary } from '@api/types.gen';
+import { listAllModelsOptions } from '@/api/@tanstack/react-query.gen';
+import type { ModelSummary } from '@/api/types.gen';
 import { TypeBadge } from '@/components/Elements/TypeBadge';
 import type { ModelType } from '@/types';
 

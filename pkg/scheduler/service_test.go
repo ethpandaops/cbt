@@ -510,6 +510,10 @@ func (m *mockCoordinator) ProcessExternalScan(_, _ string) {
 	// Mock implementation - does nothing
 }
 
+func (m *mockCoordinator) TriggerBoundsRefresh(_ context.Context, _ string) error {
+	return nil
+}
+
 var _ coordinator.Service = (*mockCoordinator)(nil)
 
 // Mock handler for testing
@@ -642,6 +646,10 @@ func (m *mockAdminService) SetExternalBounds(_ context.Context, bounds *admin.Bo
 	return nil
 }
 
+func (m *mockAdminService) DeleteExternalBounds(_ context.Context, _ string) error {
+	return nil
+}
+
 func (m *mockAdminService) GetIncrementalAdminDatabase() string {
 	return "admin"
 }
@@ -664,6 +672,10 @@ func (m *mockAdminService) GetAllProcessedRanges(_ context.Context, _ []string) 
 
 func (m *mockAdminService) GetAllLastScheduledExecutions(_ context.Context, _ []string) (map[string]*time.Time, error) {
 	return make(map[string]*time.Time), nil
+}
+
+func (m *mockAdminService) DeletePeriod(_ context.Context, _ string, _, _ uint64) (uint64, error) {
+	return 0, nil
 }
 
 func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {

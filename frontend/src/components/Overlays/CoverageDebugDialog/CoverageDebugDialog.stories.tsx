@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CoverageDebugDialog } from './CoverageDebugDialog';
-import { debugCoverageAtPositionQueryKey, getIntervalTypesQueryKey } from '@api/@tanstack/react-query.gen';
-import type { CoverageDebug, GetIntervalTypesResponse } from '@api/types.gen';
+import { debugCoverageAtPositionQueryKey, getIntervalTypesQueryKey } from '@/api/@tanstack/react-query.gen';
+import type { CoverageDebug, GetIntervalTypesResponse } from '@/api/types.gen';
 
 const meta = {
   title: 'Components/CoverageDebugDialog',

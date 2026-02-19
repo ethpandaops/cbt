@@ -1,4 +1,4 @@
-import type { Range } from '@api/types.gen';
+import type { Range } from '@/api/types.gen';
 
 /**
  * Find the coverage segment that contains the given position

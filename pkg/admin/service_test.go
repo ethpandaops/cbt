@@ -1106,6 +1106,345 @@ func (m *queryCapturingClient) Stop() error {
 	return nil
 }
 
+// deletePeriodMockClient is a specialized mock for DeletePeriod testing.
+// It returns configurable overlapping rows from QueryMany and captures all queries.
+type deletePeriodMockClient struct {
+	overlappingRows []ProcessedRange
+	queryError      error
+	executeError    error
+	queries         []string
+}
+
+func (m *deletePeriodMockClient) Execute(_ context.Context, query string) error {
+	m.queries = append(m.queries, query)
+	return m.executeError
+}
+
+func (m *deletePeriodMockClient) QueryOne(_ context.Context, query string, _ interface{}) error {
+	m.queries = append(m.queries, query)
+	return nil
+}
+
+func (m *deletePeriodMockClient) QueryMany(_ context.Context, query string, result interface{}) error {
+	m.queries = append(m.queries, query)
+
+	if m.queryError != nil {
+		return m.queryError
+	}
+
+	// Set overlapping rows via reflection
+	if ranges, ok := result.(*[]ProcessedRange); ok {
+		*ranges = m.overlappingRows
+	}
+
+	return nil
+}
+
+func (m *deletePeriodMockClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
+	return nil
+}
+
+func (m *deletePeriodMockClient) Start() error { return nil }
+func (m *deletePeriodMockClient) Stop() error  { return nil }
+
+var _ clickhouse.ClientInterface = (*deletePeriodMockClient)(nil)
+
+func TestDeletePeriod(t *testing.T) {
+	tests := []struct {
+		name               string
+		modelID            string
+		startPos           uint64
+		endPos             uint64
+		overlappingRows    []ProcessedRange
+		expectedDeleted    uint64
+		expectedRemainders []ProcessedRange // position, interval pairs
+		wantErr            bool
+		errMatch           error
+	}{
+		{
+			name:     "fully contained in one row",
+			modelID:  "database.table",
+			startPos: 130,
+			endPos:   170,
+			overlappingRows: []ProcessedRange{
+				{Position: 100, Interval: 100}, // [100, 200)
+			},
+			expectedDeleted: 1,
+			expectedRemainders: []ProcessedRange{
+				{Position: 100, Interval: 30}, // [100, 130)
+				{Position: 170, Interval: 30}, // [170, 200)
+			},
+		},
+		{
+			name:     "spans multiple rows",
+			modelID:  "database.table",
+			startPos: 140,
+			endPos:   170,
+			overlappingRows: []ProcessedRange{
+				{Position: 100, Interval: 50}, // [100, 150)
+				{Position: 160, Interval: 40}, // [160, 200)
+			},
+			expectedDeleted: 2,
+			expectedRemainders: []ProcessedRange{
+				{Position: 100, Interval: 40}, // [100, 140)
+				{Position: 170, Interval: 30}, // [170, 200)
+			},
+		},
+		{
+			name:     "exactly matches one row",
+			modelID:  "database.table",
+			startPos: 100,
+			endPos:   200,
+			overlappingRows: []ProcessedRange{
+				{Position: 100, Interval: 100}, // [100, 200)
+			},
+			expectedDeleted:    1,
+			expectedRemainders: []ProcessedRange{},
+		},
+		{
+			name:     "left edge overlap only",
+			modelID:  "database.table",
+			startPos: 50,
+			endPos:   150,
+			overlappingRows: []ProcessedRange{
+				{Position: 100, Interval: 100}, // [100, 200)
+			},
+			expectedDeleted: 1,
+			expectedRemainders: []ProcessedRange{
+				{Position: 150, Interval: 50}, // [150, 200)
+			},
+		},
+		{
+			name:     "right edge overlap only",
+			modelID:  "database.table",
+			startPos: 150,
+			endPos:   250,
+			overlappingRows: []ProcessedRange{
+				{Position: 100, Interval: 100}, // [100, 200)
+			},
+			expectedDeleted: 1,
+			expectedRemainders: []ProcessedRange{
+				{Position: 100, Interval: 50}, // [100, 150)
+			},
+		},
+		{
+			name:               "no overlapping rows",
+			modelID:            "database.table",
+			startPos:           300,
+			endPos:             400,
+			overlappingRows:    []ProcessedRange{},
+			expectedDeleted:    0,
+			expectedRemainders: []ProcessedRange{},
+		},
+		{
+			name:     "covers everything",
+			modelID:  "database.table",
+			startPos: 0,
+			endPos:   500,
+			overlappingRows: []ProcessedRange{
+				{Position: 100, Interval: 50}, // [100, 150)
+				{Position: 150, Interval: 50}, // [150, 200)
+			},
+			expectedDeleted:    2,
+			expectedRemainders: []ProcessedRange{},
+		},
+		{
+			name:     "overlapping rows",
+			modelID:  "database.table",
+			startPos: 130,
+			endPos:   160,
+			overlappingRows: []ProcessedRange{
+				{Position: 100, Interval: 100}, // [100, 200)
+				{Position: 140, Interval: 40},  // [140, 180)
+				{Position: 150, Interval: 20},  // [150, 170)
+			},
+			expectedDeleted: 3,
+			expectedRemainders: []ProcessedRange{
+				{Position: 100, Interval: 30}, // [100, 130)
+				{Position: 160, Interval: 40}, // [160, 200)
+				{Position: 160, Interval: 20}, // [160, 180)
+				{Position: 160, Interval: 10}, // [160, 170)
+			},
+		},
+		{
+			name:     "overlapping left edges",
+			modelID:  "database.table",
+			startPos: 150,
+			endPos:   180,
+			overlappingRows: []ProcessedRange{
+				{Position: 100, Interval: 100}, // [100, 200)
+				{Position: 120, Interval: 130}, // [120, 250)
+			},
+			expectedDeleted: 2,
+			expectedRemainders: []ProcessedRange{
+				{Position: 100, Interval: 50}, // [100, 150)
+				{Position: 180, Interval: 20}, // [180, 200)
+				{Position: 120, Interval: 30}, // [120, 150)
+				{Position: 180, Interval: 70}, // [180, 250)
+			},
+		},
+		{
+			name:            "invalid model ID",
+			modelID:         "invalid",
+			startPos:        100,
+			endPos:          200,
+			expectedDeleted: 0,
+			wantErr:         true,
+			errMatch:        modelid.ErrInvalidModelID,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &deletePeriodMockClient{
+				overlappingRows: tt.overlappingRows,
+			}
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+			config := TableConfig{
+				IncrementalDatabase: "admin",
+				IncrementalTable:    "tracking",
+				ScheduledDatabase:   "admin",
+				ScheduledTable:      "cbt_scheduled",
+			}
+			svc := NewService(log, mockClient, "", "", config, nil)
+
+			ctx := context.Background()
+			deleted, err := svc.DeletePeriod(ctx, tt.modelID, tt.startPos, tt.endPos)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errMatch != nil {
+					assert.ErrorIs(t, err, tt.errMatch)
+				}
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedDeleted, deleted)
+
+			if tt.expectedDeleted == 0 {
+				// Only the SELECT query should have been issued
+				assert.Len(t, mockClient.queries, 1)
+
+				return
+			}
+
+			// Verify remainder inserts: SELECT + DELETE + one INSERT per remainder
+			expectedQueryCount := 1 + 1 + len(tt.expectedRemainders) // SELECT + DELETE + INSERTs
+			assert.Len(t, mockClient.queries, expectedQueryCount,
+				"Expected %d queries: 1 SELECT + 1 DELETE + %d INSERTs",
+				expectedQueryCount, len(tt.expectedRemainders))
+
+			// Verify each remainder INSERT
+			for i, rem := range tt.expectedRemainders {
+				insertQuery := mockClient.queries[2+i] // skip SELECT and DELETE
+				assert.Contains(t, insertQuery, "INSERT INTO")
+				assert.Contains(t, insertQuery,
+					fmt.Sprintf("%d, %d", rem.Position, rem.Interval),
+					"INSERT query %d should contain remainder (%d, %d)",
+					i, rem.Position, rem.Interval)
+			}
+		})
+	}
+}
+
+func TestDeletePeriodQueryStructure(t *testing.T) {
+	tests := []struct {
+		name             string
+		modelID          string
+		startPos         uint64
+		endPos           uint64
+		useCluster       bool
+		clusterName      string
+		localSuffix      string
+		expectedInSelect []string
+		expectedInDelete []string
+	}{
+		{
+			name:     "non-cluster mode",
+			modelID:  "mydb.mytable",
+			startPos: 100,
+			endPos:   200,
+			expectedInSelect: []string{
+				"SELECT position, interval",
+				"FROM `admin`.`cbt_incremental` FINAL",
+				"WHERE database = 'mydb' AND table = 'mytable'",
+				"AND position + interval > 100",
+				"AND position < 200",
+			},
+			expectedInDelete: []string{
+				"DELETE FROM `admin`.`cbt_incremental`",
+				"WHERE database = 'mydb' AND table = 'mytable'",
+				"AND position + interval > 100",
+				"AND position < 200",
+			},
+		},
+		{
+			name:        "cluster mode",
+			modelID:     "mydb.mytable",
+			startPos:    100,
+			endPos:      200,
+			useCluster:  true,
+			clusterName: "test_cluster",
+			localSuffix: "_local",
+			expectedInSelect: []string{
+				"SELECT position, interval",
+				"FROM `admin`.`cbt_incremental` FINAL",
+			},
+			expectedInDelete: []string{
+				"DELETE FROM `admin`.`cbt_incremental_local`",
+				"ON CLUSTER 'test_cluster'",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &deletePeriodMockClient{
+				overlappingRows: []ProcessedRange{
+					{Position: 100, Interval: 100},
+				},
+			}
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+			config := TableConfig{
+				IncrementalDatabase: "admin",
+				IncrementalTable:    "cbt_incremental",
+				ScheduledDatabase:   "admin",
+				ScheduledTable:      "cbt_scheduled",
+			}
+
+			var svc Service
+			if tt.useCluster {
+				svc = NewService(log, mockClient, tt.clusterName, tt.localSuffix, config, nil)
+			} else {
+				svc = NewService(log, mockClient, "", "", config, nil)
+			}
+
+			ctx := context.Background()
+			_, err := svc.DeletePeriod(ctx, tt.modelID, tt.startPos, tt.endPos)
+			require.NoError(t, err)
+
+			require.GreaterOrEqual(t, len(mockClient.queries), 2,
+				"Expected at least SELECT + DELETE queries")
+
+			selectQuery := mockClient.queries[0]
+			for _, expected := range tt.expectedInSelect {
+				assert.Contains(t, selectQuery, expected,
+					"SELECT query should contain: %s", expected)
+			}
+
+			deleteQuery := mockClient.queries[1]
+			for _, expected := range tt.expectedInDelete {
+				assert.Contains(t, deleteQuery, expected,
+					"DELETE query should contain: %s", expected)
+			}
+		})
+	}
+}
+
 func TestParseModelID(t *testing.T) {
 	tests := []struct {
 		name             string

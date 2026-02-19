@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { ScheduledTransformationRow } from './ScheduledTransformationRow';
-import type { TransformationModel } from '@api/types.gen';
+import type { TransformationModel } from '@/api/types.gen';
 
 const meta = {
   title: 'Components/ScheduledTransformationRow',

@@ -1,6 +1,6 @@
 import { type JSX } from 'react';
 import { Tab, TabGroup, TabList } from '@headlessui/react';
-import type { IntervalTypeTransformation } from '@api/types.gen';
+import type { IntervalTypeTransformation } from '@/api/types.gen';
 
 export interface TransformationSelectorProps {
   transformations: IntervalTypeTransformation[];

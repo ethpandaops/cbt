@@ -14,6 +14,7 @@ import (
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/coordinator"
 	"github.com/ethpandaops/cbt/pkg/frontend"
+	"github.com/ethpandaops/cbt/pkg/management"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/ethpandaops/cbt/pkg/scheduler"
@@ -96,11 +97,28 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 	// Convert interval types config to API format
 	apiIntervalTypes := convertToAPIIntervalTypes(cfg.IntervalTypes)
 
+	// Create management service if enabled
+	var mgmtService management.Service
+
+	var frontendCfg *frontend.InjectedConfig
+
+	if cfg.Management.Enabled {
+		mgmtService = management.NewService(
+			&cfg.Management, adminManager, modelsService,
+			coordinatorService, redisClient, log,
+		)
+
+		fc := mgmtService.GetFrontendConfig()
+		frontendCfg = &frontend.InjectedConfig{
+			ManagementEnabled: fc.ManagementEnabled,
+			AuthMethods:       fc.AuthMethods,
+		}
+	}
+
 	// Create frontend handler if enabled
 	var frontendHandler http.Handler
 	if cfg.Frontend.Enabled {
-		var err error
-		frontendHandler, err = frontend.NewHandler()
+		frontendHandler, err = frontend.NewHandler(frontendCfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create frontend handler: %w", err)
 		}
@@ -111,7 +129,7 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 		Enabled: cfg.Frontend.Enabled,
 		Addr:    cfg.Frontend.Addr,
 	}
-	apiService := api.NewService(apiConfig, modelsService, adminManager, apiIntervalTypes, frontendHandler, log)
+	apiService := api.NewService(apiConfig, modelsService, adminManager, apiIntervalTypes, frontendHandler, mgmtService, log)
 
 	return &Service{
 		log:    log,

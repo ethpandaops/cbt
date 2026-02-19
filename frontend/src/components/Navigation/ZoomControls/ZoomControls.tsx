@@ -1,7 +1,7 @@
 import { type JSX } from 'react';
 import { RangeSlider } from '@/components/Forms/RangeSlider';
-import type { IntervalTypeTransformation } from '@api/types.gen';
-import { transformValue, formatValue } from '@utils/interval-transform';
+import type { IntervalTypeTransformation } from '@/api/types.gen';
+import { transformValue, formatValue } from '@/utils/interval-transform';
 
 export interface ZoomControlsProps {
   globalMin: number;

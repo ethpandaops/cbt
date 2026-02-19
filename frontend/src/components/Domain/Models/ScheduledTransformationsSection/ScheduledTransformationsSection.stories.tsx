@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ScheduledTransformationsSection } from './ScheduledTransformationsSection';
-import { listTransformationsQueryKey, listScheduledRunsQueryKey } from '@api/@tanstack/react-query.gen';
-import type { ListTransformationsResponse, ListScheduledRunsResponse } from '@api/types.gen';
+import { listTransformationsQueryKey, listScheduledRunsQueryKey } from '@/api/@tanstack/react-query.gen';
+import type { ListTransformationsResponse, ListScheduledRunsResponse } from '@/api/types.gen';
 
 const meta = {
   title: 'Components/ScheduledTransformationsSection',

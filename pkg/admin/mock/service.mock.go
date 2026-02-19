@@ -72,6 +72,35 @@ func (mr *MockServiceMockRecorder) ConsolidateHistoricalData(ctx, modelID any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsolidateHistoricalData", reflect.TypeOf((*MockService)(nil).ConsolidateHistoricalData), ctx, modelID)
 }
 
+// DeleteExternalBounds mocks base method.
+func (m *MockService) DeleteExternalBounds(ctx context.Context, modelID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteExternalBounds", ctx, modelID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteExternalBounds indicates an expected call of DeleteExternalBounds.
+func (mr *MockServiceMockRecorder) DeleteExternalBounds(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExternalBounds", reflect.TypeOf((*MockService)(nil).DeleteExternalBounds), ctx, modelID)
+}
+
+// DeletePeriod mocks base method.
+func (m *MockService) DeletePeriod(ctx context.Context, modelID string, startPos, endPos uint64) (uint64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePeriod", ctx, modelID, startPos, endPos)
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeletePeriod indicates an expected call of DeletePeriod.
+func (mr *MockServiceMockRecorder) DeletePeriod(ctx, modelID, startPos, endPos any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePeriod", reflect.TypeOf((*MockService)(nil).DeletePeriod), ctx, modelID, startPos, endPos)
+}
+
 // FindGaps mocks base method.
 func (m *MockService) FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]admin.GapInfo, error) {
 	m.ctrl.T.Helper()

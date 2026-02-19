@@ -16,8 +16,8 @@ import { useNavigate } from '@tanstack/react-router';
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import dagre from '@dagrejs/dagre';
 import { ExternalNode, TransformationNode, ScheduledNode } from '@/components/Domain/DAG/DagNode';
-import { useDagLayoutDirection } from '@hooks/useDagLayoutDirection';
-import { useTheme } from '@hooks/useTheme';
+import { useDagLayoutDirection } from '@/hooks/useDagLayoutDirection';
+import { useTheme } from '@/hooks/useTheme';
 import '@xyflow/react/dist/style.css';
 
 const dagNodeTypes = {
@@ -32,7 +32,7 @@ import type {
   ExternalBounds,
   CoverageSummary,
   IntervalTypeTransformation,
-} from '@api/types.gen';
+} from '@/api/types.gen';
 
 export interface DagData {
   externalModels: Array<ExternalModel>;

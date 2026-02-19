@@ -1,6 +1,6 @@
 import { type JSX } from 'react';
-import type { Range } from '@api/types.gen';
-import type { IntervalTypeTransformation } from '@api/types.gen';
+import type { Range } from '@/api/types.gen';
+import type { IntervalTypeTransformation } from '@/api/types.gen';
 
 export interface CoverageBarProps {
   ranges?: Array<Range>;
