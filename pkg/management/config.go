@@ -22,11 +22,6 @@ var (
 	ErrGitHubCallbackURLRequired = errors.New(
 		"github callback_url is required",
 	)
-	// ErrGitHubSessionSecretRequired is returned when GitHub OAuth is
-	// configured without a session secret.
-	ErrGitHubSessionSecretRequired = errors.New(
-		"github session_secret is required",
-	)
 	// ErrGitHubAuthorizationRequired is returned when GitHub OAuth is
 	// configured without org or allowed_users.
 	ErrGitHubAuthorizationRequired = errors.New(
@@ -50,13 +45,12 @@ type AuthConfig struct {
 
 // GitHubConfig holds GitHub OAuth flow configuration.
 type GitHubConfig struct {
-	ClientID      string        `yaml:"client_id"`
-	ClientSecret  string        `yaml:"client_secret"` //nolint:gosec // configuration field name is intentional.
-	CallbackURL   string        `yaml:"callback_url"`
-	Org           string        `yaml:"org"`
-	AllowedUsers  []string      `yaml:"allowed_users"`
-	SessionTTL    time.Duration `yaml:"session_ttl"`
-	SessionSecret string        `yaml:"session_secret"` //nolint:gosec // configuration field name is intentional.
+	ClientID     string        `yaml:"client_id"`
+	ClientSecret string        `yaml:"client_secret"` //nolint:gosec // configuration field name is intentional.
+	CallbackURL  string        `yaml:"callback_url"`
+	Org          string        `yaml:"org"`
+	AllowedUsers []string      `yaml:"allowed_users"`
+	SessionTTL   time.Duration `yaml:"session_ttl"`
 }
 
 // PasswordEnabled reports whether password authentication is configured.
@@ -121,10 +115,6 @@ func (c *GitHubConfig) Validate() error {
 
 	if c.CallbackURL == "" {
 		return ErrGitHubCallbackURLRequired
-	}
-
-	if c.SessionSecret == "" {
-		return ErrGitHubSessionSecretRequired
 	}
 
 	if c.Org == "" && len(c.AllowedUsers) == 0 {
