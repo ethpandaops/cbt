@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { findCoverageAtPosition, mergeRanges, findGapAtPosition } from './coverage-helpers';
-import type { Range } from '@api/types.gen';
+import type { Range } from '@/api/types.gen';
 
 describe('coverage-helpers', () => {
   describe('findCoverageAtPosition', () => {

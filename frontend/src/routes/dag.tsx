@@ -8,12 +8,13 @@ import {
   listExternalBoundsOptions,
   listTransformationCoverageOptions,
   getIntervalTypesOptions,
-} from '@api/@tanstack/react-query.gen';
+} from '@/api/@tanstack/react-query.gen';
 import { ReactFlowProvider } from '@xyflow/react';
 import { DagGraph, type DagData } from '@/components/Domain/DAG/DagGraph';
 import { LoadingState } from '@/components/Feedback/LoadingState';
 import { ErrorState } from '@/components/Feedback/ErrorState';
 import { BackToDashboardButton } from '@/components/Elements/BackToDashboardButton';
+import { getErrorMessage } from '@/utils/error';
 
 function DagComponent(): JSX.Element {
   // Fetch all model data
@@ -45,23 +46,17 @@ function DagComponent(): JSX.Element {
   }
 
   if (allModels.error || transformations.error || externalModels.error) {
-    return (
-      <ErrorState
-        message={
-          allModels.error?.message || transformations.error?.message || externalModels.error?.message || 'Unknown error'
-        }
-      />
-    );
+    return <ErrorState message={getErrorMessage(allModels.error ?? transformations.error ?? externalModels.error)} />;
   }
 
   return (
-    <div className="fixed inset-0 top-[130px] flex flex-col px-4 pb-4 sm:px-6 sm:pb-6 md:top-[150px]">
+    <div className="fixed inset-0 top-[104px] flex flex-col px-4 pb-4 sm:px-6 sm:pb-6 md:top-[118px]">
       <div className="mb-4 flex flex-col gap-4 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-baseline sm:gap-4">
-          <h1 className="bg-linear-to-r from-incremental via-accent to-scheduled bg-clip-text text-2xl font-black tracking-tight text-transparent sm:text-3xl lg:text-4xl">
+          <h1 className="bg-linear-to-r from-incremental via-accent to-scheduled bg-clip-text text-3xl font-black tracking-tight text-transparent sm:text-3xl lg:text-4xl">
             Dependency DAG
           </h1>
-          <div className="flex flex-wrap items-center gap-3 rounded-lg bg-surface/86 px-3 py-2 text-xs ring-1 ring-border/70">
+          <div className="glass-toolbar flex flex-wrap items-center gap-3 px-3 py-2 text-xs">
             <div className="flex items-center gap-1.5 sm:gap-2">
               <div className="size-2.5 rounded-sm bg-external sm:size-3" />
               <span className="font-semibold text-primary">External</span>

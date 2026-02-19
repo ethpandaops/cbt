@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/api/generated"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
@@ -204,13 +205,154 @@ func TestListAllModels(t *testing.T) {
 			assert.Len(t, response.Models, tt.wantTotalCount)
 
 			// Verify model IDs
-			var actualIDs []string
+			actualIDs := make([]string, 0, len(response.Models))
 			for _, model := range response.Models {
 				actualIDs = append(actualIDs, model.Id)
 			}
 			assert.ElementsMatch(t, tt.wantModelIDs, actualIDs)
 		})
 	}
+}
+
+func TestListTransformationsIncludesOverrideStatus(t *testing.T) {
+	disabled := false
+
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+
+	mockDAG := &mockDAGReader{
+		transformations: []models.Transformation{
+			&mockTransformation{
+				id:       "analytics.block_stats",
+				database: "analytics",
+				table:    "block_stats",
+				typ:      transformation.TypeIncremental,
+			},
+			&mockTransformation{
+				id:       "analytics.daily_report",
+				database: "analytics",
+				table:    "daily_report",
+				typ:      transformation.TypeScheduled,
+			},
+		},
+		dependencies: make(map[string][]string),
+		dependents:   make(map[string][]string),
+	}
+	mockService := &mockModelsService{dag: mockDAG}
+	mockAdmin := &mockAdminService{
+		configOverrides: []admin.ConfigOverride{
+			{ModelID: "analytics.block_stats"},
+			{ModelID: "analytics.daily_report", Enabled: &disabled},
+		},
+	}
+	server := NewServer(mockService, mockAdmin, IntervalTypesConfig{}, log)
+
+	app := fiber.New()
+	app.Get("/models/transformations", func(c fiber.Ctx) error {
+		params := generated.ListTransformationsParams{}
+		if err := c.Bind().Query(&params); err != nil {
+			return err
+		}
+		return server.ListTransformations(c, params)
+	})
+
+	req := httptest.NewRequest("GET", "/models/transformations", http.NoBody)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var response struct {
+		Models []generated.TransformationModel `json:"models"`
+		Total  int                             `json:"total"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&response))
+	assert.Equal(t, 2, response.Total)
+
+	statusByID := make(map[string]generated.TransformationModel)
+	for _, model := range response.Models {
+		statusByID[model.Id] = model
+	}
+
+	require.NotNil(t, statusByID["analytics.block_stats"].HasOverride)
+	require.NotNil(t, statusByID["analytics.block_stats"].IsDisabled)
+	require.NotNil(t, statusByID["analytics.daily_report"].HasOverride)
+	require.NotNil(t, statusByID["analytics.daily_report"].IsDisabled)
+	assert.True(t, *statusByID["analytics.block_stats"].HasOverride)
+	assert.False(t, *statusByID["analytics.block_stats"].IsDisabled)
+	assert.True(t, *statusByID["analytics.daily_report"].HasOverride)
+	assert.True(t, *statusByID["analytics.daily_report"].IsDisabled)
+}
+
+func TestListExternalModelsIncludesOverrideStatus(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+
+	mockDAG := &mockDAGReader{
+		externals: []models.Node{
+			{
+				Model: &mockExternal{
+					id:       "ethereum.blocks",
+					database: "ethereum",
+					table:    "blocks",
+				},
+			},
+			{
+				Model: &mockExternal{
+					id:       "ethereum.transactions",
+					database: "ethereum",
+					table:    "transactions",
+				},
+			},
+		},
+		dependencies: make(map[string][]string),
+		dependents:   make(map[string][]string),
+	}
+	mockService := &mockModelsService{dag: mockDAG}
+	mockAdmin := &mockAdminService{
+		configOverrides: []admin.ConfigOverride{
+			{ModelID: "ethereum.blocks"},
+		},
+	}
+	server := NewServer(mockService, mockAdmin, IntervalTypesConfig{}, log)
+
+	app := fiber.New()
+	app.Get("/models/external", func(c fiber.Ctx) error {
+		params := generated.ListExternalModelsParams{}
+		if err := c.Bind().Query(&params); err != nil {
+			return err
+		}
+		return server.ListExternalModels(c, params)
+	})
+
+	req := httptest.NewRequest("GET", "/models/external", http.NoBody)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var response struct {
+		Models []generated.ExternalModel `json:"models"`
+		Total  int                       `json:"total"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&response))
+	assert.Equal(t, 2, response.Total)
+
+	statusByID := make(map[string]generated.ExternalModel)
+	for _, model := range response.Models {
+		statusByID[model.Id] = model
+	}
+
+	require.NotNil(t, statusByID["ethereum.blocks"].HasOverride)
+	require.NotNil(t, statusByID["ethereum.blocks"].IsDisabled)
+	require.NotNil(t, statusByID["ethereum.transactions"].HasOverride)
+	require.NotNil(t, statusByID["ethereum.transactions"].IsDisabled)
+	assert.True(t, *statusByID["ethereum.blocks"].HasOverride)
+	assert.False(t, *statusByID["ethereum.blocks"].IsDisabled)
+	assert.False(t, *statusByID["ethereum.transactions"].HasOverride)
+	assert.False(t, *statusByID["ethereum.transactions"].IsDisabled)
 }
 
 func TestGetTransformation(t *testing.T) {

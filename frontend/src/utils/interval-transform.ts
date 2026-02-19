@@ -1,5 +1,5 @@
 import { evaluate } from 'cel-js';
-import type { IntervalTypeTransformation } from '@api/types.gen';
+import type { IntervalTypeTransformation } from '@/api/types.gen';
 
 // Math functions to be available in CEL expressions (without namespace prefix)
 const mathFunctions = {
@@ -50,6 +50,36 @@ export function transformValue(value: number, transformation: IntervalTypeTransf
     console.error('Error evaluating CEL expression:', transformation.expression, error);
     return value;
   }
+}
+
+/**
+ * Reverse-transform a display value back to a raw position using binary search.
+ * The forward CEL expressions are monotonically increasing, so binary search
+ * reliably finds the raw value where transformValue(v, transformation) ≈ targetValue.
+ * @param targetValue - The display value to reverse (e.g. milliseconds for datetime)
+ * @param transformation - The transformation configuration with optional CEL expression
+ * @returns The raw position integer
+ */
+export function reverseTransformValue(targetValue: number, transformation: IntervalTypeTransformation): number {
+  if (!transformation.expression) {
+    return targetValue;
+  }
+
+  let lo = 0;
+  let hi = 1e18;
+
+  for (let i = 0; i < 200; i++) {
+    const mid = Math.floor((lo + hi) / 2);
+    const mapped = transformValue(mid, transformation);
+
+    if (mapped < targetValue) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+
+  return lo;
 }
 
 /**

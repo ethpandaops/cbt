@@ -57,43 +57,62 @@ func (f *FlexUint64) Scan(src interface{}) error {
 		return fmt.Errorf("%w: received nil value", ErrInvalidUint64)
 	}
 
+	parsed, err := scanFlexUint64(src)
+	if err != nil {
+		return err
+	}
+
+	*f = FlexUint64(parsed)
+
+	return nil
+}
+
+func scanFlexUint64(src interface{}) (uint64, error) {
 	switch v := src.(type) {
 	case string:
-		parsed, err := strconv.ParseUint(v, 10, 64)
-		if err != nil {
-			return fmt.Errorf("%w: failed to parse %q: %w", ErrInvalidUint64, v, err)
-		}
-		*f = FlexUint64(parsed)
+		return parseFlexUint64String(v)
 	case []byte:
-		parsed, err := strconv.ParseUint(string(v), 10, 64)
-		if err != nil {
-			return fmt.Errorf("%w: failed to parse %q: %w", ErrInvalidUint64, v, err)
-		}
-		*f = FlexUint64(parsed)
+		return parseFlexUint64String(string(v))
 	case int64:
-		*f = FlexUint64(v)
+		return signedToUint64(v)
 	case uint64:
-		*f = FlexUint64(v)
+		return v, nil
 	case int:
-		*f = FlexUint64(v)
+		return signedToUint64(v)
 	case int8:
-		*f = FlexUint64(v)
+		return signedToUint64(v)
 	case int16:
-		*f = FlexUint64(v)
+		return signedToUint64(v)
 	case int32:
-		*f = FlexUint64(v)
+		return signedToUint64(v)
 	case uint8:
-		*f = FlexUint64(v)
+		return uint64(v), nil
 	case uint16:
-		*f = FlexUint64(v)
+		return uint64(v), nil
 	case uint32:
-		*f = FlexUint64(v)
+		return uint64(v), nil
 	case float64:
-		*f = FlexUint64(v)
+		return uint64(v), nil
 	default:
-		return fmt.Errorf("%w: unsupported type %T", ErrInvalidUint64, src)
+		return 0, fmt.Errorf("%w: unsupported type %T", ErrInvalidUint64, src)
 	}
-	return nil
+}
+
+func signedToUint64[T ~int | ~int8 | ~int16 | ~int32 | ~int64](v T) (uint64, error) {
+	if v < 0 {
+		return 0, fmt.Errorf("%w: negative value %d", ErrInvalidUint64, v)
+	}
+
+	return uint64(v), nil
+}
+
+func parseFlexUint64String(s string) (uint64, error) {
+	parsed, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%w: failed to parse %q: %w", ErrInvalidUint64, s, err)
+	}
+
+	return parsed, nil
 }
 
 // ExternalModelValidator implements the ExternalValidator interface

@@ -1,8 +1,9 @@
 import { type JSX, useState } from 'react';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { oneLight, vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { DocumentDuplicateIcon, CheckIcon } from '@heroicons/react/24/outline';
+import { useTheme } from '@/hooks/useTheme';
 
 // Register only SQL language to reduce bundle size
 SyntaxHighlighter.registerLanguage('sql', sql);
@@ -14,6 +15,7 @@ export interface SQLCodeBlockProps {
 
 export function SQLCodeBlock({ sql, title = 'SQL Query' }: SQLCodeBlockProps): JSX.Element {
   const [copied, setCopied] = useState(false);
+  const { theme } = useTheme();
 
   const handleCopy = async (): Promise<void> => {
     await navigator.clipboard.writeText(sql);
@@ -46,7 +48,7 @@ export function SQLCodeBlock({ sql, title = 'SQL Query' }: SQLCodeBlockProps): J
       <div className="max-h-96 overflow-auto p-4">
         <SyntaxHighlighter
           language="sql"
-          style={vscDarkPlus}
+          style={theme === 'dark' ? vscDarkPlus : oneLight}
           customStyle={{
             background: 'transparent',
             padding: 0,

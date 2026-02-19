@@ -21,18 +21,44 @@ import {
 } from '../sdk.gen';
 import type {
   DebugCoverageAtPositionData,
+  DebugCoverageAtPositionError,
+  DebugCoverageAtPositionResponse,
   GetExternalBoundsData,
+  GetExternalBoundsError,
+  GetExternalBoundsResponse,
   GetExternalModelData,
+  GetExternalModelError,
+  GetExternalModelResponse,
   GetIntervalTypesData,
+  GetIntervalTypesError,
+  GetIntervalTypesResponse,
   GetScheduledRunData,
+  GetScheduledRunError,
+  GetScheduledRunResponse,
   GetTransformationCoverageData,
+  GetTransformationCoverageError,
+  GetTransformationCoverageResponse,
   GetTransformationData,
+  GetTransformationError,
+  GetTransformationResponse,
   ListAllModelsData,
+  ListAllModelsError,
+  ListAllModelsResponse,
   ListExternalBoundsData,
+  ListExternalBoundsError,
+  ListExternalBoundsResponse,
   ListExternalModelsData,
+  ListExternalModelsError,
+  ListExternalModelsResponse,
   ListScheduledRunsData,
+  ListScheduledRunsError,
+  ListScheduledRunsResponse,
   ListTransformationCoverageData,
+  ListTransformationCoverageError,
+  ListTransformationCoverageResponse,
   ListTransformationsData,
+  ListTransformationsError,
+  ListTransformationsResponse,
 } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
@@ -84,8 +110,13 @@ export const listAllModelsQueryKey = (options?: Options<ListAllModelsData>) => c
  * For full model details, use type-specific endpoints.
  *
  */
-export const listAllModelsOptions = (options?: Options<ListAllModelsData>) => {
-  return queryOptions({
+export const listAllModelsOptions = (options?: Options<ListAllModelsData>) =>
+  queryOptions<
+    ListAllModelsResponse,
+    ListAllModelsError,
+    ListAllModelsResponse,
+    ReturnType<typeof listAllModelsQueryKey>
+  >({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await listAllModels({
         ...options,
@@ -97,7 +128,6 @@ export const listAllModelsOptions = (options?: Options<ListAllModelsData>) => {
     },
     queryKey: listAllModelsQueryKey(options),
   });
-};
 
 export const listExternalModelsQueryKey = (options?: Options<ListExternalModelsData>) =>
   createQueryKey('listExternalModels', options);
@@ -105,8 +135,13 @@ export const listExternalModelsQueryKey = (options?: Options<ListExternalModelsD
 /**
  * List external models
  */
-export const listExternalModelsOptions = (options?: Options<ListExternalModelsData>) => {
-  return queryOptions({
+export const listExternalModelsOptions = (options?: Options<ListExternalModelsData>) =>
+  queryOptions<
+    ListExternalModelsResponse,
+    ListExternalModelsError,
+    ListExternalModelsResponse,
+    ReturnType<typeof listExternalModelsQueryKey>
+  >({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await listExternalModels({
         ...options,
@@ -118,7 +153,6 @@ export const listExternalModelsOptions = (options?: Options<ListExternalModelsDa
     },
     queryKey: listExternalModelsQueryKey(options),
   });
-};
 
 export const getExternalModelQueryKey = (options: Options<GetExternalModelData>) =>
   createQueryKey('getExternalModel', options);
@@ -126,8 +160,13 @@ export const getExternalModelQueryKey = (options: Options<GetExternalModelData>)
 /**
  * Get external model by ID
  */
-export const getExternalModelOptions = (options: Options<GetExternalModelData>) => {
-  return queryOptions({
+export const getExternalModelOptions = (options: Options<GetExternalModelData>) =>
+  queryOptions<
+    GetExternalModelResponse,
+    GetExternalModelError,
+    GetExternalModelResponse,
+    ReturnType<typeof getExternalModelQueryKey>
+  >({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await getExternalModel({
         ...options,
@@ -139,7 +178,6 @@ export const getExternalModelOptions = (options: Options<GetExternalModelData>) 
     },
     queryKey: getExternalModelQueryKey(options),
   });
-};
 
 export const listTransformationsQueryKey = (options?: Options<ListTransformationsData>) =>
   createQueryKey('listTransformations', options);
@@ -147,8 +185,13 @@ export const listTransformationsQueryKey = (options?: Options<ListTransformation
 /**
  * List transformation models
  */
-export const listTransformationsOptions = (options?: Options<ListTransformationsData>) => {
-  return queryOptions({
+export const listTransformationsOptions = (options?: Options<ListTransformationsData>) =>
+  queryOptions<
+    ListTransformationsResponse,
+    ListTransformationsError,
+    ListTransformationsResponse,
+    ReturnType<typeof listTransformationsQueryKey>
+  >({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await listTransformations({
         ...options,
@@ -160,7 +203,6 @@ export const listTransformationsOptions = (options?: Options<ListTransformations
     },
     queryKey: listTransformationsQueryKey(options),
   });
-};
 
 export const getTransformationQueryKey = (options: Options<GetTransformationData>) =>
   createQueryKey('getTransformation', options);
@@ -168,8 +210,13 @@ export const getTransformationQueryKey = (options: Options<GetTransformationData
 /**
  * Get transformation model by ID
  */
-export const getTransformationOptions = (options: Options<GetTransformationData>) => {
-  return queryOptions({
+export const getTransformationOptions = (options: Options<GetTransformationData>) =>
+  queryOptions<
+    GetTransformationResponse,
+    GetTransformationError,
+    GetTransformationResponse,
+    ReturnType<typeof getTransformationQueryKey>
+  >({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await getTransformation({
         ...options,
@@ -181,7 +228,6 @@ export const getTransformationOptions = (options: Options<GetTransformationData>
     },
     queryKey: getTransformationQueryKey(options),
   });
-};
 
 export const listExternalBoundsQueryKey = (options?: Options<ListExternalBoundsData>) =>
   createQueryKey('listExternalBounds', options);
@@ -191,8 +237,13 @@ export const listExternalBoundsQueryKey = (options?: Options<ListExternalBoundsD
  *
  * Returns min/max positions from Redis cache for all external models
  */
-export const listExternalBoundsOptions = (options?: Options<ListExternalBoundsData>) => {
-  return queryOptions({
+export const listExternalBoundsOptions = (options?: Options<ListExternalBoundsData>) =>
+  queryOptions<
+    ListExternalBoundsResponse,
+    ListExternalBoundsError,
+    ListExternalBoundsResponse,
+    ReturnType<typeof listExternalBoundsQueryKey>
+  >({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await listExternalBounds({
         ...options,
@@ -204,7 +255,6 @@ export const listExternalBoundsOptions = (options?: Options<ListExternalBoundsDa
     },
     queryKey: listExternalBoundsQueryKey(options),
   });
-};
 
 export const getExternalBoundsQueryKey = (options: Options<GetExternalBoundsData>) =>
   createQueryKey('getExternalBounds', options);
@@ -214,8 +264,13 @@ export const getExternalBoundsQueryKey = (options: Options<GetExternalBoundsData
  *
  * Returns min/max positions and scan metadata from Redis cache
  */
-export const getExternalBoundsOptions = (options: Options<GetExternalBoundsData>) => {
-  return queryOptions({
+export const getExternalBoundsOptions = (options: Options<GetExternalBoundsData>) =>
+  queryOptions<
+    GetExternalBoundsResponse,
+    GetExternalBoundsError,
+    GetExternalBoundsResponse,
+    ReturnType<typeof getExternalBoundsQueryKey>
+  >({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await getExternalBounds({
         ...options,
@@ -227,7 +282,6 @@ export const getExternalBoundsOptions = (options: Options<GetExternalBoundsData>
     },
     queryKey: getExternalBoundsQueryKey(options),
   });
-};
 
 export const listTransformationCoverageQueryKey = (options?: Options<ListTransformationCoverageData>) =>
   createQueryKey('listTransformationCoverage', options);
@@ -237,8 +291,13 @@ export const listTransformationCoverageQueryKey = (options?: Options<ListTransfo
  *
  * Returns processed ranges from admin_incremental table for all incremental transformations
  */
-export const listTransformationCoverageOptions = (options?: Options<ListTransformationCoverageData>) => {
-  return queryOptions({
+export const listTransformationCoverageOptions = (options?: Options<ListTransformationCoverageData>) =>
+  queryOptions<
+    ListTransformationCoverageResponse,
+    ListTransformationCoverageError,
+    ListTransformationCoverageResponse,
+    ReturnType<typeof listTransformationCoverageQueryKey>
+  >({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await listTransformationCoverage({
         ...options,
@@ -250,7 +309,6 @@ export const listTransformationCoverageOptions = (options?: Options<ListTransfor
     },
     queryKey: listTransformationCoverageQueryKey(options),
   });
-};
 
 export const getTransformationCoverageQueryKey = (options: Options<GetTransformationCoverageData>) =>
   createQueryKey('getTransformationCoverage', options);
@@ -260,8 +318,13 @@ export const getTransformationCoverageQueryKey = (options: Options<GetTransforma
  *
  * Returns all processed ranges from admin_incremental table
  */
-export const getTransformationCoverageOptions = (options: Options<GetTransformationCoverageData>) => {
-  return queryOptions({
+export const getTransformationCoverageOptions = (options: Options<GetTransformationCoverageData>) =>
+  queryOptions<
+    GetTransformationCoverageResponse,
+    GetTransformationCoverageError,
+    GetTransformationCoverageResponse,
+    ReturnType<typeof getTransformationCoverageQueryKey>
+  >({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await getTransformationCoverage({
         ...options,
@@ -273,7 +336,6 @@ export const getTransformationCoverageOptions = (options: Options<GetTransformat
     },
     queryKey: getTransformationCoverageQueryKey(options),
   });
-};
 
 export const debugCoverageAtPositionQueryKey = (options: Options<DebugCoverageAtPositionData>) =>
   createQueryKey('debugCoverageAtPosition', options);
@@ -294,8 +356,13 @@ export const debugCoverageAtPositionQueryKey = (options: Options<DebugCoverageAt
  * - Recursive dependency analysis all the way down
  *
  */
-export const debugCoverageAtPositionOptions = (options: Options<DebugCoverageAtPositionData>) => {
-  return queryOptions({
+export const debugCoverageAtPositionOptions = (options: Options<DebugCoverageAtPositionData>) =>
+  queryOptions<
+    DebugCoverageAtPositionResponse,
+    DebugCoverageAtPositionError,
+    DebugCoverageAtPositionResponse,
+    ReturnType<typeof debugCoverageAtPositionQueryKey>
+  >({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await debugCoverageAtPosition({
         ...options,
@@ -307,7 +374,6 @@ export const debugCoverageAtPositionOptions = (options: Options<DebugCoverageAtP
     },
     queryKey: debugCoverageAtPositionQueryKey(options),
   });
-};
 
 export const getIntervalTypesQueryKey = (options?: Options<GetIntervalTypesData>) =>
   createQueryKey('getIntervalTypes', options);
@@ -320,8 +386,13 @@ export const getIntervalTypesQueryKey = (options?: Options<GetIntervalTypesData>
  * For example, 'slot' might transform to 'timestamp' via CEL expression.
  *
  */
-export const getIntervalTypesOptions = (options?: Options<GetIntervalTypesData>) => {
-  return queryOptions({
+export const getIntervalTypesOptions = (options?: Options<GetIntervalTypesData>) =>
+  queryOptions<
+    GetIntervalTypesResponse,
+    GetIntervalTypesError,
+    GetIntervalTypesResponse,
+    ReturnType<typeof getIntervalTypesQueryKey>
+  >({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await getIntervalTypes({
         ...options,
@@ -333,7 +404,6 @@ export const getIntervalTypesOptions = (options?: Options<GetIntervalTypesData>)
     },
     queryKey: getIntervalTypesQueryKey(options),
   });
-};
 
 export const listScheduledRunsQueryKey = (options?: Options<ListScheduledRunsData>) =>
   createQueryKey('listScheduledRuns', options);
@@ -343,8 +413,13 @@ export const listScheduledRunsQueryKey = (options?: Options<ListScheduledRunsDat
  *
  * Returns last run timestamps from admin_scheduled table for all scheduled transformations
  */
-export const listScheduledRunsOptions = (options?: Options<ListScheduledRunsData>) => {
-  return queryOptions({
+export const listScheduledRunsOptions = (options?: Options<ListScheduledRunsData>) =>
+  queryOptions<
+    ListScheduledRunsResponse,
+    ListScheduledRunsError,
+    ListScheduledRunsResponse,
+    ReturnType<typeof listScheduledRunsQueryKey>
+  >({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await listScheduledRuns({
         ...options,
@@ -356,7 +431,6 @@ export const listScheduledRunsOptions = (options?: Options<ListScheduledRunsData
     },
     queryKey: listScheduledRunsQueryKey(options),
   });
-};
 
 export const getScheduledRunQueryKey = (options: Options<GetScheduledRunData>) =>
   createQueryKey('getScheduledRun', options);
@@ -366,8 +440,13 @@ export const getScheduledRunQueryKey = (options: Options<GetScheduledRunData>) =
  *
  * Returns last run timestamp from admin_scheduled table
  */
-export const getScheduledRunOptions = (options: Options<GetScheduledRunData>) => {
-  return queryOptions({
+export const getScheduledRunOptions = (options: Options<GetScheduledRunData>) =>
+  queryOptions<
+    GetScheduledRunResponse,
+    GetScheduledRunError,
+    GetScheduledRunResponse,
+    ReturnType<typeof getScheduledRunQueryKey>
+  >({
     queryFn: async ({ queryKey, signal }) => {
       const { data } = await getScheduledRun({
         ...options,
@@ -379,4 +458,3 @@ export const getScheduledRunOptions = (options: Options<GetScheduledRunData>) =>
     },
     queryKey: getScheduledRunQueryKey(options),
   });
-};

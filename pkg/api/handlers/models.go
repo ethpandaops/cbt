@@ -14,19 +14,29 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
+type configOverrideStatus struct {
+	hasOverride bool
+	isDisabled  bool
+}
+
 // ListAllModels handles GET /api/v1/models
 func (s *Server) ListAllModels(c fiber.Ctx, params generated.ListAllModelsParams) error {
 	dag := s.modelsService.GetDAG()
 	summaries := make([]generated.ModelSummary, 0)
+	overrideStatusByModelID, err := s.getConfigOverrideStatusMap(c.Context())
+	if err != nil {
+		s.log.WithError(err).Error("Failed to load config override status")
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load config override status")
+	}
 
 	// Get transformation models
 	if s.shouldIncludeTransformations(params.Type) {
-		summaries = s.appendTransformationSummaries(summaries, dag, params)
+		summaries = s.appendTransformationSummaries(summaries, dag, params, overrideStatusByModelID)
 	}
 
 	// Get external models
 	if s.shouldIncludeExternals(params.Type) {
-		summaries = s.appendExternalSummaries(summaries, dag, params)
+		summaries = s.appendExternalSummaries(summaries, dag, params, overrideStatusByModelID)
 	}
 
 	// Sort by ID for consistent ordering
@@ -50,18 +60,26 @@ func (s *Server) shouldIncludeExternals(typeParam *generated.ListAllModelsParams
 	return typeParam == nil || *typeParam == generated.External
 }
 
-func (s *Server) appendTransformationSummaries(summaries []generated.ModelSummary, dag models.DAGReader, params generated.ListAllModelsParams) []generated.ModelSummary {
+func (s *Server) appendTransformationSummaries(
+	summaries []generated.ModelSummary,
+	dag models.DAGReader,
+	params generated.ListAllModelsParams,
+	overrideStatusByModelID map[string]configOverrideStatus,
+) []generated.ModelSummary {
 	for _, transformationModel := range dag.GetTransformationNodes() {
 		cfg := transformationModel.GetConfig()
 		if params.Database != nil && cfg.Database != *params.Database {
 			continue
 		}
+		overrideStatus := overrideStatusByModelID[cfg.GetID()]
 
 		summary := generated.ModelSummary{
-			Id:       cfg.GetID(),
-			Type:     generated.ModelSummaryTypeTransformation,
-			Database: cfg.Database,
-			Table:    cfg.Table,
+			Id:          cfg.GetID(),
+			Type:        generated.ModelSummaryTypeTransformation,
+			Database:    cfg.Database,
+			Table:       cfg.Table,
+			HasOverride: boolPtr(overrideStatus.hasOverride),
+			IsDisabled:  boolPtr(overrideStatus.isDisabled),
 		}
 
 		if s.matchesSearch(summary.Id, params.Search) {
@@ -71,7 +89,12 @@ func (s *Server) appendTransformationSummaries(summaries []generated.ModelSummar
 	return summaries
 }
 
-func (s *Server) appendExternalSummaries(summaries []generated.ModelSummary, dag models.DAGReader, params generated.ListAllModelsParams) []generated.ModelSummary {
+func (s *Server) appendExternalSummaries(
+	summaries []generated.ModelSummary,
+	dag models.DAGReader,
+	params generated.ListAllModelsParams,
+	overrideStatusByModelID map[string]configOverrideStatus,
+) []generated.ModelSummary {
 	for _, node := range dag.GetExternalNodes() {
 		external, ok := node.Model.(models.External)
 		if !ok {
@@ -83,12 +106,15 @@ func (s *Server) appendExternalSummaries(summaries []generated.ModelSummary, dag
 		if params.Database != nil && cfg.Database != *params.Database {
 			continue
 		}
+		overrideStatus := overrideStatusByModelID[cfg.GetID()]
 
 		summary := generated.ModelSummary{
-			Id:       cfg.GetID(),
-			Type:     generated.ModelSummaryTypeExternal,
-			Database: cfg.Database,
-			Table:    cfg.Table,
+			Id:          cfg.GetID(),
+			Type:        generated.ModelSummaryTypeExternal,
+			Database:    cfg.Database,
+			Table:       cfg.Table,
+			HasOverride: boolPtr(overrideStatus.hasOverride),
+			IsDisabled:  boolPtr(overrideStatus.isDisabled),
 		}
 
 		if s.matchesSearch(summary.Id, params.Search) {
@@ -107,10 +133,58 @@ func (s *Server) matchesSearch(id string, search *string) bool {
 	return strings.Contains(modelID, searchTerm)
 }
 
+func configOverrideStatusFromModel(override *admin.ConfigOverride) configOverrideStatus {
+	if override == nil {
+		return configOverrideStatus{}
+	}
+
+	return configOverrideStatus{
+		hasOverride: true,
+		isDisabled:  override.Enabled != nil && !*override.Enabled,
+	}
+}
+
+func (s *Server) getConfigOverrideStatusMap(ctx context.Context) (map[string]configOverrideStatus, error) {
+	if s.adminService == nil {
+		return map[string]configOverrideStatus{}, nil
+	}
+
+	overrides, err := s.adminService.GetAllConfigOverrides(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	overrideStatusByModelID := make(map[string]configOverrideStatus, len(overrides))
+	for _, override := range overrides {
+		overrideCopy := override
+		overrideStatusByModelID[override.ModelID] = configOverrideStatusFromModel(&overrideCopy)
+	}
+
+	return overrideStatusByModelID, nil
+}
+
+func (s *Server) getConfigOverrideStatus(ctx context.Context, modelID string) (configOverrideStatus, error) {
+	if s.adminService == nil {
+		return configOverrideStatus{}, nil
+	}
+
+	override, err := s.adminService.GetConfigOverride(ctx, modelID)
+	if err != nil {
+		return configOverrideStatus{}, err
+	}
+
+	return configOverrideStatusFromModel(override), nil
+}
+
 // ListExternalModels handles GET /api/v1/models/external
 func (s *Server) ListExternalModels(c fiber.Ctx, params generated.ListExternalModelsParams) error {
 	dag := s.modelsService.GetDAG()
 	externalModels := make([]generated.ExternalModel, 0)
+	overrideStatusByModelID, err := s.getConfigOverrideStatusMap(c.Context())
+	if err != nil {
+		s.log.WithError(err).Error("Failed to load config override status")
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load config override status")
+	}
 
 	for _, node := range dag.GetExternalNodes() {
 		external, ok := node.Model.(models.External)
@@ -124,7 +198,7 @@ func (s *Server) ListExternalModels(c fiber.Ctx, params generated.ListExternalMo
 			continue
 		}
 
-		model := buildExternalModel(cfg.GetID(), external, dag)
+		model := buildExternalModel(cfg.GetID(), external, dag, overrideStatusByModelID[cfg.GetID()])
 		externalModels = append(externalModels, model)
 	}
 
@@ -154,7 +228,13 @@ func (s *Server) GetExternalModel(c fiber.Ctx, id string) error {
 		return ErrModelNotFound
 	}
 
-	model := buildExternalModel(id, externalNode, dag)
+	overrideStatus, err := s.getConfigOverrideStatus(c.Context(), id)
+	if err != nil {
+		s.log.WithError(err).WithField("model_id", id).Error("Failed to load config override")
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load config override status")
+	}
+
+	model := buildExternalModel(id, externalNode, dag, overrideStatus)
 	return c.Status(fiber.StatusOK).JSON(model)
 }
 
@@ -162,6 +242,11 @@ func (s *Server) GetExternalModel(c fiber.Ctx, id string) error {
 func (s *Server) ListTransformations(c fiber.Ctx, params generated.ListTransformationsParams) error {
 	dag := s.modelsService.GetDAG()
 	transformationModels := make([]generated.TransformationModel, 0)
+	overrideStatusByModelID, err := s.getConfigOverrideStatusMap(c.Context())
+	if err != nil {
+		s.log.WithError(err).Error("Failed to load config override status")
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load config override status")
+	}
 
 	for _, transformationModel := range dag.GetTransformationNodes() {
 		cfg := transformationModel.GetConfig()
@@ -186,7 +271,7 @@ func (s *Server) ListTransformations(c fiber.Ctx, params generated.ListTransform
 		// Status filtering will be implemented when domain models support these fields
 		_ = params.Status // nolint:staticcheck
 
-		model := buildTransformationModel(cfg.GetID(), transformationModel, dag)
+		model := buildTransformationModel(cfg.GetID(), transformationModel, dag, overrideStatusByModelID[cfg.GetID()])
 		transformationModels = append(transformationModels, model)
 	}
 
@@ -216,18 +301,31 @@ func (s *Server) GetTransformation(c fiber.Ctx, id string) error {
 		return ErrModelNotFound
 	}
 
-	model := buildTransformationModel(id, transformationNode, dag)
+	overrideStatus, err := s.getConfigOverrideStatus(c.Context(), id)
+	if err != nil {
+		s.log.WithError(err).WithField("model_id", id).Error("Failed to load config override")
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load config override status")
+	}
+
+	model := buildTransformationModel(id, transformationNode, dag, overrideStatus)
 	return c.Status(fiber.StatusOK).JSON(model)
 }
 
 // buildExternalModel constructs an ExternalModel from domain model
-func buildExternalModel(modelID string, node models.External, _ models.DAGReader) generated.ExternalModel {
+func buildExternalModel(
+	modelID string,
+	node models.External,
+	_ models.DAGReader,
+	overrideStatus configOverrideStatus,
+) generated.ExternalModel {
 	cfg := node.GetConfig()
 
 	model := generated.ExternalModel{
-		Id:       modelID,
-		Database: cfg.Database,
-		Table:    cfg.Table,
+		Id:          modelID,
+		Database:    cfg.Database,
+		Table:       cfg.Table,
+		HasOverride: boolPtr(overrideStatus.hasOverride),
+		IsDisabled:  boolPtr(overrideStatus.isDisabled),
 	}
 
 	// Populate interval configuration if available
@@ -267,14 +365,21 @@ func buildExternalModel(modelID string, node models.External, _ models.DAGReader
 }
 
 // buildTransformationModel constructs a TransformationModel from domain model
-func buildTransformationModel(modelID string, node models.Transformation, dag models.DAGReader) generated.TransformationModel {
+func buildTransformationModel(
+	modelID string,
+	node models.Transformation,
+	dag models.DAGReader,
+	overrideStatus configOverrideStatus,
+) generated.TransformationModel {
 	cfg := node.GetConfig()
 
 	model := generated.TransformationModel{
-		Id:       modelID,
-		Database: cfg.Database,
-		Table:    cfg.Table,
-		Content:  node.GetValue(),
+		Id:          modelID,
+		Database:    cfg.Database,
+		Table:       cfg.Table,
+		Content:     node.GetValue(),
+		HasOverride: boolPtr(overrideStatus.hasOverride),
+		IsDisabled:  boolPtr(overrideStatus.isDisabled),
 	}
 
 	// Determine content type based on node type
@@ -451,6 +556,10 @@ func stringPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }
 
 // convertDepsToAPIFormat converts structured dependencies to API format

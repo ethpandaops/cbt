@@ -1,10 +1,11 @@
 import { type JSX } from 'react';
 import { Link } from '@tanstack/react-router';
+import { PencilSquareIcon, StopCircleIcon } from '@heroicons/react/24/outline';
 import type { IncrementalModelItem } from '@/types';
-import type { IntervalTypeTransformation } from '@api/types.gen';
+import type { IntervalTypeTransformation } from '@/api/types.gen';
 import { CoverageBar } from '@/components/Domain/Coverage/CoverageBar';
 import { TypeBadge } from '@/components/Elements/TypeBadge';
-import { getOrGroupColor } from '@utils/or-group-colors';
+import { getOrGroupColor } from '@/utils/or-group-colors';
 
 export interface ModelCoverageRowProps {
   model: IncrementalModelItem;
@@ -35,12 +36,14 @@ export function ModelCoverageRow({
 }: ModelCoverageRowProps): JSX.Element {
   // Determine badge type
   const isScheduled = model.type === 'transformation' && !model.data.coverage && !model.data.bounds;
+  const showDisabledIcon = !!model.isDisabled;
+  const showOverrideIcon = !showDisabledIcon && !!model.hasOverride;
 
   return (
     <Link
       to="/model/$id"
       params={{ id: encodeURIComponent(model.id) }}
-      className={`group/row block transition-all ${isHighlighted ? 'brightness-125' : isDimmed ? 'opacity-40' : ''}`}
+      className={`group/row block rounded-md transition-all ${isHighlighted ? 'brightness-110 saturate-125' : isDimmed ? 'opacity-40' : ''}`}
       data-model-id={model.id}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
@@ -66,12 +69,26 @@ export function ModelCoverageRow({
                   ? 'text-primary dark:text-primary'
                   : isDimmed
                     ? 'text-foreground/65 dark:text-foreground'
-                    : 'text-foreground/78 group-hover/row:text-primary dark:text-foreground dark:group-hover/row:text-primary'
+                    : 'text-foreground/82 group-hover/row:text-primary dark:text-foreground dark:group-hover/row:text-primary'
               }`}
               title={model.id}
             >
               {model.id}
             </span>
+            {showDisabledIcon && (
+              <StopCircleIcon
+                className="size-3.5 shrink-0 text-danger"
+                aria-label="Model disabled"
+                title="Model disabled"
+              />
+            )}
+            {showOverrideIcon && (
+              <PencilSquareIcon
+                className="size-3.5 shrink-0 text-warning"
+                aria-label="Config override active"
+                title="Config override active"
+              />
+            )}
             {orGroups && orGroups.length > 0 && (
               <div className="flex items-center gap-1">
                 {orGroups.map(groupId => {

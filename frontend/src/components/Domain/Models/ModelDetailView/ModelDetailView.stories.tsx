@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { ModelDetailView } from './ModelDetailView';
-import { debugCoverageAtPositionQueryKey } from '@api/@tanstack/react-query.gen';
+import { debugCoverageAtPositionQueryKey } from '@/api/@tanstack/react-query.gen';
 import type {
   TransformationModel,
   ListTransformationCoverageResponse,
@@ -10,7 +10,7 @@ import type {
   ListTransformationsResponse,
   GetIntervalTypesResponse,
   CoverageDebug,
-} from '@api/types.gen';
+} from '@/api/types.gen';
 
 // Story args type that omits the query result props
 type StoryArgs = Omit<

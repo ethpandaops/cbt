@@ -398,7 +398,7 @@ func (h *testIncrementalHandler) GetDependencies() []transformation.Dependency {
 	return h.deps
 }
 func (h *testIncrementalHandler) GetFlattenedDependencies() []string {
-	var result []string
+	result := make([]string, 0, len(h.deps))
 	for _, dep := range h.deps {
 		result = append(result, dep.GetAllDependencies()...)
 	}

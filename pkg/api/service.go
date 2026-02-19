@@ -1,4 +1,4 @@
-package api
+package api //nolint:revive // package name follows existing project layout.
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/api/generated"
 	"github.com/ethpandaops/cbt/pkg/api/handlers"
+	"github.com/ethpandaops/cbt/pkg/management"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/adaptor"
@@ -23,25 +24,35 @@ type Service interface {
 }
 
 type service struct {
-	app             *fiber.App
-	server          *http.Server
-	config          *Config
-	modelsService   models.Service
-	adminService    admin.Service
-	intervalTypes   handlers.IntervalTypesConfig
-	frontendHandler http.Handler
-	log             logrus.FieldLogger
+	app               *fiber.App
+	server            *http.Server
+	config            *Config
+	modelsService     models.Service
+	adminService      admin.Service
+	intervalTypes     handlers.IntervalTypesConfig
+	frontendHandler   http.Handler
+	managementService management.Service
+	log               logrus.FieldLogger
 }
 
 // NewService creates a new API and frontend service
-func NewService(cfg *Config, modelsService models.Service, adminService admin.Service, intervalTypes handlers.IntervalTypesConfig, frontendHandler http.Handler, log logrus.FieldLogger) Service {
+func NewService(
+	cfg *Config,
+	modelsService models.Service,
+	adminService admin.Service,
+	intervalTypes handlers.IntervalTypesConfig,
+	frontendHandler http.Handler,
+	mgmtService management.Service,
+	log logrus.FieldLogger,
+) Service {
 	return &service{
-		config:          cfg,
-		modelsService:   modelsService,
-		adminService:    adminService,
-		intervalTypes:   intervalTypes,
-		frontendHandler: frontendHandler,
-		log:             log.WithField("service", "api"),
+		config:            cfg,
+		modelsService:     modelsService,
+		adminService:      adminService,
+		intervalTypes:     intervalTypes,
+		frontendHandler:   frontendHandler,
+		managementService: mgmtService,
+		log:               log.WithField("service", "api"),
 	}
 }
 
@@ -69,6 +80,11 @@ func (s *service) Start(_ context.Context) error {
 
 	// Register OpenAPI-generated handlers
 	generated.RegisterHandlers(apiV1, server)
+
+	// Register management routes if enabled
+	if s.managementService != nil {
+		s.managementService.RegisterRoutes(apiV1)
+	}
 
 	// Register frontend handler as fallback for non-API routes
 	if s.frontendHandler != nil {

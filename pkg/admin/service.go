@@ -47,9 +47,13 @@ type Service interface {
 	// Consolidation
 	ConsolidateHistoricalData(ctx context.Context, modelID string) (uint64, error)
 
+	// Period deletion
+	DeletePeriod(ctx context.Context, modelID string, startPos, endPos uint64) (uint64, error)
+
 	// External bounds cache
 	GetExternalBounds(ctx context.Context, modelID string) (*BoundsCache, error)
 	SetExternalBounds(ctx context.Context, cache *BoundsCache) error
+	DeleteExternalBounds(ctx context.Context, modelID string) error
 
 	// Distributed locking for bounds updates
 	AcquireBoundsLock(ctx context.Context, modelID string) (BoundsLock, error)
@@ -59,6 +63,17 @@ type Service interface {
 	GetIncrementalAdminTable() string
 	GetScheduledAdminDatabase() string
 	GetScheduledAdminTable() string
+
+	// Config override operations
+	GetConfigOverride(ctx context.Context, modelID string) (*ConfigOverride, error)
+	GetAllConfigOverrides(ctx context.Context) ([]ConfigOverride, error)
+	SetConfigOverride(ctx context.Context, override *ConfigOverride) error
+	DeleteConfigOverride(ctx context.Context, modelID string) error
+	DeleteAllConfigOverrides(ctx context.Context) error
+	GetConfigOverrideVersion(ctx context.Context) (int64, error)
+
+	// GetCacheManager returns the underlying cache manager
+	GetCacheManager() *CacheManager
 }
 
 // GapInfo represents a gap in the processed data
@@ -581,6 +596,115 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 	return rangeResult.RowCount, nil
 }
 
+// DeletePeriod removes tracking rows that overlap [startPos, endPos) and re-inserts
+// remainder rows to preserve coverage outside the deleted window.
+// Returns the number of original overlapping rows deleted.
+func (a *service) DeletePeriod(ctx context.Context, modelID string, startPos, endPos uint64) (uint64, error) {
+	database, table, err := modelid.Parse(modelID)
+	if err != nil {
+		return 0, err
+	}
+
+	// 1. Query overlapping rows
+	selectQuery := fmt.Sprintf(`
+		SELECT position, interval
+		FROM %s FINAL
+		WHERE database = '%s' AND table = '%s'
+		  AND position + interval > %d
+		  AND position < %d
+		ORDER BY position
+	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, startPos, endPos)
+
+	var overlapping []ProcessedRange
+
+	if err := a.client.QueryMany(ctx, selectQuery, &overlapping); err != nil {
+		return 0, fmt.Errorf("failed to query overlapping rows: %w", err)
+	}
+
+	if len(overlapping) == 0 {
+		return 0, nil
+	}
+
+	// 2. Compute remainder rows
+	type remainder struct {
+		position uint64
+		interval uint64
+	}
+
+	remainders := make([]remainder, 0, len(overlapping)*2)
+
+	for _, row := range overlapping {
+		rowEnd := row.Position + row.Interval
+
+		// Left remainder: portion before the deletion window
+		if row.Position < startPos {
+			remainders = append(remainders, remainder{
+				position: row.Position,
+				interval: startPos - row.Position,
+			})
+		}
+
+		// Right remainder: portion after the deletion window
+		if rowEnd > endPos {
+			remainders = append(remainders, remainder{
+				position: endPos,
+				interval: rowEnd - endPos,
+			})
+		}
+	}
+
+	deletedCount := uint64(len(overlapping))
+
+	// 3. Delete all overlapping rows
+	var deleteQuery string
+	if a.cluster != "" {
+		deleteQuery = fmt.Sprintf(`
+			DELETE FROM `+"`%s`.`%s%s`"+` ON CLUSTER '%s'
+			WHERE database = '%s' AND table = '%s'
+			  AND position + interval > %d
+			  AND position < %d
+		`, a.adminDatabase, a.adminTable, a.localSuffix, a.cluster,
+			database, table, startPos, endPos)
+	} else {
+		deleteQuery = fmt.Sprintf(`
+			DELETE FROM %s
+			WHERE database = '%s' AND table = '%s'
+			  AND position + interval > %d
+			  AND position < %d
+		`, buildTableRef(a.adminDatabase, a.adminTable),
+			database, table, startPos, endPos)
+	}
+
+	if err := a.client.Execute(ctx, deleteQuery); err != nil {
+		return 0, fmt.Errorf("failed to delete overlapping rows: %w", err)
+	}
+
+	// 4. Insert remainder rows
+	for _, r := range remainders {
+		insertQuery := fmt.Sprintf(`
+			INSERT INTO %s (updated_date_time, database, table, position, interval)
+			VALUES (now(), '%s', '%s', %d, %d)
+		`, buildTableRef(a.adminDatabase, a.adminTable), database, table, r.position, r.interval)
+
+		if err := a.client.Execute(ctx, insertQuery); err != nil {
+			return deletedCount, fmt.Errorf(
+				"deleted rows but failed to insert remainder (%d, %d): %w",
+				r.position, r.interval, err,
+			)
+		}
+	}
+
+	a.log.WithFields(logrus.Fields{
+		"model_id":       modelID,
+		"start_pos":      startPos,
+		"end_pos":        endPos,
+		"deleted_rows":   deletedCount,
+		"remainder_rows": len(remainders),
+	}).Info("Deleted period from admin table")
+
+	return deletedCount, nil
+}
+
 // GetExternalBounds retrieves cached external model bounds
 func (a *service) GetExternalBounds(ctx context.Context, modelID string) (*BoundsCache, error) {
 	if a.cacheManager == nil {
@@ -595,6 +719,15 @@ func (a *service) SetExternalBounds(ctx context.Context, cache *BoundsCache) err
 		return ErrCacheManagerUnavailable
 	}
 	return a.cacheManager.SetBounds(ctx, cache)
+}
+
+// DeleteExternalBounds removes cached external model bounds
+func (a *service) DeleteExternalBounds(ctx context.Context, modelID string) error {
+	if a.cacheManager == nil {
+		return ErrCacheManagerUnavailable
+	}
+
+	return a.cacheManager.DeleteBounds(ctx, modelID)
 }
 
 // AcquireBoundsLock acquires a distributed lock for bounds updates on a specific model
@@ -766,6 +899,65 @@ func (a *service) GetAllLastScheduledExecutions(ctx context.Context, modelIDs []
 	}).Debug("Batch retrieved last scheduled executions from admin table")
 
 	return result, nil
+}
+
+// GetConfigOverride retrieves a config override for a specific model.
+func (a *service) GetConfigOverride(ctx context.Context, modelID string) (*ConfigOverride, error) {
+	if a.cacheManager == nil {
+		return nil, ErrCacheManagerUnavailable
+	}
+
+	return a.cacheManager.GetConfigOverride(ctx, modelID)
+}
+
+// GetAllConfigOverrides retrieves all config overrides.
+func (a *service) GetAllConfigOverrides(ctx context.Context) ([]ConfigOverride, error) {
+	if a.cacheManager == nil {
+		return nil, ErrCacheManagerUnavailable
+	}
+
+	return a.cacheManager.GetAllConfigOverrides(ctx)
+}
+
+// SetConfigOverride stores a config override.
+func (a *service) SetConfigOverride(ctx context.Context, override *ConfigOverride) error {
+	if a.cacheManager == nil {
+		return ErrCacheManagerUnavailable
+	}
+
+	return a.cacheManager.SetConfigOverride(ctx, override)
+}
+
+// DeleteConfigOverride removes a config override for a specific model.
+func (a *service) DeleteConfigOverride(ctx context.Context, modelID string) error {
+	if a.cacheManager == nil {
+		return ErrCacheManagerUnavailable
+	}
+
+	return a.cacheManager.DeleteConfigOverride(ctx, modelID)
+}
+
+// DeleteAllConfigOverrides removes all config overrides.
+func (a *service) DeleteAllConfigOverrides(ctx context.Context) error {
+	if a.cacheManager == nil {
+		return ErrCacheManagerUnavailable
+	}
+
+	return a.cacheManager.DeleteAllConfigOverrides(ctx)
+}
+
+// GetConfigOverrideVersion returns the current config override version counter.
+func (a *service) GetConfigOverrideVersion(ctx context.Context) (int64, error) {
+	if a.cacheManager == nil {
+		return 0, ErrCacheManagerUnavailable
+	}
+
+	return a.cacheManager.GetConfigOverrideVersion(ctx)
+}
+
+// GetCacheManager returns the underlying cache manager.
+func (a *service) GetCacheManager() *CacheManager {
+	return a.cacheManager
 }
 
 // Ensure service implements the interface

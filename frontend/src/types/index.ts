@@ -1,4 +1,4 @@
-import type { Range } from '@api/types.gen';
+import type { Range } from '@/api/types.gen';
 
 // Re-export model type configuration
 export * from './modelTypes';
@@ -16,6 +16,8 @@ export interface IncrementalModelItem {
   id: string;
   type: 'transformation' | 'external';
   intervalType: string;
+  hasOverride?: boolean;
+  isDisabled?: boolean;
   depends_on?: Array<string | string[]>;
   data: {
     coverage?: Array<Range>;

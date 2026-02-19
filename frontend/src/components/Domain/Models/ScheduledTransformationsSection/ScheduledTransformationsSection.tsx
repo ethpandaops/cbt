@@ -1,11 +1,12 @@
 import { type JSX, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { listTransformationsOptions, listScheduledRunsOptions } from '@api/@tanstack/react-query.gen';
+import { listTransformationsOptions, listScheduledRunsOptions } from '@/api/@tanstack/react-query.gen';
 import { ScheduledTransformationRow } from './ScheduledTransformationRow';
 import { ScheduledTransformationsSectionSkeleton } from './ScheduledTransformationsSectionSkeleton';
 import { ErrorState } from '@/components/Feedback/ErrorState';
-import { getOrderedDependencies } from '@utils/dependency-resolver';
-import type { DependencyWithOrGroups } from '@utils/dependency-resolver';
+import { getOrderedDependencies } from '@/utils/dependency-resolver';
+import type { DependencyWithOrGroups } from '@/utils/dependency-resolver';
+import { getErrorMessage } from '@/utils/error';
 
 export function ScheduledTransformationsSection(): JSX.Element {
   const [hoveredModel, setHoveredModel] = useState<string | null>(null);
@@ -25,7 +26,7 @@ export function ScheduledTransformationsSection(): JSX.Element {
   }
 
   if (scheduledTransformations.error || runs.error) {
-    return <ErrorState message={scheduledTransformations.error?.message || runs.error?.message || 'Unknown error'} />;
+    return <ErrorState message={getErrorMessage(scheduledTransformations.error ?? runs.error)} />;
   }
 
   // Build dependency map for transformation models with OR group support
@@ -86,7 +87,7 @@ export function ScheduledTransformationsSection(): JSX.Element {
   const sortedModels = [...(scheduledTransformations.data?.models || [])].sort((a, b) => a.id.localeCompare(b.id));
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {sortedModels.map(model => {
         const modelRun = runs.data?.runs.find(r => r.id === model.id);
         const isHighlighted = highlightedModels.has(model.id);

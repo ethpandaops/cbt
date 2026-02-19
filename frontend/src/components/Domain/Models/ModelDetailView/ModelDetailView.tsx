@@ -7,7 +7,7 @@ import type {
   ListExternalBoundsResponse,
   ListTransformationsResponse,
   GetIntervalTypesResponse,
-} from '@api/types.gen';
+} from '@/api/types.gen';
 import { ReactFlowProvider } from '@xyflow/react';
 import { ArrowsPointingOutIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { ModelInfoCard, type InfoField } from '@/components/Domain/Models/ModelInfoCard';
@@ -21,22 +21,44 @@ import { TransformationSelector } from '@/components/Forms/TransformationSelecto
 import { ZoomPresets } from '@/components/Navigation/ZoomPresets';
 import { DagGraph, type DagData } from '@/components/Domain/DAG/DagGraph';
 import type { IncrementalModelItem } from '@/types';
-import { getOrderedDependencies } from '@utils/dependency-resolver';
+import { getOrderedDependencies } from '@/utils/dependency-resolver';
 import {
   calculateDefaultZoomRange,
   calculateZoomRangeForWindow,
   getZoomInScale,
   getZoomOutScale,
-} from '@utils/zoom-helpers';
-import { useTransformationSelection } from '@hooks/useTransformationSelection';
+} from '@/utils/zoom-helpers';
+import { useTransformationSelection } from '@/hooks/useTransformationSelection';
+
+interface ConfigOverride {
+  model_id: string;
+  model_type: string;
+  enabled?: boolean;
+  override: Record<string, unknown> | null;
+  updated_at: string;
+}
 
 export interface ModelDetailViewProps {
   decodedId: string;
   transformation: TransformationModel;
-  coverage: UseQueryResult<ListTransformationCoverageResponse, Error>;
-  allBounds: UseQueryResult<ListExternalBoundsResponse, Error>;
-  allTransformations: UseQueryResult<ListTransformationsResponse, Error>;
-  intervalTypes: UseQueryResult<GetIntervalTypesResponse, Error>;
+  coverage: UseQueryResult<ListTransformationCoverageResponse, unknown>;
+  allBounds: UseQueryResult<ListExternalBoundsResponse, unknown>;
+  allTransformations: UseQueryResult<ListTransformationsResponse, unknown>;
+  intervalTypes: UseQueryResult<GetIntervalTypesResponse, unknown>;
+  currentOverride?: ConfigOverride | null;
+  baseConfig?: Record<string, unknown> | null;
+}
+
+/** Resolve a nested value from the override object. */
+function getOv(override: Record<string, unknown> | null | undefined, ...path: string[]): unknown {
+  let current: unknown = override;
+
+  for (const key of path) {
+    if (current == null || typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+
+  return current;
 }
 
 export function ModelDetailView({
@@ -46,6 +68,8 @@ export function ModelDetailView({
   allBounds,
   allTransformations,
   intervalTypes,
+  currentOverride,
+  baseConfig,
 }: ModelDetailViewProps): JSX.Element {
   const [hoveredCoverage, setHoveredCoverage] = useState<{ modelId: string; position: number; mouseX: number } | null>(
     null
@@ -279,6 +303,8 @@ export function ModelDetailView({
   const selectedTransformationIndex = getSelectedIndex(intervalType, transformations);
   const currentTransformation: IntervalTypeTransformation | undefined = transformations[selectedTransformationIndex];
 
+  const ov = currentOverride?.override;
+
   const infoFields: InfoField[] = [
     { label: 'Database', value: decodedId.split('.')[0] },
     { label: 'Table', value: decodedId.split('.').slice(1).join('.') },
@@ -299,32 +325,106 @@ export function ModelDetailView({
     infoFields.push({ label: 'Description', value: transformation.description });
   }
 
-  if (transformation?.tags && transformation.tags.length > 0) {
-    infoFields.push({ label: 'Tags', value: transformation.tags.join(', ') });
-  }
+  // Use baseConfig from API for accurate comparison (pre-override snapshot)
+  const bc = baseConfig as Record<string, unknown> | null | undefined;
 
-  if (transformation?.interval?.min !== undefined && transformation?.interval?.max !== undefined) {
-    infoFields.push(
-      { label: 'Min Interval', value: transformation.interval.min.toString() },
-      { label: 'Max Interval', value: transformation.interval.max.toString() }
-    );
-  }
+  // Tags — merge override, compare against base config
+  {
+    const baseTags = (getOv(bc, 'tags') as string[] | undefined) ?? transformation?.tags ?? [];
+    const tagsOv = getOv(ov, 'tags') as string[] | undefined;
+    const effectiveTags = tagsOv ?? baseTags;
 
-  if (transformation?.schedules) {
-    if (transformation.schedules.forwardfill) {
+    if (effectiveTags.length > 0 || tagsOv != null) {
+      const tagsChanged = tagsOv != null && JSON.stringify(tagsOv) !== JSON.stringify(baseTags);
       infoFields.push({
-        label: 'Forwardfill Schedule',
-        value: transformation.schedules.forwardfill,
-        variant: 'highlight',
-        highlightColor: 'scheduled',
+        label: 'Tags',
+        value: effectiveTags.join(', ') || 'none',
+        ...(tagsChanged && { overridden: true, originalValue: baseTags.join(', ') || 'none' }),
       });
     }
-    if (transformation.schedules.backfill) {
+  }
+
+  // Interval min/max — merge overrides, compare against base config
+  {
+    const baseMin = (getOv(bc, 'interval', 'min') as number | undefined) ?? transformation?.interval?.min;
+    const baseMax = (getOv(bc, 'interval', 'max') as number | undefined) ?? transformation?.interval?.max;
+    const minOv = getOv(ov, 'interval', 'min') as number | undefined;
+    const maxOv = getOv(ov, 'interval', 'max') as number | undefined;
+    const effectiveMin = minOv ?? baseMin;
+    const effectiveMax = maxOv ?? baseMax;
+
+    if (effectiveMin !== undefined || effectiveMax !== undefined) {
+      if (effectiveMin !== undefined) {
+        infoFields.push({
+          label: 'Min Interval',
+          value: effectiveMin.toString(),
+          ...(minOv != null && minOv !== baseMin && { overridden: true, originalValue: baseMin?.toString() }),
+        });
+      }
+
+      if (effectiveMax !== undefined) {
+        infoFields.push({
+          label: 'Max Interval',
+          value: effectiveMax.toString(),
+          ...(maxOv != null && maxOv !== baseMax && { overridden: true, originalValue: baseMax?.toString() }),
+        });
+      }
+    }
+  }
+
+  // Schedules — merge overrides, compare against base config
+  {
+    const baseFwd =
+      (getOv(bc, 'schedules', 'forwardfill') as string | undefined) ?? transformation?.schedules?.forwardfill;
+    const baseBf = (getOv(bc, 'schedules', 'backfill') as string | undefined) ?? transformation?.schedules?.backfill;
+    const fwdOv = getOv(ov, 'schedules', 'forwardfill') as string | undefined;
+    const bfOv = getOv(ov, 'schedules', 'backfill') as string | undefined;
+    const effectiveFwd = fwdOv ?? baseFwd;
+    const effectiveBf = bfOv ?? baseBf;
+
+    if (effectiveFwd) {
+      infoFields.push({
+        label: 'Forwardfill Schedule',
+        value: effectiveFwd,
+        variant: 'highlight',
+        highlightColor: 'scheduled',
+        ...(fwdOv != null && fwdOv !== baseFwd && { overridden: true, originalValue: baseFwd }),
+      });
+    }
+
+    if (effectiveBf) {
       infoFields.push({
         label: 'Backfill Schedule',
-        value: transformation.schedules.backfill,
+        value: effectiveBf,
         variant: 'highlight',
         highlightColor: 'warning',
+        ...(bfOv != null && bfOv !== baseBf && { overridden: true, originalValue: baseBf }),
+      });
+    }
+  }
+
+  // Limits — merge overrides, compare against base config
+  {
+    const baseLimMin = (getOv(bc, 'limits', 'min') as number | undefined) ?? transformation?.limits?.min;
+    const baseLimMax = (getOv(bc, 'limits', 'max') as number | undefined) ?? transformation?.limits?.max;
+    const limMinOv = getOv(ov, 'limits', 'min') as number | undefined;
+    const limMaxOv = getOv(ov, 'limits', 'max') as number | undefined;
+    const effectiveLimMin = limMinOv ?? baseLimMin;
+    const effectiveLimMax = limMaxOv ?? baseLimMax;
+
+    if (effectiveLimMin !== undefined) {
+      infoFields.push({
+        label: 'Limit Min',
+        value: effectiveLimMin.toString(),
+        ...(limMinOv != null && limMinOv !== baseLimMin && { overridden: true, originalValue: baseLimMin?.toString() }),
+      });
+    }
+
+    if (effectiveLimMax !== undefined) {
+      infoFields.push({
+        label: 'Limit Max',
+        value: effectiveLimMax.toString(),
+        ...(limMaxOv != null && limMaxOv !== baseLimMax && { overridden: true, originalValue: baseLimMax?.toString() }),
       });
     }
   }
@@ -354,13 +454,13 @@ export function ModelDetailView({
   }
 
   return (
-    <div className="space-y-7">
+    <div className="space-y-6">
       <ModelInfoCard title="Model Information" fields={infoFields} borderColor="border-incremental/30" columns={4} />
 
       {/* DAG Visualization - only for incremental models with dependencies */}
       {dagData && orderedDeps.length > 0 && (
         <div
-          className={`rounded-2xl border border-incremental/45 bg-linear-to-br from-surface/95 via-surface/86 to-secondary/35 p-4 shadow-lg ring-1 ring-border/55 backdrop-blur-sm sm:p-6 ${
+          className={`glass-surface border-incremental/35 p-4 sm:p-6 ${
             fullscreenSection === 'dag' ? 'fixed inset-0 z-50 m-0 rounded-none' : ''
           }`}
         >
@@ -370,7 +470,7 @@ export function ModelDetailView({
             </h2>
             <button
               onClick={() => setFullscreenSection(fullscreenSection === 'dag' ? null : 'dag')}
-              className="rounded-lg p-2 text-muted transition-colors hover:bg-secondary/75 hover:text-primary"
+              className="glass-icon-control text-muted"
               title={fullscreenSection === 'dag' ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
             >
               {fullscreenSection === 'dag' ? (
@@ -388,10 +488,7 @@ export function ModelDetailView({
         </div>
       )}
 
-      <div
-        ref={sectionRef}
-        className="rounded-2xl border border-incremental/45 bg-linear-to-br from-surface/95 via-surface/86 to-secondary/35 p-4 shadow-lg ring-1 ring-border/55 backdrop-blur-sm sm:p-6"
-      >
+      <div ref={sectionRef} className="glass-surface border-incremental/35 p-4 sm:p-6">
         <div className="mb-4 flex flex-col gap-4 sm:mb-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
@@ -447,7 +544,7 @@ export function ModelDetailView({
               disabled={!hasData}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs sm:gap-4">
+          <div className="glass-toolbar flex w-fit flex-wrap items-center gap-3 px-3 py-2 text-xs sm:gap-4">
             <div className="flex items-center gap-1.5 sm:gap-2">
               <div className="size-2.5 rounded-sm bg-incremental sm:size-3" />
               <span className="font-medium text-primary/80">This Model</span>
@@ -489,7 +586,7 @@ export function ModelDetailView({
           <div className="mt-8 border-t border-border/60 pt-6">
             <h3 className="mb-4 text-base font-bold text-foreground">
               Dependencies{' '}
-              <span className="ml-2 rounded-full bg-linear-to-r from-secondary/95 to-secondary/65 px-2 py-0.5 text-xs font-bold text-primary ring-1 ring-border/55">
+              <span className="ml-2 rounded-full border border-border/45 bg-secondary/70 px-2 py-0.5 text-xs font-bold text-primary ring-1 ring-border/30">
                 {orderedDeps.length}
               </span>
             </h3>
@@ -562,8 +659,8 @@ export function ModelDetailView({
       )}
 
       {transformation?.content && transformation.content_type === 'exec' && (
-        <div className="overflow-hidden rounded-xl border border-incremental/45 bg-linear-to-br from-surface/95 via-surface/86 to-secondary/30 shadow-lg ring-1 ring-border/50">
-          <div className="border-b border-border/55 bg-surface/75 px-4 py-2">
+        <div className="glass-surface overflow-hidden border-incremental/35">
+          <div className="border-b border-border/50 bg-surface/78 px-4 py-2">
             <span className="text-sm font-semibold text-foreground">Execution Command</span>
           </div>
           <div className="p-4">

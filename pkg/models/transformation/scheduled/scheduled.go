@@ -3,6 +3,7 @@ package scheduled
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"time"
@@ -130,7 +131,7 @@ func (h *Handler) GetOriginalDependencies() []transformation.Dependency {
 
 // GetFlattenedDependencies returns all dependencies as a flat string array
 func (h *Handler) GetFlattenedDependencies() []string {
-	result := []string{}
+	result := make([]string, 0, len(h.config.Dependencies))
 	for _, dep := range h.config.Dependencies {
 		result = append(result, dep.GetAllDependencies()...)
 	}
@@ -159,4 +160,49 @@ func (h *Handler) ApplyOverrides(override interface{}) {
 
 	h.config.Schedule = transformation.ApplyScheduleOverride(h.config.Schedule, v)
 	h.config.Tags = transformation.ApplyTagsOverride(h.config.Tags, v)
+}
+
+// Snapshot holds a point-in-time snapshot of overridable config fields.
+type Snapshot struct {
+	Schedule string
+	Tags     []string
+}
+
+// ToBaseConfigJSON serializes the snapshot to a JSON representation
+// suitable for the management API's base_config response.
+func (s *Snapshot) ToBaseConfigJSON() (json.RawMessage, error) {
+	return json.Marshal(map[string]any{
+		"schedule": s.Schedule,
+		"tags":     s.Tags,
+	})
+}
+
+// SnapshotConfig captures the current overridable config values.
+func (h *Handler) SnapshotConfig() any {
+	return &Snapshot{
+		Schedule: h.config.Schedule,
+		Tags:     copyTags(h.config.Tags),
+	}
+}
+
+// RestoreConfig restores overridable config values from a snapshot.
+func (h *Handler) RestoreConfig(snapshot any) {
+	s, ok := snapshot.(*Snapshot)
+	if !ok {
+		return
+	}
+
+	h.config.Schedule = s.Schedule
+	h.config.Tags = copyTags(s.Tags)
+}
+
+func copyTags(tags []string) []string {
+	if tags == nil {
+		return nil
+	}
+
+	cp := make([]string, len(tags))
+	copy(cp, tags)
+
+	return cp
 }

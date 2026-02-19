@@ -1,6 +1,7 @@
 package coordinator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -68,4 +69,35 @@ func (s *service) ProcessExternalScan(modelID, scanType string) {
 		"scan_type": scanType,
 		"task_id":   taskID,
 	}).Debug("Enqueued external scan task")
+}
+
+// TriggerBoundsRefresh enqueues a full external scan for admin-initiated bounds refresh.
+// Returns ErrRefreshInProgress if a full scan task already exists (asynq dedup).
+func (s *service) TriggerBoundsRefresh(_ context.Context, modelID string) error {
+	taskID := fmt.Sprintf("external:%s:full", modelID)
+
+	payload, err := json.Marshal(map[string]string{
+		"model_id":  modelID,
+		"scan_type": "full",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal resync payload: %w", err)
+	}
+
+	task := asynq.NewTask(ExternalFullTaskType, payload,
+		asynq.TaskID(taskID),
+		asynq.Queue(modelID),
+		asynq.MaxRetry(0),
+		asynq.Timeout(30*time.Minute),
+	)
+
+	if _, err := s.queueManager.Enqueue(task); err != nil {
+		if err.Error() == "task ID already exists" {
+			return ErrRefreshInProgress
+		}
+
+		return fmt.Errorf("failed to enqueue bounds refresh: %w", err)
+	}
+
+	return nil
 }

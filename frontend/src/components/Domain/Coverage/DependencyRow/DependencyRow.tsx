@@ -2,8 +2,8 @@ import { type JSX } from 'react';
 import { Link } from '@tanstack/react-router';
 import { CoverageBar } from '@/components/Domain/Coverage/CoverageBar';
 import { TypeBadge } from '@/components/Elements/TypeBadge';
-import type { IntervalTypeTransformation } from '@api/types.gen';
-import { getOrGroupColor } from '@utils/or-group-colors';
+import type { IntervalTypeTransformation } from '@/api/types.gen';
+import { getOrGroupColor } from '@/utils/or-group-colors';
 
 export interface DependencyRowProps {
   dependencyId: string;

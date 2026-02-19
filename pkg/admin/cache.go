@@ -141,6 +141,12 @@ func (c *CacheManager) SetBounds(ctx context.Context, cache *BoundsCache) error 
 	return c.redisClient.Set(ctx, key, data, 0).Err()
 }
 
+// DeleteBounds removes cached external model bounds from Redis
+func (c *CacheManager) DeleteBounds(ctx context.Context, modelID string) error {
+	key := c.keyPrefix + modelID
+	return c.redisClient.Del(ctx, key).Err()
+}
+
 // AcquireLock acquires a distributed lock for bounds updates on a specific model.
 // The lock uses redsync (Redlock algorithm) with exponential backoff for retries.
 // Returns a BoundsLock that must be released when done.

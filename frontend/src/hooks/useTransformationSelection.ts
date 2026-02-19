@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { IntervalTypeTransformation } from '@api/types.gen';
+import type { IntervalTypeTransformation } from '@/api/types.gen';
 
 const STORAGE_KEY = 'cbt-transformation-selections';
 

@@ -2,6 +2,8 @@
 export interface InjectedConfig {
   title?: string;
   baseUrl?: string;
+  managementEnabled?: boolean;
+  authMethods?: ('password' | 'github')[];
 }
 
 declare global {

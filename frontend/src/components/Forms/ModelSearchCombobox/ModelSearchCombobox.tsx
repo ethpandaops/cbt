@@ -3,8 +3,8 @@ import { Combobox, Transition } from '@headlessui/react';
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { listAllModelsOptions } from '@api/@tanstack/react-query.gen';
-import type { ModelSummary } from '@api/types.gen';
+import { listAllModelsOptions } from '@/api/@tanstack/react-query.gen';
+import type { ModelSummary } from '@/api/types.gen';
 import { TypeBadge } from '@/components/Elements/TypeBadge';
 import type { ModelType } from '@/types';
 
@@ -61,7 +61,7 @@ export function ModelSearchCombobox({ variant = 'full' }: ModelSearchComboboxPro
     return (
       <Combobox value={selectedModel} onChange={handleModelSelect} by="id">
         <div className="relative">
-          <Combobox.Button className="flex items-center justify-center rounded-lg p-2 text-foreground transition-all hover:bg-surface/60 hover:text-accent">
+          <Combobox.Button className="glass-icon-control text-foreground">
             <MagnifyingGlassIcon className="size-5" />
           </Combobox.Button>
 
@@ -72,12 +72,12 @@ export function ModelSearchCombobox({ variant = 'full' }: ModelSearchComboboxPro
             leaveTo="opacity-0"
             afterLeave={() => setQuery('')}
           >
-            <Combobox.Options className="fixed inset-x-4 top-24 z-[100] max-h-96 overflow-auto rounded-xl border border-border/50 bg-background/95 shadow-2xl ring-1 ring-border/50 backdrop-blur-xl">
-              <div className="sticky top-0 border-b border-border/50 bg-background/95 px-4 py-3 backdrop-blur-xl">
+            <Combobox.Options className="glass-surface fixed inset-x-4 top-24 z-[100] max-h-96 overflow-auto">
+              <div className="sticky top-0 border-b border-border/50 bg-surface/90 px-4 py-3 backdrop-blur-xl">
                 <div className="relative">
                   <MagnifyingGlassIcon className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted" />
                   <Combobox.Input
-                    className="w-full rounded-lg border border-border/50 bg-surface/60 py-2.5 pr-10 pl-10 text-sm/6 text-foreground placeholder-muted transition-all focus:border-accent focus:ring-3 focus:ring-accent/50 focus:outline-hidden"
+                    className="w-full rounded-lg border border-border/65 bg-surface/92 py-2.5 pr-10 pl-10 text-sm/6 text-foreground placeholder-muted transition-all focus:border-accent focus:ring-2 focus:ring-accent/45 focus:outline-hidden"
                     placeholder="Search models..."
                     onChange={e => setQuery(e.target.value)}
                     displayValue={(model: ModelSummary) => model?.id || ''}
@@ -107,7 +107,7 @@ export function ModelSearchCombobox({ variant = 'full' }: ModelSearchComboboxPro
                       value={model}
                       className={({ active }) =>
                         `cursor-pointer px-4 py-3 transition-all select-none ${
-                          active ? 'bg-accent/20 text-accent' : 'text-foreground'
+                          active ? 'bg-secondary/75 text-primary' : 'text-foreground'
                         }`
                       }
                     >
@@ -145,7 +145,7 @@ export function ModelSearchCombobox({ variant = 'full' }: ModelSearchComboboxPro
         <div className="relative">
           <MagnifyingGlassIcon className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted" />
           <Combobox.Input
-            className="w-full rounded-lg border border-border/50 bg-surface/60 py-2.5 pr-10 pl-10 text-base/6 text-foreground placeholder-muted transition-all focus:border-accent focus:ring-3 focus:ring-accent/50 focus:outline-hidden"
+            className="w-full rounded-lg border border-border/65 bg-surface/92 py-2.5 pr-10 pl-10 text-base/6 text-foreground placeholder-muted shadow-xs ring-1 ring-border/40 transition-all focus:border-accent focus:ring-2 focus:ring-accent/45 focus:outline-hidden"
             placeholder="Search models..."
             onChange={e => setQuery(e.target.value)}
             displayValue={(model: ModelSummary) => model?.id || ''}
@@ -167,7 +167,7 @@ export function ModelSearchCombobox({ variant = 'full' }: ModelSearchComboboxPro
           leaveTo="opacity-0"
           afterLeave={() => setQuery('')}
         >
-          <Combobox.Options className="absolute z-[100] mt-2 max-h-96 w-full overflow-auto rounded-xl border border-border/50 bg-background/95 shadow-2xl ring-1 ring-border/50 backdrop-blur-xl">
+          <Combobox.Options className="glass-surface absolute z-[100] mt-2 max-h-96 w-full overflow-auto">
             {isLoading ? (
               <div className="px-4 py-8 text-center text-sm/6 text-muted">Loading models...</div>
             ) : filteredModels.length === 0 ? (
@@ -182,7 +182,7 @@ export function ModelSearchCombobox({ variant = 'full' }: ModelSearchComboboxPro
                     value={model}
                     className={({ active }) =>
                       `cursor-pointer px-4 py-3 transition-all select-none ${
-                        active ? 'bg-accent/20 text-accent' : 'text-foreground'
+                        active ? 'bg-secondary/75 text-primary' : 'text-foreground'
                       }`
                     }
                   >

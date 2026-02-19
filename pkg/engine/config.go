@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
+	"github.com/ethpandaops/cbt/pkg/management"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/scheduler"
 	"github.com/ethpandaops/cbt/pkg/worker"
@@ -47,6 +48,9 @@ type Config struct {
 
 	// Frontend service configuration (includes API)
 	Frontend FrontendConfig `yaml:"frontend"`
+
+	// Management API configuration
+	Management management.Config `yaml:"management"`
 
 	// Interval type transformations for API exposure
 	IntervalTypes IntervalTypesConfig `yaml:"interval_types"`
@@ -133,6 +137,10 @@ func (c *Config) Validate() error {
 	}
 
 	if err := c.Frontend.Validate(); err != nil {
+		return err
+	}
+
+	if err := c.Management.Validate(); err != nil {
 		return err
 	}
 

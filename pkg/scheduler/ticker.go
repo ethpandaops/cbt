@@ -23,6 +23,9 @@ type tickerService interface {
 
 	// Stop gracefully shuts down the ticker
 	Stop() error
+
+	// UpdateTasks hot-swaps the scheduled task list (e.g. after live override changes)
+	UpdateTasks(tasks []scheduledTask)
 }
 
 type tickerServiceImpl struct {
@@ -179,6 +182,29 @@ func (t *tickerServiceImpl) enqueueTask(ctx context.Context, task scheduledTask,
 	observability.RecordTaskEnqueued(task.ID)
 
 	return nil
+}
+
+// UpdateTasks hot-swaps the scheduled task list with a new set of tasks.
+// This is used when live overrides change schedules and the task list
+// needs rebuilding.
+func (t *tickerServiceImpl) UpdateTasks(tasks []scheduledTask) {
+	// Unregister metrics for old tasks
+	t.tasksMu.Lock()
+	for _, task := range t.tasks {
+		modelID, operation := parseTaskIDForMetrics(task.ID)
+		observability.RecordScheduledTaskUnregistered(modelID, operation)
+	}
+
+	t.tasks = tasks
+	t.tasksMu.Unlock()
+
+	// Register metrics for new tasks
+	for _, task := range tasks {
+		modelID, operation := parseTaskIDForMetrics(task.ID)
+		observability.RecordScheduledTaskRegistered(modelID, operation)
+	}
+
+	t.log.WithField("task_count", len(tasks)).Info("Updated scheduled task list")
 }
 
 func (t *tickerServiceImpl) Stop() error {

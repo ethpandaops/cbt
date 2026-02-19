@@ -118,6 +118,30 @@ frontend:
   # Address to serve the frontend and API on
   addr: ":8080"
 
+# Management API configuration (optional)
+# Management endpoints are served under /api/v1/*
+management:
+  # Enable or disable management/admin endpoints
+  enabled: false
+
+  # Authentication is optional. If not configured, management endpoints are open.
+  # auth:
+  #   # Bearer token auth:
+  #   # Authorization: Bearer <password>
+  #   password: "change-me"
+  #
+  #   # GitHub OAuth auth:
+  #   github:
+  #     client_id: "your-github-oauth-client-id"
+  #     client_secret: "your-github-oauth-client-secret"
+  #     callback_url: "http://localhost:8080/api/v1/auth/github/callback"
+  #     # Require users from this org (or set allowed_users below).
+  #     org: "your-github-org"
+  #     # allowed_users:
+  #     #   - "octocat"
+  #     # Session duration for Redis-backed login sessions (default: 24h)
+  #     session_ttl: 24h
+
 # Interval type transformations (optional)
 # Define how interval types can be represented and transformed for display in the frontend
 # Each interval type (matching interval.type in models) can have multiple transformation steps

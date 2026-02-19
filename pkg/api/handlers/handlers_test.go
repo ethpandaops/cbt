@@ -142,7 +142,13 @@ func (m *mockModelsService) GetTransformationEnvironmentVariables(_ models.Trans
 }
 
 // mockAdminService implements admin.Service for testing
-type mockAdminService struct{}
+type mockAdminService struct {
+	configOverrides       []admin.ConfigOverride
+	configOverrideByID    map[string]*admin.ConfigOverride
+	configOverrideErr     error
+	configOverridesErr    error
+	configOverrideByIDErr map[string]error
+}
 
 func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
 	return 0, nil
@@ -195,6 +201,10 @@ func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64)
 	return nil, nil
 }
 
+func (m *mockAdminService) DeletePeriod(_ context.Context, _ string, _, _ uint64) (uint64, error) {
+	return 0, nil
+}
+
 func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (uint64, error) {
 	return 0, nil
 }
@@ -204,6 +214,10 @@ func (m *mockAdminService) GetExternalBounds(_ context.Context, _ string) (*admi
 }
 
 func (m *mockAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
+	return nil
+}
+
+func (m *mockAdminService) DeleteExternalBounds(_ context.Context, _ string) error {
 	return nil
 }
 
@@ -221,6 +235,57 @@ func (m *mockAdminService) GetScheduledAdminDatabase() string {
 
 func (m *mockAdminService) GetScheduledAdminTable() string {
 	return "cbt_scheduled"
+}
+
+func (m *mockAdminService) GetConfigOverride(_ context.Context, modelID string) (*admin.ConfigOverride, error) {
+	if m.configOverrideErr != nil {
+		return nil, m.configOverrideErr
+	}
+
+	if m.configOverrideByIDErr != nil {
+		if err, ok := m.configOverrideByIDErr[modelID]; ok {
+			return nil, err
+		}
+	}
+
+	if m.configOverrideByID == nil {
+		return nil, nil
+	}
+
+	override, ok := m.configOverrideByID[modelID]
+	if !ok {
+		return nil, nil
+	}
+
+	return override, nil
+}
+
+func (m *mockAdminService) GetAllConfigOverrides(_ context.Context) ([]admin.ConfigOverride, error) {
+	if m.configOverridesErr != nil {
+		return nil, m.configOverridesErr
+	}
+
+	return m.configOverrides, nil
+}
+
+func (m *mockAdminService) SetConfigOverride(_ context.Context, _ *admin.ConfigOverride) error {
+	return nil
+}
+
+func (m *mockAdminService) DeleteConfigOverride(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAdminService) DeleteAllConfigOverrides(_ context.Context) error {
+	return nil
+}
+
+func (m *mockAdminService) GetConfigOverrideVersion(_ context.Context) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetCacheManager() *admin.CacheManager {
+	return nil
 }
 
 // mockTransformation implements models.Transformation for testing
@@ -353,7 +418,7 @@ func TestBuildTransformationModel(t *testing.T) {
 		env:      map[string]string{"KEY": "value"},
 	}
 
-	model := buildTransformationModel("test.model", mockTrans, mockDAG)
+	model := buildTransformationModel("test.model", mockTrans, mockDAG, configOverrideStatus{})
 
 	assert.Equal(t, "test.model", model.Id)
 	assert.Equal(t, "test", model.Database)
@@ -379,7 +444,7 @@ func TestBuildExternalModel(t *testing.T) {
 		table:    "table",
 	}
 
-	model := buildExternalModel("external.table", mockExt, mockDAG)
+	model := buildExternalModel("external.table", mockExt, mockDAG, configOverrideStatus{})
 
 	assert.Equal(t, "external.table", model.Id)
 	assert.Equal(t, "external", model.Database)

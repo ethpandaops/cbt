@@ -16,8 +16,8 @@ import { useNavigate } from '@tanstack/react-router';
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import dagre from '@dagrejs/dagre';
 import { ExternalNode, TransformationNode, ScheduledNode } from '@/components/Domain/DAG/DagNode';
-import { useDagLayoutDirection } from '@hooks/useDagLayoutDirection';
-import { useTheme } from '@hooks/useTheme';
+import { useDagLayoutDirection } from '@/hooks/useDagLayoutDirection';
+import { useTheme } from '@/hooks/useTheme';
 import '@xyflow/react/dist/style.css';
 
 const dagNodeTypes = {
@@ -32,7 +32,7 @@ import type {
   ExternalBounds,
   CoverageSummary,
   IntervalTypeTransformation,
-} from '@api/types.gen';
+} from '@/api/types.gen';
 
 export interface DagData {
   externalModels: Array<ExternalModel>;
@@ -392,7 +392,7 @@ function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps):
   }, []);
 
   return (
-    <div className={`flex flex-col gap-4 ${className}`}>
+    <div className={`flex flex-col gap-3 ${className}`}>
       {/* Search and Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {/* Search Bar */}
@@ -405,7 +405,7 @@ function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps):
             onFocus={() => setIsSearchFocused(true)}
             onBlur={() => setIsSearchFocused(false)}
             placeholder="Search models..."
-            className="w-full rounded-xl border border-border/80 bg-surface/92 py-2.5 pr-10 pl-10 text-sm text-primary placeholder-muted/85 shadow-sm ring-1 ring-border/35 transition-all focus:border-accent focus:ring-2 focus:ring-incremental/60 focus:outline-hidden"
+            className="w-full rounded-xl border border-border/65 bg-surface/92 py-2.5 pr-10 pl-10 text-sm text-primary placeholder-muted/85 shadow-xs ring-1 ring-border/35 transition-all focus:border-accent focus:ring-2 focus:ring-accent/45 focus:outline-hidden"
           />
           {searchQuery && (
             <button
@@ -418,7 +418,7 @@ function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps):
         </div>
 
         {/* Stats Badge */}
-        <div className="flex items-center gap-2 rounded-xl bg-linear-to-r from-surface/95 via-surface/88 to-secondary/45 px-3 py-2 text-xs font-semibold text-primary shadow-sm ring-1 ring-border/70 backdrop-blur-sm">
+        <div className="glass-toolbar flex items-center gap-2 px-3 py-2 text-xs font-semibold text-primary">
           <span>{searchQuery ? `${stats.visible} of ${stats.total}` : `${stats.total}`} models</span>
           <span className="text-muted">·</span>
           <span className="text-external">{stats.external} ext</span>
@@ -430,13 +430,13 @@ function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps):
       </div>
 
       {/* Layout Direction Toggle */}
-      <div className="flex w-fit items-center gap-2 rounded-xl bg-surface/88 p-1 shadow-sm ring-1 ring-border/70 backdrop-blur-sm">
+      <div className="glass-toolbar flex w-fit items-center gap-2 p-1">
         <button
           onClick={() => setLayoutDirection('TB')}
           className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
             layoutDirection === 'TB'
-              ? 'bg-accent/80 text-white shadow-sm ring-1 ring-accent/70 dark:bg-accent/35 dark:text-primary'
-              : 'text-foreground/80 hover:bg-secondary/80 hover:text-primary'
+              ? 'bg-accent/80 text-white shadow-sm ring-1 ring-accent/70 dark:bg-accent/35 dark:text-foreground dark:ring-accent/55'
+              : 'text-foreground/80 hover:bg-secondary/75 hover:text-primary dark:text-foreground/90 dark:hover:bg-secondary/70'
           }`}
         >
           <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -448,8 +448,8 @@ function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps):
           onClick={() => setLayoutDirection('LR')}
           className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
             layoutDirection === 'LR'
-              ? 'bg-accent/80 text-white shadow-sm ring-1 ring-accent/70 dark:bg-accent/35 dark:text-primary'
-              : 'text-foreground/80 hover:bg-secondary/80 hover:text-primary'
+              ? 'bg-accent/80 text-white shadow-sm ring-1 ring-accent/70 dark:bg-accent/35 dark:text-foreground dark:ring-accent/55'
+              : 'text-foreground/80 hover:bg-secondary/75 hover:text-primary dark:text-foreground/90 dark:hover:bg-secondary/70'
           }`}
         >
           <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -461,8 +461,8 @@ function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps):
           onClick={() => setLayoutDirection('RL')}
           className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
             layoutDirection === 'RL'
-              ? 'bg-accent/80 text-white shadow-sm ring-1 ring-accent/70 dark:bg-accent/35 dark:text-primary'
-              : 'text-foreground/80 hover:bg-secondary/80 hover:text-primary'
+              ? 'bg-accent/80 text-white shadow-sm ring-1 ring-accent/70 dark:bg-accent/35 dark:text-foreground dark:ring-accent/55'
+              : 'text-foreground/80 hover:bg-secondary/75 hover:text-primary dark:text-foreground/90 dark:hover:bg-secondary/70'
           }`}
         >
           <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -472,7 +472,7 @@ function DagGraphInner({ data, className = '', triggerFitView }: DagGraphProps):
         </button>
       </div>
 
-      <div className="flex-1 overflow-hidden rounded-2xl border border-incremental/50 bg-linear-to-br from-background/96 via-background/90 to-secondary/30 shadow-xl ring-1 ring-border/70 backdrop-blur-sm">
+      <div className="glass-surface flex-1 overflow-hidden border-incremental/35 bg-linear-to-br from-background/95 via-background/86 to-secondary/24 shadow-xl">
         <ReactFlow
           nodes={nodes}
           edges={edges}

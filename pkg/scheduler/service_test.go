@@ -510,6 +510,14 @@ func (m *mockCoordinator) ProcessExternalScan(_, _ string) {
 	// Mock implementation - does nothing
 }
 
+func (m *mockCoordinator) TriggerBoundsRefresh(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockCoordinator) TriggerScheduledRun(_ context.Context, _ string) error {
+	return nil
+}
+
 var _ coordinator.Service = (*mockCoordinator)(nil)
 
 // Mock handler for testing
@@ -642,6 +650,10 @@ func (m *mockAdminService) SetExternalBounds(_ context.Context, bounds *admin.Bo
 	return nil
 }
 
+func (m *mockAdminService) DeleteExternalBounds(_ context.Context, _ string) error {
+	return nil
+}
+
 func (m *mockAdminService) GetIncrementalAdminDatabase() string {
 	return "admin"
 }
@@ -666,11 +678,43 @@ func (m *mockAdminService) GetAllLastScheduledExecutions(_ context.Context, _ []
 	return make(map[string]*time.Time), nil
 }
 
+func (m *mockAdminService) DeletePeriod(_ context.Context, _ string, _, _ uint64) (uint64, error) {
+	return 0, nil
+}
+
 func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
 	return []admin.ProcessedRange{}, nil
 }
 func (m *mockAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
 	return &mockSchedulerBoundsLock{}, nil
+}
+
+func (m *mockAdminService) GetConfigOverride(_ context.Context, _ string) (*admin.ConfigOverride, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) GetAllConfigOverrides(_ context.Context) ([]admin.ConfigOverride, error) {
+	return nil, nil
+}
+
+func (m *mockAdminService) SetConfigOverride(_ context.Context, _ *admin.ConfigOverride) error {
+	return nil
+}
+
+func (m *mockAdminService) DeleteConfigOverride(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAdminService) DeleteAllConfigOverrides(_ context.Context) error {
+	return nil
+}
+
+func (m *mockAdminService) GetConfigOverrideVersion(_ context.Context) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockAdminService) GetCacheManager() *admin.CacheManager {
+	return nil
 }
 
 type mockSchedulerBoundsLock struct{}

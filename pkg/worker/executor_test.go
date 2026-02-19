@@ -452,27 +452,33 @@ func (m *mockExecutorClickhouseClient) QueryOne(_ context.Context, query string,
 
 	// Handle TableExists query (Count field)
 	if strings.Contains(query, "system.tables") {
-		if countField := v.FieldByName("Count"); countField.IsValid() && countField.CanSet() {
-			if m.tableExists {
-				countField.SetUint(1)
-			} else {
-				countField.SetUint(0)
-			}
-		}
+		m.setUintField(v, "Count", tableCount(m.tableExists))
 
 		return nil
 	}
 
 	// Handle bounds query (Min and Max fields)
-	if minField := v.FieldByName("Min"); minField.IsValid() && minField.CanSet() {
-		minField.SetUint(m.boundsMin)
-	}
-
-	if maxField := v.FieldByName("Max"); maxField.IsValid() && maxField.CanSet() {
-		maxField.SetUint(m.boundsMax)
-	}
+	m.setUintField(v, "Min", m.boundsMin)
+	m.setUintField(v, "Max", m.boundsMax)
 
 	return nil
+}
+
+func (m *mockExecutorClickhouseClient) setUintField(v reflect.Value, fieldName string, value uint64) {
+	field := v.FieldByName(fieldName)
+	if !field.IsValid() || !field.CanSet() {
+		return
+	}
+
+	field.SetUint(value)
+}
+
+func tableCount(exists bool) uint64 {
+	if exists {
+		return 1
+	}
+
+	return 0
 }
 func (m *mockExecutorClickhouseClient) QueryMany(_ context.Context, _ string, _ interface{}) error {
 	return nil
@@ -559,6 +565,11 @@ func (m *mockExecutorAdminService) SetExternalBounds(_ context.Context, cache *a
 	}
 	return m.setBoundsErr
 }
+
+func (m *mockExecutorAdminService) DeleteExternalBounds(_ context.Context, _ string) error {
+	return nil
+}
+
 func (m *mockExecutorAdminService) GetIncrementalAdminDatabase() string { return "admin_db" }
 func (m *mockExecutorAdminService) GetIncrementalAdminTable() string    { return "admin_table" }
 func (m *mockExecutorAdminService) GetScheduledAdminDatabase() string   { return "admin" }
@@ -577,11 +588,43 @@ func (m *mockExecutorAdminService) GetAllLastScheduledExecutions(_ context.Conte
 	return make(map[string]*time.Time), nil
 }
 
+func (m *mockExecutorAdminService) DeletePeriod(_ context.Context, _ string, _, _ uint64) (uint64, error) {
+	return 0, nil
+}
+
 func (m *mockExecutorAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
 	return []admin.ProcessedRange{}, nil
 }
 func (m *mockExecutorAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
 	return &mockBoundsLock{}, nil
+}
+
+func (m *mockExecutorAdminService) GetConfigOverride(_ context.Context, _ string) (*admin.ConfigOverride, error) {
+	return nil, nil
+}
+
+func (m *mockExecutorAdminService) GetAllConfigOverrides(_ context.Context) ([]admin.ConfigOverride, error) {
+	return nil, nil
+}
+
+func (m *mockExecutorAdminService) SetConfigOverride(_ context.Context, _ *admin.ConfigOverride) error {
+	return nil
+}
+
+func (m *mockExecutorAdminService) DeleteConfigOverride(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockExecutorAdminService) DeleteAllConfigOverrides(_ context.Context) error {
+	return nil
+}
+
+func (m *mockExecutorAdminService) GetConfigOverrideVersion(_ context.Context) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockExecutorAdminService) GetCacheManager() *admin.CacheManager {
+	return nil
 }
 
 // mockBoundsLock implements admin.BoundsLock for testing

@@ -3,6 +3,7 @@ package incremental
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -157,7 +158,7 @@ func (h *Handler) GetDependencies() []transformation.Dependency {
 
 // GetFlattenedDependencies returns all dependencies as a flat string array
 func (h *Handler) GetFlattenedDependencies() []string {
-	result := []string{}
+	result := make([]string, 0, len(h.config.Dependencies))
 	for _, dep := range h.config.Dependencies {
 		result = append(result, dep.GetAllDependencies()...)
 	}
@@ -287,4 +288,99 @@ func (h *Handler) ApplyOverrides(override interface{}) {
 	}
 
 	h.config.Tags = transformation.ApplyTagsOverride(h.config.Tags, v)
+}
+
+// Snapshot holds a point-in-time snapshot of overridable config fields.
+type Snapshot struct {
+	IntervalMin uint64
+	IntervalMax uint64
+	ForwardFill string
+	Backfill    string
+	HasLimits   bool
+	LimitsMin   uint64
+	LimitsMax   uint64
+	Tags        []string
+}
+
+// ToBaseConfigJSON serializes the snapshot to a JSON representation
+// suitable for the management API's base_config response.
+func (s *Snapshot) ToBaseConfigJSON() (json.RawMessage, error) {
+	obj := map[string]any{
+		"interval":  map[string]any{"min": s.IntervalMin, "max": s.IntervalMax},
+		"schedules": map[string]any{"forwardfill": s.ForwardFill, "backfill": s.Backfill},
+		"tags":      s.Tags,
+	}
+
+	if s.HasLimits {
+		obj["limits"] = map[string]any{"min": s.LimitsMin, "max": s.LimitsMax}
+	}
+
+	return json.Marshal(obj)
+}
+
+// SnapshotConfig captures the current overridable config values.
+func (h *Handler) SnapshotConfig() any {
+	s := &Snapshot{
+		Tags: copyTags(h.config.Tags),
+	}
+
+	if h.config.Interval != nil {
+		s.IntervalMin = h.config.Interval.Min
+		s.IntervalMax = h.config.Interval.Max
+	}
+
+	if h.config.Schedules != nil {
+		s.ForwardFill = h.config.Schedules.ForwardFill
+		s.Backfill = h.config.Schedules.Backfill
+	}
+
+	if h.config.Limits != nil {
+		s.HasLimits = true
+		s.LimitsMin = h.config.Limits.Min
+		s.LimitsMax = h.config.Limits.Max
+	}
+
+	return s
+}
+
+// RestoreConfig restores overridable config values from a snapshot.
+func (h *Handler) RestoreConfig(snapshot any) {
+	s, ok := snapshot.(*Snapshot)
+	if !ok {
+		return
+	}
+
+	if h.config.Interval != nil {
+		h.config.Interval.Min = s.IntervalMin
+		h.config.Interval.Max = s.IntervalMax
+	}
+
+	if h.config.Schedules != nil {
+		h.config.Schedules.ForwardFill = s.ForwardFill
+		h.config.Schedules.Backfill = s.Backfill
+	}
+
+	if s.HasLimits {
+		if h.config.Limits == nil {
+			h.config.Limits = &LimitsConfig{}
+		}
+
+		h.config.Limits.Min = s.LimitsMin
+		h.config.Limits.Max = s.LimitsMax
+	} else {
+		h.config.Limits = nil
+	}
+
+	h.config.Tags = copyTags(s.Tags)
+}
+
+func copyTags(tags []string) []string {
+	if tags == nil {
+		return nil
+	}
+
+	cp := make([]string, len(tags))
+	copy(cp, tags)
+
+	return cp
 }

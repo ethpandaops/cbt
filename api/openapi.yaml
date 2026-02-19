@@ -514,6 +514,14 @@ components:
         table:
           type: string
           example: daily_users
+        has_override:
+          type: boolean
+          description: Whether this model has a config override record
+          example: false
+        is_disabled:
+          type: boolean
+          description: Whether this model is disabled by override
+          example: false
         description:
           type: string
           example: Daily active user counts
@@ -535,6 +543,14 @@ components:
         table:
           type: string
           example: beacon_blocks
+        has_override:
+          type: boolean
+          description: Whether this model has a config override record
+          example: false
+        is_disabled:
+          type: boolean
+          description: Whether this model is disabled by override
+          example: false
         description:
           type: string
           example: Beacon chain blocks from production cluster
@@ -625,6 +641,14 @@ components:
             WHERE event_time >= {{ start_time }}
               AND event_time < {{ end_time }}
             GROUP BY date
+        has_override:
+          type: boolean
+          description: Whether this model has a config override record
+          example: false
+        is_disabled:
+          type: boolean
+          description: Whether this model is disabled by override
+          example: false
         tags:
           type: array
           items:

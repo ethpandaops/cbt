@@ -1,9 +1,10 @@
 import { type JSX } from 'react';
 import { Link } from '@tanstack/react-router';
-import type { TransformationModel } from '@api/types.gen';
-import { timeAgo } from '@utils/time';
-import { getNextRunDescription, formatNextRun } from '@utils/schedule-parser';
-import { getOrGroupColor } from '@utils/or-group-colors';
+import { PencilSquareIcon, StopCircleIcon } from '@heroicons/react/24/outline';
+import type { TransformationModel } from '@/api/types.gen';
+import { timeAgo } from '@/utils/time';
+import { getNextRunDescription, formatNextRun } from '@/utils/schedule-parser';
+import { getOrGroupColor } from '@/utils/or-group-colors';
 
 export interface ScheduledTransformationRowProps {
   model: TransformationModel;
@@ -35,27 +36,29 @@ export function ScheduledTransformationRow({
   const nextRunText = isValidLastRun ? getNextRunDescription(model.schedule, lastRunAt) : null;
   const nextRunFormatted = isValidLastRun ? formatNextRun(model.schedule, lastRunAt) : null;
   const isOverdue = nextRunText?.startsWith('OVERDUE');
+  const showDisabledIcon = !!model.is_disabled;
+  const showOverrideIcon = !showDisabledIcon && !!model.has_override;
 
   // Status indicator colors
   const statusColors = {
-    success: 'bg-scheduled/20 text-scheduled ring-scheduled/50',
-    failed: 'bg-danger/20 text-danger ring-danger/50',
-    running: 'bg-accent/20 text-accent ring-accent/50',
-    pending: 'bg-warning/20 text-warning ring-warning/50',
+    success: 'bg-scheduled/16 text-scheduled ring-scheduled/40',
+    failed: 'bg-danger/14 text-danger ring-danger/40',
+    running: 'bg-accent/16 text-accent ring-accent/40',
+    pending: 'bg-warning/16 text-warning ring-warning/40',
   };
 
   return (
     <Link
       to="/model/$id"
       params={{ id: encodeURIComponent(model.id) }}
-      className={`group/row block rounded-xl border border-border/75 bg-linear-to-br from-surface/95 via-surface/88 to-secondary/30 transition-all hover:border-scheduled/45 hover:bg-surface hover:shadow-lg hover:shadow-scheduled/10 ${
-        isHighlighted ? 'ring-2 ring-scheduled/50 brightness-125' : isDimmed ? 'opacity-40' : ''
+      className={`glass-surface-subtle group/row block p-4 transition-all hover:border-scheduled/40 hover:bg-surface/92 hover:shadow-md hover:shadow-scheduled/10 ${
+        isHighlighted ? 'ring-2 ring-scheduled/45 brightness-110' : isDimmed ? 'opacity-40' : ''
       }`}
       data-model-id={model.id}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <div className="relative p-4">
+      <div className="relative">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[2fr_1fr_1fr_1fr] lg:items-start">
           {/* Model ID and Dependencies */}
           <div className="flex min-w-0 flex-col gap-1.5">
@@ -72,6 +75,20 @@ export function ScheduledTransformationRow({
               >
                 {model.id}
               </span>
+              {showDisabledIcon && (
+                <StopCircleIcon
+                  className="size-4 shrink-0 text-danger"
+                  aria-label="Model disabled"
+                  title="Model disabled"
+                />
+              )}
+              {showOverrideIcon && (
+                <PencilSquareIcon
+                  className="size-4 shrink-0 text-warning"
+                  aria-label="Config override active"
+                  title="Config override active"
+                />
+              )}
               {status && (
                 <span
                   className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ring-1 ${statusColors[status] || statusColors.pending}`}
@@ -108,7 +125,7 @@ export function ScheduledTransformationRow({
           {/* Schedule */}
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-semibold tracking-wide text-muted uppercase">Schedule</span>
-            <span className="font-mono text-xs font-medium text-scheduled" title={model.schedule}>
+            <span className="font-mono text-xs font-semibold text-scheduled" title={model.schedule}>
               {model.schedule || 'Not set'}
             </span>
           </div>

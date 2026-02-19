@@ -10,11 +10,12 @@ import {
   PlusIcon,
   MinusIcon,
 } from '@heroicons/react/24/outline';
-import type { DependencyDebugInfo, GapInfo, Range, IntervalTypeTransformation } from '@api/types.gen';
-import { debugCoverageAtPositionOptions, getIntervalTypesOptions } from '@api/@tanstack/react-query.gen';
-import { transformValue, formatValue } from '@utils/interval-transform';
+import type { DependencyDebugInfo, GapInfo, Range, IntervalTypeTransformation } from '@/api/types.gen';
+import { debugCoverageAtPositionOptions, getIntervalTypesOptions } from '@/api/@tanstack/react-query.gen';
+import { transformValue, formatValue } from '@/utils/interval-transform';
+import { getErrorMessage } from '@/utils/error';
 import { TransformationSelector } from '@/components/Forms/TransformationSelector';
-import { useTransformationSelection } from '@hooks/useTransformationSelection';
+import { useTransformationSelection } from '@/hooks/useTransformationSelection';
 
 interface CoverageDebugDialogProps {
   isOpen: boolean;
@@ -87,23 +88,20 @@ export function CoverageDebugDialog({
   return (
     <Dialog open={isOpen} onClose={onClose} className="relative z-50">
       {/* Backdrop */}
-      <DialogBackdrop className="fixed inset-0 bg-black/72 backdrop-blur-[2px]" />
+      <DialogBackdrop className="fixed inset-0 bg-primary/45 backdrop-blur-sm" />
 
       {/* Dialog container */}
       <div className="fixed inset-0 overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-2 sm:p-4">
           {/* Dialog panel */}
-          <DialogPanel className="relative w-full max-w-7xl rounded-xl border border-border/60 bg-linear-to-br from-background via-background/96 to-secondary/24 p-3 shadow-2xl ring-1 ring-border/35 sm:rounded-2xl sm:p-6">
+          <DialogPanel className="glass-surface relative w-full max-w-7xl p-3 sm:p-6">
             {/* Header */}
             <div className="mb-4 sm:mb-6">
               <div className="mb-3 flex min-w-0 items-center justify-between gap-2">
                 <DialogTitle className="min-w-0 flex-1 truncate text-sm font-bold text-foreground sm:text-base lg:text-lg">
                   {modelId}
                 </DialogTitle>
-                <button
-                  onClick={onClose}
-                  className="shrink-0 rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-foreground"
-                >
+                <button onClick={onClose} className="glass-icon-control shrink-0 text-muted">
                   <XMarkIcon className="size-5" />
                 </button>
               </div>
@@ -121,7 +119,7 @@ export function CoverageDebugDialog({
             {isLoading ? (
               <div className="space-y-4 sm:space-y-6">
                 {/* Summary Card */}
-                <div className="rounded-xl border border-border/65 bg-linear-to-br from-surface/95 via-surface/86 to-secondary/35 p-3 shadow-sm ring-1 ring-border/35 sm:p-4">
+                <div className="glass-surface-subtle p-3 sm:p-4">
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
                     {[1, 2, 3, 4].map(i => (
                       <div key={i} className="space-y-1">
@@ -135,7 +133,7 @@ export function CoverageDebugDialog({
                 {/* Model Coverage & Validation */}
                 <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
                   {/* Model Coverage */}
-                  <div className="rounded-xl border border-border/70 bg-surface/72 p-3 shadow-sm ring-1 ring-border/35 sm:p-4">
+                  <div className="glass-surface-subtle p-3 sm:p-4">
                     <div className="mb-3 h-5 w-32 animate-shimmer rounded-sm bg-linear-to-r from-secondary via-surface to-secondary bg-[length:200%_100%]" />
                     <div className="space-y-3">
                       {[1, 2, 3].map(i => (
@@ -160,7 +158,7 @@ export function CoverageDebugDialog({
                   </div>
 
                   {/* Validation */}
-                  <div className="rounded-xl border border-border/70 bg-surface/72 p-3 shadow-sm ring-1 ring-border/35 sm:p-4">
+                  <div className="glass-surface-subtle p-3 sm:p-4">
                     <div className="mb-3 h-5 w-36 animate-shimmer rounded-sm bg-linear-to-r from-secondary via-surface to-secondary bg-[length:200%_100%]" />
                     <div className="space-y-4">
                       {[1, 2, 3].map(i => (
@@ -186,11 +184,14 @@ export function CoverageDebugDialog({
                 </div>
 
                 {/* Dependencies */}
-                <div className="rounded-xl border border-border/70 bg-surface/72 p-3 shadow-sm ring-1 ring-border/35 sm:p-4">
+                <div className="glass-surface-subtle p-3 sm:p-4">
                   <div className="mb-3 h-5 w-28 animate-shimmer rounded-sm bg-linear-to-r from-secondary via-surface to-secondary bg-[length:200%_100%]" />
                   <div className="space-y-3">
                     {[1, 2, 3].map(i => (
-                      <div key={i} className="rounded-lg bg-surface/66 p-2 ring-1 ring-border/35 sm:p-3">
+                      <div
+                        key={i}
+                        className="rounded-lg border border-border/45 bg-surface/72 p-2 ring-1 ring-border/30 sm:p-3"
+                      >
                         <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div className="flex flex-wrap items-center gap-2">
                             <div className="h-4 w-48 animate-shimmer rounded-xs bg-linear-to-r from-secondary via-surface to-secondary bg-[length:200%_100%]" />
@@ -213,12 +214,12 @@ export function CoverageDebugDialog({
               </div>
             ) : error ? (
               <div className="rounded-xl border border-danger/45 bg-danger/12 p-3 ring-1 ring-danger/20 sm:p-4">
-                <p className="text-sm text-danger sm:text-base">Error loading debug data: {error.message}</p>
+                <p className="text-sm text-danger sm:text-base">Error loading debug data: {getErrorMessage(error)}</p>
               </div>
             ) : data ? (
               <div className="space-y-4 sm:space-y-6">
                 {/* Summary Card */}
-                <div className="rounded-xl border border-border/65 bg-linear-to-br from-surface/95 via-surface/86 to-secondary/35 p-3 shadow-sm ring-1 ring-border/35 sm:p-4">
+                <div className="glass-surface-subtle p-3 sm:p-4">
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
                     <div>
                       <p className="text-xs text-muted">{transformation?.name || 'Position'}</p>
@@ -259,7 +260,7 @@ export function CoverageDebugDialog({
                 <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
                   {/* Model Coverage */}
                   {data.model_coverage && (
-                    <div className="rounded-xl border border-border/70 bg-surface/72 p-3 shadow-sm ring-1 ring-border/35 sm:p-4">
+                    <div className="glass-surface-subtle p-3 sm:p-4">
                       <h4 className="mb-3 text-sm font-semibold text-foreground">Model Coverage</h4>
                       <div className="space-y-3">
                         <div>
