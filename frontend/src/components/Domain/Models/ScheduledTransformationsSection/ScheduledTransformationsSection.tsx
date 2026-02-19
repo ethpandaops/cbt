@@ -87,7 +87,7 @@ export function ScheduledTransformationsSection(): JSX.Element {
   const sortedModels = [...(scheduledTransformations.data?.models || [])].sort((a, b) => a.id.localeCompare(b.id));
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {sortedModels.map(model => {
         const modelRun = runs.data?.runs.find(r => r.id === model.id);
         const isHighlighted = highlightedModels.has(model.id);

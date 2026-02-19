@@ -28,22 +28,20 @@ export function ZoomControls({
   const isDisabled = (globalMin === 0 && globalMax === 0) || (globalMin === 0 && globalMax === 100);
 
   return (
-    <div
-      className={`rounded-xl border border-border/65 bg-linear-to-br from-surface/95 via-surface/88 to-secondary/35 px-3 py-2 shadow-sm ring-1 ring-border/45 backdrop-blur-sm ${isDisabled ? 'opacity-50' : ''}`}
-    >
+    <div className={`glass-surface-subtle px-3 py-2 ${isDisabled ? 'opacity-50' : ''}`}>
       <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-[10px] font-bold tracking-[0.12em] text-muted uppercase">
           {transformationName || transformation?.name || 'Range'}
         </span>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="rounded-lg bg-surface/85 px-2.5 py-1 font-mono text-[10px] font-semibold text-primary ring-1 ring-border/60 sm:px-3 sm:py-1.5 sm:text-xs">
+          <div className="rounded-lg border border-border/55 bg-surface/92 px-2.5 py-1 font-mono text-[10px] font-semibold text-primary ring-1 ring-border/35 sm:px-3 sm:py-1.5 sm:text-xs">
             {isDisabled
               ? 'min: N/A max: N/A'
               : transformation
                 ? `min: ${formatValue(transformValue(globalMin, transformation), transformation.format)} max: ${formatValue(transformValue(globalMax, transformation), transformation.format)}`
                 : `min: ${globalMin.toLocaleString()} max: ${globalMax.toLocaleString()}`}
           </div>
-          <div className="rounded-lg bg-linear-to-r from-accent/18 to-accent/10 px-2.5 py-1 font-mono text-[10px] font-bold text-accent ring-1 ring-accent/45 sm:px-3 sm:py-1.5 sm:text-xs">
+          <div className="rounded-lg border border-accent/35 bg-linear-to-r from-accent/17 to-accent/8 px-2.5 py-1 font-mono text-[10px] font-bold text-accent ring-1 ring-accent/35 sm:px-3 sm:py-1.5 sm:text-xs">
             {isDisabled
               ? 'N/A - N/A'
               : transformation

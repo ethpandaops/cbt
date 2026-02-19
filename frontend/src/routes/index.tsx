@@ -16,17 +16,14 @@ function IndexComponent(): JSX.Element {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       {/* Section 1: Incremental Transformations (Transformations & External) */}
       <section className="relative">
-        <div className="mb-8 flex items-center gap-6">
-          <div className="relative">
-            <div className="absolute inset-0 bg-linear-to-r from-incremental/34 via-accent/30 to-incremental/25 blur-xl" />
-            <h2 className="relative bg-linear-to-r from-incremental via-accent to-incremental bg-clip-text text-4xl font-black tracking-tight text-transparent">
-              Incremental Transformations
-            </h2>
-          </div>
-          <div className="h-px flex-1 bg-linear-to-r from-incremental/50 via-accent/35 to-transparent" />
+        <div className="mb-6 flex items-center gap-4 sm:mb-7 sm:gap-6">
+          <h2 className="bg-linear-to-r from-incremental via-accent to-incremental bg-clip-text text-3xl font-black tracking-tight text-transparent sm:text-4xl">
+            Incremental Transformations
+          </h2>
+          <div className="h-px flex-1 bg-linear-to-r from-incremental/35 via-accent/20 to-transparent" />
         </div>
         <div className="relative">
           <IncrementalModelsSection zoomRanges={zoomRanges} onZoomChange={handleZoomChange} />
@@ -35,14 +32,11 @@ function IndexComponent(): JSX.Element {
 
       {/* Section 2: Scheduled Transformation Model Runs */}
       <section className="relative">
-        <div className="mb-8 flex items-center gap-6">
-          <div className="relative">
-            <div className="absolute inset-0 bg-linear-to-r from-scheduled/34 via-accent/28 to-scheduled/25 blur-xl" />
-            <h2 className="relative bg-linear-to-r from-scheduled via-accent to-scheduled bg-clip-text text-4xl font-black tracking-tight text-transparent">
-              Scheduled Transformations
-            </h2>
-          </div>
-          <div className="h-px flex-1 bg-linear-to-r from-scheduled/50 via-accent/30 to-transparent" />
+        <div className="mb-6 flex items-center gap-4 sm:mb-7 sm:gap-6">
+          <h2 className="bg-linear-to-r from-scheduled via-accent to-scheduled bg-clip-text text-3xl font-black tracking-tight text-transparent sm:text-4xl">
+            Scheduled Transformations
+          </h2>
+          <div className="h-px flex-1 bg-linear-to-r from-scheduled/35 via-accent/20 to-transparent" />
         </div>
         <div className="relative">
           <ScheduledTransformationsSection />

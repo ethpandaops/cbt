@@ -18,7 +18,7 @@ interface DeletePeriodDialogProps {
 }
 
 const inputClassName =
-  'mt-1 block w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted/50 focus:border-accent focus:ring-1 focus:ring-accent focus:outline-hidden disabled:opacity-50';
+  'mt-1 block w-full rounded-lg border border-border/65 bg-surface/90 px-3 py-2 text-sm text-foreground placeholder:text-muted/60 shadow-xs ring-1 ring-border/35 focus:border-accent focus:ring-2 focus:ring-accent/45 focus:outline-hidden disabled:opacity-50';
 
 export function DeletePeriodDialog({
   open,
@@ -195,11 +195,11 @@ export function DeletePeriodDialog({
 
   return (
     <Dialog open={open} onClose={onClose} className="relative z-50">
-      <DialogBackdrop className="fixed inset-0 bg-black/40 backdrop-blur-xs" />
+      <DialogBackdrop className="fixed inset-0 bg-primary/28 backdrop-blur-sm" />
       <div className="fixed inset-0 flex items-center justify-center p-4">
-        <DialogPanel className="w-full max-w-screen-2xl rounded-xl border border-border/50 bg-surface p-6 shadow-lg">
+        <DialogPanel className="glass-surface w-full max-w-screen-2xl p-6">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-danger/10">
+            <div className="flex size-10 items-center justify-center rounded-lg border border-danger/30 bg-danger/12 ring-1 ring-danger/20">
               <TrashIcon className="size-5 text-danger" />
             </div>
             <DialogTitle className="text-lg font-semibold text-foreground">Delete Period</DialogTitle>
@@ -230,8 +230,10 @@ export function DeletePeriodDialog({
                   />
                   {tooltipText && (
                     <div
-                      className={`pointer-events-none absolute -top-8 z-10 rounded px-1.5 py-0.5 text-[10px] whitespace-nowrap text-white shadow-lg ring-1 ${
-                        tooltipMissing ? 'bg-danger/90 ring-danger/30' : 'bg-background ring-border/30'
+                      className={`pointer-events-none absolute -top-8 z-10 rounded px-1.5 py-0.5 text-[10px] whitespace-nowrap shadow-lg ring-1 ${
+                        tooltipMissing
+                          ? 'bg-danger/90 text-white ring-danger/30'
+                          : 'bg-primary text-background ring-primary/30'
                       }`}
                       style={{
                         left: `${tooltipX}px`,
@@ -291,7 +293,7 @@ export function DeletePeriodDialog({
               </div>
             </div>
 
-            <div className="flex items-center gap-4 rounded-lg border border-border/40 bg-secondary/30 px-3 py-2 text-xs text-muted">
+            <div className="glass-surface-subtle flex items-center gap-4 rounded-lg px-3 py-2 text-xs text-muted">
               <span>
                 Start: <span className="font-medium text-foreground">{startConverted}</span>
               </span>
@@ -321,14 +323,14 @@ export function DeletePeriodDialog({
                 type="button"
                 onClick={onClose}
                 disabled={isDeleting}
-                className="rounded-lg px-3 py-2 text-sm font-medium text-muted hover:text-foreground disabled:opacity-50"
+                className="glass-control px-3 py-2 text-sm font-medium text-muted hover:text-primary disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={!valid || isDeleting}
-                className="rounded-lg bg-danger px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-danger/90 disabled:opacity-50"
+                className="rounded-lg border border-danger/40 bg-danger px-4 py-2 text-sm font-medium text-white shadow-xs transition-colors hover:bg-danger/90 disabled:opacity-50"
               >
                 {isDeleting ? 'Deleting...' : 'Delete'}
               </button>

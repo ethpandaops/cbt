@@ -27,30 +27,30 @@ export function ModelInfoCard({
   const highlightStyles: Record<string, { field: string; label: string; value: string }> = {
     external: {
       field:
-        'rounded-xl bg-linear-to-br from-external/20 via-external/10 to-external/5 p-4 ring-1 ring-external/45 shadow-sm',
+        'rounded-xl bg-linear-to-br from-external/16 via-external/8 to-external/4 p-4 ring-1 ring-external/35 shadow-xs',
       label: 'mb-1 font-semibold text-external',
       value: 'font-mono text-base font-bold text-external',
     },
     incremental: {
       field:
-        'rounded-xl bg-linear-to-br from-incremental/18 via-incremental/10 to-incremental/5 p-4 ring-1 ring-incremental/45 shadow-sm',
+        'rounded-xl bg-linear-to-br from-incremental/15 via-incremental/8 to-incremental/4 p-4 ring-1 ring-incremental/35 shadow-xs',
       label: 'mb-1 font-semibold text-incremental',
       value: 'font-mono text-base font-bold text-incremental',
     },
     scheduled: {
       field:
-        'rounded-xl bg-linear-to-br from-scheduled/20 via-scheduled/10 to-scheduled/5 p-4 ring-1 ring-scheduled/45 shadow-sm',
+        'rounded-xl bg-linear-to-br from-scheduled/16 via-scheduled/8 to-scheduled/4 p-4 ring-1 ring-scheduled/35 shadow-xs',
       label: 'mb-1 font-semibold text-scheduled',
       value: 'font-mono text-base font-bold text-scheduled',
     },
     warning: {
       field:
-        'rounded-xl bg-linear-to-br from-warning/20 via-warning/10 to-warning/5 p-4 ring-1 ring-warning/45 shadow-sm',
+        'rounded-xl bg-linear-to-br from-warning/16 via-warning/8 to-warning/4 p-4 ring-1 ring-warning/35 shadow-xs',
       label: 'mb-1 font-semibold text-warning',
       value: 'font-mono text-base font-bold text-warning',
     },
     accent: {
-      field: 'rounded-xl bg-linear-to-br from-accent/20 via-accent/10 to-accent/5 p-4 ring-1 ring-accent/45 shadow-sm',
+      field: 'rounded-xl bg-linear-to-br from-accent/16 via-accent/8 to-accent/4 p-4 ring-1 ring-accent/35 shadow-xs',
       label: 'mb-1 font-semibold text-accent',
       value: 'font-mono text-base font-bold text-accent',
     },
@@ -60,7 +60,7 @@ export function ModelInfoCard({
     if (field.variant === 'highlight') {
       return highlightStyles[field.highlightColor || 'incremental']?.field ?? highlightStyles.incremental.field;
     }
-    return 'rounded-xl bg-background/66 p-4 ring-1 ring-border/50';
+    return 'rounded-xl border border-border/45 bg-surface/74 p-4 ring-1 ring-border/30';
   };
 
   const getLabelClassName = (field: InfoField): string => {
@@ -78,9 +78,7 @@ export function ModelInfoCard({
   };
 
   return (
-    <div
-      className={`rounded-2xl border ${borderColor} bg-linear-to-br from-surface/95 via-surface/86 to-secondary/32 p-4 shadow-lg ring-1 ring-border/55 backdrop-blur-sm sm:p-6`}
-    >
+    <div className={`glass-surface border ${borderColor} p-4 sm:p-6`}>
       <h2 className="mb-3 text-base font-bold text-foreground sm:mb-4 sm:text-lg">{title}</h2>
       <dl className={`grid ${gridCols} gap-x-4 gap-y-3 text-sm sm:gap-x-6 sm:gap-y-4`}>
         {fields.map((field, index) => (

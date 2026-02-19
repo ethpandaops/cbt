@@ -187,11 +187,11 @@ export function ConfigOverrideDialog({
 
   return (
     <Dialog open={open} onClose={onClose} className="relative z-50">
-      <DialogBackdrop className="fixed inset-0 bg-black/40 backdrop-blur-xs" />
+      <DialogBackdrop className="fixed inset-0 bg-primary/28 backdrop-blur-sm" />
       <div className="fixed inset-0 flex items-center justify-center p-4">
-        <DialogPanel className="w-full max-w-md rounded-xl border border-border/50 bg-surface p-6 shadow-lg">
+        <DialogPanel className="glass-surface w-full max-w-md p-6">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-accent/10">
+            <div className="flex size-10 items-center justify-center rounded-lg border border-accent/30 bg-accent/12 ring-1 ring-accent/20">
               <AdjustmentsHorizontalIcon className="size-5 text-accent" />
             </div>
             <div>
@@ -214,7 +214,7 @@ export function ConfigOverrideDialog({
                   type="button"
                   onClick={handleFormat}
                   disabled={busy}
-                  className="rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:bg-secondary/35 hover:text-foreground disabled:opacity-50"
+                  className="glass-control rounded-md px-2.5 py-1 text-xs font-medium text-muted hover:text-primary disabled:opacity-50"
                 >
                   Format JSON
                 </button>
@@ -222,7 +222,7 @@ export function ConfigOverrideDialog({
                   type="button"
                   onClick={handleValidate}
                   disabled={busy}
-                  className="rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:bg-secondary/35 hover:text-foreground disabled:opacity-50"
+                  className="glass-control rounded-md px-2.5 py-1 text-xs font-medium text-muted hover:text-primary disabled:opacity-50"
                 >
                   Validate
                 </button>
@@ -231,7 +231,7 @@ export function ConfigOverrideDialog({
             <div
               className={`overflow-hidden rounded-lg border ${
                 parseError ? 'border-danger/55 dark:border-danger/30' : 'border-border/60'
-              } bg-background ${busy ? 'opacity-60' : ''}`}
+              } bg-surface/90 ring-1 ring-border/35 ${busy ? 'opacity-60' : ''}`}
             >
               <CodeMirror
                 value={json}
@@ -288,7 +288,7 @@ export function ConfigOverrideDialog({
                 type="button"
                 onClick={onClose}
                 disabled={busy}
-                className="rounded-lg px-3 py-2 text-sm font-medium text-muted hover:text-foreground disabled:opacity-50"
+                className="glass-control px-3 py-2 text-sm font-medium text-muted hover:text-primary disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -296,7 +296,7 @@ export function ConfigOverrideDialog({
                 type="button"
                 onClick={handleSave}
                 disabled={busy}
-                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50 dark:text-background"
+                className="rounded-lg border border-accent/50 bg-accent px-4 py-2 text-sm font-medium text-white shadow-xs transition-colors hover:bg-accent/90 disabled:opacity-50 dark:text-background"
               >
                 {isSaving ? 'Saving...' : 'Save Override'}
               </button>

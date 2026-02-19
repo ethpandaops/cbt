@@ -28,7 +28,7 @@ export function ThemeProvider({ children }: ThemeProviderProps): JSX.Element {
       root.classList.add('dark');
     }
 
-    const themeColors: Record<Theme, string> = { light: '#f6f6f6', dark: '#050a14' };
+    const themeColors: Record<Theme, string> = { light: '#f2f6ff', dark: '#050a14' };
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) {
       meta.setAttribute('content', themeColors[theme]);

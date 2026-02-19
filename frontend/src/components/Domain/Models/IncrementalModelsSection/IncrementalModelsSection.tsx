@@ -286,9 +286,9 @@ export function IncrementalModelsSection({ zoomRanges, onZoomChange }: Increment
             ref={el => {
               if (el) sectionRefs.current.set(intervalType, el);
             }}
-            className="group relative overflow-hidden rounded-2xl border border-border/80 bg-surface/90 p-4 shadow-sm ring-1 shadow-primary/6 ring-border/60 backdrop-blur-sm transition-all duration-300 hover:shadow-lg hover:shadow-primary/10 hover:ring-accent/45 sm:p-6 dark:border-incremental/30 dark:bg-surface/80 dark:ring-border/50 dark:hover:ring-accent/50"
+            className="glass-surface group relative overflow-hidden p-4 transition-all duration-300 hover:shadow-xl hover:shadow-primary/10 hover:ring-accent/45 sm:p-6"
           >
-            <div className="absolute inset-0 bg-linear-to-br from-incremental/10 via-transparent to-incremental/5 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+            <div className="absolute inset-0 bg-linear-to-br from-incremental/9 via-transparent to-incremental/5 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
             <div className="relative">
               <div className="mb-4 flex flex-col gap-3 sm:mb-6">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -416,7 +416,10 @@ export function IncrementalModelsSection({ zoomRanges, onZoomChange }: Increment
           </div>
         );
       })}
-      <Tooltip id="coverage-tooltip" className="!rounded !bg-gray-900 !px-2 !py-1 !text-xs !text-white !opacity-100" />
+      <Tooltip
+        id="coverage-tooltip"
+        className="!rounded !bg-primary !px-2 !py-1 !text-xs !text-background !opacity-100"
+      />
     </div>
   );
 }

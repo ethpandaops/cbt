@@ -26,8 +26,8 @@ export function ZoomPresets({ activePreset, onPresetClick, disabled = false }: Z
               disabled
                 ? 'cursor-not-allowed opacity-40'
                 : isActive
-                  ? 'bg-accent text-white shadow-sm ring-1 shadow-accent/25 ring-accent/75 dark:bg-accent/45 dark:text-primary dark:shadow-accent/35 dark:ring-accent/80'
-                  : 'bg-surface/95 text-primary shadow-sm ring-1 ring-border/75 hover:bg-secondary/85 hover:text-accent hover:ring-accent/55 active:scale-[0.98] dark:bg-surface/85 dark:text-foreground dark:ring-border/65 dark:hover:bg-secondary/80 dark:hover:ring-accent/65'
+                  ? 'bg-accent text-white shadow-sm ring-1 shadow-accent/20 ring-accent/70'
+                  : 'glass-control'
             }`}
           >
             <Icon className="size-3.5 sm:size-4" />

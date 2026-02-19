@@ -297,8 +297,8 @@ function ModelDetailComponent(): JSX.Element {
         )}
 
         {transformation?.content && transformation.content_type === 'exec' && (
-          <div className="overflow-hidden rounded-xl border border-scheduled/45 bg-linear-to-br from-surface/95 via-surface/86 to-secondary/30 shadow-lg ring-1 ring-border/50">
-            <div className="border-b border-border/55 bg-surface/75 px-4 py-2">
+          <div className="glass-surface overflow-hidden border-scheduled/35">
+            <div className="border-b border-border/50 bg-surface/78 px-4 py-2">
               <span className="text-sm font-semibold text-foreground">Execution Command</span>
             </div>
             <div className="p-4">
@@ -314,7 +314,7 @@ function ModelDetailComponent(): JSX.Element {
 
   // Incremental transformation - use separate component
   return (
-    <div>
+    <div className="space-y-6">
       <ModelHeader modelId={decodedId} modelType="incremental" />
       <BackToDashboardButton />
       <ModelAdminActions

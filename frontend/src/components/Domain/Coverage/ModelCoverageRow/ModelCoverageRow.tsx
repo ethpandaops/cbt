@@ -43,7 +43,7 @@ export function ModelCoverageRow({
     <Link
       to="/model/$id"
       params={{ id: encodeURIComponent(model.id) }}
-      className={`group/row block transition-all ${isHighlighted ? 'brightness-125' : isDimmed ? 'opacity-40' : ''}`}
+      className={`group/row block rounded-md transition-all ${isHighlighted ? 'brightness-110 saturate-125' : isDimmed ? 'opacity-40' : ''}`}
       data-model-id={model.id}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
@@ -69,7 +69,7 @@ export function ModelCoverageRow({
                   ? 'text-primary dark:text-primary'
                   : isDimmed
                     ? 'text-foreground/65 dark:text-foreground'
-                    : 'text-foreground/78 group-hover/row:text-primary dark:text-foreground dark:group-hover/row:text-primary'
+                    : 'text-foreground/82 group-hover/row:text-primary dark:text-foreground dark:group-hover/row:text-primary'
               }`}
               title={model.id}
             >

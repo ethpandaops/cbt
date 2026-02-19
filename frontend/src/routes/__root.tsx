@@ -98,18 +98,18 @@ function RootComponent(): JSX.Element {
             <BackgroundPoller />
             <HeadContent />
             <div className="relative min-h-dvh bg-background">
-              <header className="relative z-30 border-b border-border/50 bg-surface/60 shadow-sm backdrop-blur-xl">
-                <div className="mx-auto max-w-screen-4xl px-4 py-6 sm:px-6 lg:px-8">
+              <header className="relative z-30 border-b border-border/55 bg-surface/72 shadow-sm backdrop-blur-xl">
+                <div className="mx-auto max-w-screen-4xl px-4 py-4 sm:px-6 lg:px-8">
                   <div className="flex items-center gap-4 md:gap-6">
                     <div className="group relative shrink-0">
-                      <div className="absolute -inset-0.5 rounded-2xl opacity-75 transition-opacity group-hover:opacity-100">
+                      <div className="absolute -inset-0.5 rounded-2xl opacity-45 transition-opacity group-hover:opacity-80">
                         <div className="glimmer-border absolute inset-0 rounded-2xl" style={{ padding: '2px' }}>
                           <div className="size-full rounded-2xl bg-surface" />
                         </div>
                       </div>
                       <img
                         src={Logo}
-                        className="relative size-12 rounded-2xl object-contain transition-all duration-500 group-hover:scale-105 sm:size-14 md:size-20"
+                        className="relative size-11 rounded-2xl object-contain transition-all duration-500 group-hover:scale-105 sm:size-12 md:size-16"
                         alt="Logo"
                       />
                     </div>
@@ -138,11 +138,11 @@ function RootComponent(): JSX.Element {
                         </div>
 
                         <TabGroup selectedIndex={selectedIndex} onChange={handleTabChange}>
-                          <TabList className="flex items-center gap-1 rounded-lg bg-secondary/40 p-1">
-                            <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-foreground/80 transition-all hover:bg-secondary/60 hover:text-accent focus:outline-hidden data-[selected]:bg-accent/20 data-[selected]:text-accent data-[selected]:shadow-xs sm:px-4 sm:py-2 sm:text-sm">
+                          <TabList className="glass-toolbar flex items-center gap-1 p-1">
+                            <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-foreground/85 transition-all hover:bg-secondary/75 hover:text-accent focus:outline-hidden data-[selected]:bg-accent/20 data-[selected]:text-accent data-[selected]:shadow-xs data-[selected]:ring-1 data-[selected]:ring-accent/35 sm:px-4 sm:py-2 sm:text-sm">
                               Dashboard
                             </Tab>
-                            <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-foreground/80 transition-all hover:bg-secondary/60 hover:text-accent focus:outline-hidden data-[selected]:bg-accent/20 data-[selected]:text-accent data-[selected]:shadow-xs sm:px-4 sm:py-2 sm:text-sm">
+                            <Tab className="rounded-md px-3 py-1.5 text-xs font-semibold text-foreground/85 transition-all hover:bg-secondary/75 hover:text-accent focus:outline-hidden data-[selected]:bg-accent/20 data-[selected]:text-accent data-[selected]:shadow-xs data-[selected]:ring-1 data-[selected]:ring-accent/35 sm:px-4 sm:py-2 sm:text-sm">
                               DAG View
                             </Tab>
                           </TabList>
@@ -155,7 +155,7 @@ function RootComponent(): JSX.Element {
                 </div>
               </header>
 
-              <main className="relative mx-auto max-w-screen-4xl px-4 py-10 sm:px-6 lg:px-8">
+              <main className="relative mx-auto max-w-screen-4xl px-4 py-8 sm:px-6 sm:py-9 lg:px-8 lg:py-10">
                 <Outlet />
               </main>
             </div>

@@ -454,13 +454,13 @@ export function ModelDetailView({
   }
 
   return (
-    <div className="space-y-7">
+    <div className="space-y-6">
       <ModelInfoCard title="Model Information" fields={infoFields} borderColor="border-incremental/30" columns={4} />
 
       {/* DAG Visualization - only for incremental models with dependencies */}
       {dagData && orderedDeps.length > 0 && (
         <div
-          className={`rounded-2xl border border-incremental/45 bg-linear-to-br from-surface/95 via-surface/86 to-secondary/35 p-4 shadow-lg ring-1 ring-border/55 backdrop-blur-sm sm:p-6 ${
+          className={`glass-surface border-incremental/35 p-4 sm:p-6 ${
             fullscreenSection === 'dag' ? 'fixed inset-0 z-50 m-0 rounded-none' : ''
           }`}
         >
@@ -470,7 +470,7 @@ export function ModelDetailView({
             </h2>
             <button
               onClick={() => setFullscreenSection(fullscreenSection === 'dag' ? null : 'dag')}
-              className="rounded-lg p-2 text-muted transition-colors hover:bg-secondary/75 hover:text-primary"
+              className="glass-icon-control text-muted"
               title={fullscreenSection === 'dag' ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
             >
               {fullscreenSection === 'dag' ? (
@@ -488,10 +488,7 @@ export function ModelDetailView({
         </div>
       )}
 
-      <div
-        ref={sectionRef}
-        className="rounded-2xl border border-incremental/45 bg-linear-to-br from-surface/95 via-surface/86 to-secondary/35 p-4 shadow-lg ring-1 ring-border/55 backdrop-blur-sm sm:p-6"
-      >
+      <div ref={sectionRef} className="glass-surface border-incremental/35 p-4 sm:p-6">
         <div className="mb-4 flex flex-col gap-4 sm:mb-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
@@ -547,7 +544,7 @@ export function ModelDetailView({
               disabled={!hasData}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs sm:gap-4">
+          <div className="glass-toolbar flex w-fit flex-wrap items-center gap-3 px-3 py-2 text-xs sm:gap-4">
             <div className="flex items-center gap-1.5 sm:gap-2">
               <div className="size-2.5 rounded-sm bg-incremental sm:size-3" />
               <span className="font-medium text-primary/80">This Model</span>
@@ -589,7 +586,7 @@ export function ModelDetailView({
           <div className="mt-8 border-t border-border/60 pt-6">
             <h3 className="mb-4 text-base font-bold text-foreground">
               Dependencies{' '}
-              <span className="ml-2 rounded-full bg-linear-to-r from-secondary/95 to-secondary/65 px-2 py-0.5 text-xs font-bold text-primary ring-1 ring-border/55">
+              <span className="ml-2 rounded-full border border-border/45 bg-secondary/70 px-2 py-0.5 text-xs font-bold text-primary ring-1 ring-border/30">
                 {orderedDeps.length}
               </span>
             </h3>
@@ -662,8 +659,8 @@ export function ModelDetailView({
       )}
 
       {transformation?.content && transformation.content_type === 'exec' && (
-        <div className="overflow-hidden rounded-xl border border-incremental/45 bg-linear-to-br from-surface/95 via-surface/86 to-secondary/30 shadow-lg ring-1 ring-border/50">
-          <div className="border-b border-border/55 bg-surface/75 px-4 py-2">
+        <div className="glass-surface overflow-hidden border-incremental/35">
+          <div className="border-b border-border/50 bg-surface/78 px-4 py-2">
             <span className="text-sm font-semibold text-foreground">Execution Command</span>
           </div>
           <div className="p-4">

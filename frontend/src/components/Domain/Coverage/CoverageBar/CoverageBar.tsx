@@ -106,7 +106,7 @@ export function CoverageBar({
 
     return (
       <div
-        className={`relative overflow-hidden rounded-sm bg-secondary/95 ring-1 transition-all dark:bg-surface/85 ${isHighlighted ? 'ring-2 ring-external/50' : 'ring-border/50'} ${className} ${onCoverageClick ? 'cursor-pointer' : ''}`}
+        className={`relative overflow-hidden rounded-sm bg-surface/74 ring-1 transition-all dark:bg-surface/85 ${isHighlighted ? 'ring-2 ring-external/45' : 'ring-border/45'} ${className} ${onCoverageClick ? 'cursor-pointer' : ''}`}
         style={{ height: `${height}px` }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
@@ -123,7 +123,7 @@ export function CoverageBar({
           return (
             <div
               key={`gap-${idx}`}
-              className="absolute h-full transition-colors hover:bg-danger/20"
+              className="absolute h-full transition-colors hover:bg-danger/16"
               style={{
                 left: `${left}%`,
                 width: `${width}%`,
@@ -135,7 +135,7 @@ export function CoverageBar({
         {/* Render covered range */}
         {isVisible && (
           <div
-            className="absolute h-full bg-external/78 transition-[filter,opacity] hover:brightness-110 dark:bg-external/60 dark:hover:brightness-115"
+            className="absolute h-full bg-external/72 transition-[filter,opacity] hover:brightness-110 dark:bg-external/60 dark:hover:brightness-115"
             style={{
               left: `${Math.max(0, ((bounds.min - zoomStart) / range) * 100)}%`,
               width: `${Math.min(100, ((Math.min(bounds.max, zoomEnd) - Math.max(bounds.min, zoomStart)) / range) * 100)}%`,
@@ -211,7 +211,7 @@ export function CoverageBar({
 
     return (
       <div
-        className={`relative overflow-hidden rounded-sm bg-secondary/95 ring-1 transition-all dark:bg-surface/85 ${isHighlighted ? 'ring-2 ring-accent/60' : 'ring-border/50'} ${className} ${onCoverageClick ? 'cursor-pointer' : ''}`}
+        className={`relative overflow-hidden rounded-sm bg-surface/74 ring-1 transition-all dark:bg-surface/85 ${isHighlighted ? 'ring-2 ring-accent/50' : 'ring-border/45'} ${className} ${onCoverageClick ? 'cursor-pointer' : ''}`}
         style={{ height: `${height}px` }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
@@ -228,7 +228,7 @@ export function CoverageBar({
           return (
             <div
               key={`gap-${idx}`}
-              className="absolute h-full transition-colors hover:bg-danger/20"
+              className="absolute h-full transition-colors hover:bg-danger/16"
               style={{
                 left: `${left}%`,
                 width: `${width}%`,
@@ -248,7 +248,7 @@ export function CoverageBar({
           return (
             <div
               key={idx}
-              className="absolute h-full bg-incremental/46 saturate-150 transition-[filter,opacity] hover:brightness-115 dark:bg-incremental/76 dark:hover:brightness-115"
+              className="absolute h-full bg-incremental/42 saturate-150 transition-[filter,opacity] hover:brightness-115 dark:bg-incremental/76 dark:hover:brightness-115"
               style={{
                 left: `${left}%`,
                 width: `${width}%`,
@@ -264,7 +264,7 @@ export function CoverageBar({
   // Fallback - empty bar
   return (
     <div
-      className={`relative overflow-hidden rounded-md bg-secondary ring-1 transition-all ${isHighlighted ? 'ring-2 ring-accent/60' : 'ring-border/50'} ${className} ${onCoverageClick ? 'cursor-pointer' : ''}`}
+      className={`relative overflow-hidden rounded-md bg-surface/74 ring-1 transition-all ${isHighlighted ? 'ring-2 ring-accent/50' : 'ring-border/45'} ${className} ${onCoverageClick ? 'cursor-pointer' : ''}`}
       style={{ height: `${height}px` }}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
