@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -123,24 +124,30 @@ func (h *GitHubHandler) HandleLogin(c fiber.Ctx) error {
 
 	challenge := generatePKCEChallenge(verifier)
 
-	url := h.oauth2Config.AuthCodeURL(
+	authURL := h.oauth2Config.AuthCodeURL(
 		state,
 		oauth2.SetAuthURLParam("code_challenge", challenge),
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 	)
 
-	return c.Redirect().To(url)
+	return c.Redirect().To(authURL)
 }
 
 // HandleCallback processes the GitHub OAuth callback, exchanges the code for
 // a token, validates the user, creates a session, and redirects to the root.
 func (h *GitHubHandler) HandleCallback(c fiber.Ctx) error {
+	if oauthErr := c.Query("error"); oauthErr != "" {
+		return redirectToFrontendAuthError(
+			c, oauthErr, c.Query("error_description"),
+		)
+	}
+
 	state := c.Query("state")
 	code := c.Query("code")
 
 	if state == "" || code == "" {
-		return fiber.NewError(
-			fiber.StatusBadRequest, "missing state or code",
+		return redirectToFrontendAuthError(
+			c, "invalid_request", "missing state or code",
 		)
 	}
 
@@ -149,15 +156,15 @@ func (h *GitHubHandler) HandleCallback(c fiber.Ctx) error {
 
 	raw, err := h.redisClient.GetDel(c.Context(), key).Bytes()
 	if err != nil {
-		return fiber.NewError(
-			fiber.StatusBadRequest, "invalid or expired oauth state",
+		return redirectToFrontendAuthError(
+			c, "invalid_grant", "invalid or expired oauth state",
 		)
 	}
 
 	var stateData oauthStateData
 	if unmarshalErr := json.Unmarshal(raw, &stateData); unmarshalErr != nil {
-		return fiber.NewError(
-			fiber.StatusInternalServerError, "failed to parse state",
+		return redirectToFrontendAuthError(
+			c, "server_error", "failed to parse oauth state",
 		)
 	}
 
@@ -170,8 +177,8 @@ func (h *GitHubHandler) HandleCallback(c fiber.Ctx) error {
 	if err != nil {
 		h.log.WithError(err).Error("OAuth token exchange failed")
 
-		return fiber.NewError(
-			fiber.StatusUnauthorized, "token exchange failed",
+		return redirectToFrontendAuthError(
+			c, "access_denied", "token exchange failed",
 		)
 	}
 
@@ -180,8 +187,8 @@ func (h *GitHubHandler) HandleCallback(c fiber.Ctx) error {
 	if err != nil {
 		h.log.WithError(err).Error("Failed to get GitHub username")
 
-		return fiber.NewError(
-			fiber.StatusInternalServerError, "failed to get user info",
+		return redirectToFrontendAuthError(
+			c, "server_error", "failed to get user info",
 		)
 	}
 
@@ -193,7 +200,9 @@ func (h *GitHubHandler) HandleCallback(c fiber.Ctx) error {
 			WithError(validateErr).
 			Warn("GitHub user authorization denied")
 
-		return fiber.NewError(fiber.StatusForbidden, "access denied")
+		return redirectToFrontendAuthError(
+			c, "access_denied", "access denied",
+		)
 	}
 
 	// Create session.
@@ -202,8 +211,8 @@ func (h *GitHubHandler) HandleCallback(c fiber.Ctx) error {
 		AuthMode: "github",
 	})
 	if err != nil {
-		return fiber.NewError(
-			fiber.StatusInternalServerError, "failed to create session",
+		return redirectToFrontendAuthError(
+			c, "server_error", "failed to create session",
 		)
 	}
 
@@ -221,6 +230,19 @@ func (h *GitHubHandler) HandleCallback(c fiber.Ctx) error {
 	})
 
 	return c.Redirect().To("/")
+}
+
+func redirectToFrontendAuthError(
+	c fiber.Ctx,
+	code, description string,
+) error {
+	query := url.Values{}
+	query.Set("error", code)
+	if description != "" {
+		query.Set("error_description", description)
+	}
+
+	return c.Redirect().To("/?" + query.Encode())
 }
 
 // HandleLogout deletes the session and clears the cookie.

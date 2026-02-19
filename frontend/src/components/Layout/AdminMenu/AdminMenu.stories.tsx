@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { AuthContext, type AuthContextValue } from '@/contexts/AuthContext';
+import { NotificationProvider } from '@/providers/NotificationProvider';
 import { AdminMenu } from './AdminMenu';
 
 function createAuthValue(overrides: Partial<AuthContextValue>): AuthContextValue {
@@ -7,7 +8,9 @@ function createAuthValue(overrides: Partial<AuthContextValue>): AuthContextValue
     managementEnabled: true,
     authMethods: [],
     session: null,
+    oauthError: null,
     isLoading: false,
+    clearOAuthError: () => {},
     loginWithPassword: async () => false,
     loginWithGitHub: () => {},
     logout: () => {},
@@ -33,9 +36,11 @@ type Story = StoryObj<typeof AdminMenu>;
 export const NoAuth: Story = {
   decorators: [
     Story => (
-      <AuthContext.Provider value={createAuthValue({ authMethods: [], session: { authenticated: true } })}>
-        <Story />
-      </AuthContext.Provider>
+      <NotificationProvider>
+        <AuthContext.Provider value={createAuthValue({ authMethods: [], session: { authenticated: true } })}>
+          <Story />
+        </AuthContext.Provider>
+      </NotificationProvider>
     ),
   ],
 };
@@ -43,9 +48,11 @@ export const NoAuth: Story = {
 export const PasswordLocked: Story = {
   decorators: [
     Story => (
-      <AuthContext.Provider value={createAuthValue({ authMethods: ['password'], session: { authenticated: false } })}>
-        <Story />
-      </AuthContext.Provider>
+      <NotificationProvider>
+        <AuthContext.Provider value={createAuthValue({ authMethods: ['password'], session: { authenticated: false } })}>
+          <Story />
+        </AuthContext.Provider>
+      </NotificationProvider>
     ),
   ],
 };
@@ -53,14 +60,16 @@ export const PasswordLocked: Story = {
 export const Authenticated: Story = {
   decorators: [
     Story => (
-      <AuthContext.Provider
-        value={createAuthValue({
-          authMethods: ['github'],
-          session: { authenticated: true, username: 'octocat' },
-        })}
-      >
-        <Story />
-      </AuthContext.Provider>
+      <NotificationProvider>
+        <AuthContext.Provider
+          value={createAuthValue({
+            authMethods: ['github'],
+            session: { authenticated: true, username: 'octocat' },
+          })}
+        >
+          <Story />
+        </AuthContext.Provider>
+      </NotificationProvider>
     ),
   ],
 };

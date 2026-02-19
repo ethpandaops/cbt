@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useState, useMemo, useCallback } from 'react';
 import { AuthContext, type AuthMethod, type AuthSession } from '@/contexts/AuthContext';
 import { getInjectedConfig } from '@/utils/config';
+import { parseOAuthCallbackError, stripOAuthCallbackErrorParams } from '@/utils/oauth-error';
 
 const PASSWORD_STORAGE_KEY = 'cbt_admin_password';
 
@@ -15,6 +16,7 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
   const [managementEnabled, setManagementEnabled] = useState(config?.managementEnabled ?? false);
   const [authMethods, setAuthMethods] = useState<AuthMethod[]>(() => (config?.authMethods ?? []) as AuthMethod[]);
   const [session, setSession] = useState<AuthSession | null>(null);
+  const [oauthError, setOAuthError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const checkSession = useCallback(async (): Promise<boolean> => {
@@ -70,8 +72,23 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
   }, []);
 
   useEffect(() => {
+    const parsed = parseOAuthCallbackError(window.location.search);
+    if (parsed) {
+      setOAuthError(parsed.message);
+
+      const cleanedSearch = stripOAuthCallbackErrorParams(window.location.search);
+      const cleanedUrl = `${window.location.pathname}${cleanedSearch}${window.location.hash}`;
+      window.history.replaceState(window.history.state, '', cleanedUrl);
+    }
+  }, []);
+
+  useEffect(() => {
     void checkSession();
   }, [checkSession]);
+
+  const clearOAuthError = useCallback(() => {
+    setOAuthError(null);
+  }, []);
 
   const loginWithPassword = useCallback(
     async (password: string): Promise<boolean> => {
@@ -114,12 +131,24 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
       managementEnabled,
       authMethods,
       session,
+      oauthError,
       isLoading,
+      clearOAuthError,
       loginWithPassword,
       loginWithGitHub,
       logout,
     }),
-    [managementEnabled, authMethods, session, isLoading, loginWithPassword, loginWithGitHub, logout]
+    [
+      managementEnabled,
+      authMethods,
+      session,
+      oauthError,
+      isLoading,
+      clearOAuthError,
+      loginWithPassword,
+      loginWithGitHub,
+      logout,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

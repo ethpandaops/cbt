@@ -1,4 +1,4 @@
-package api
+package api //nolint:revive // package name follows existing project layout.
 
 import (
 	"context"

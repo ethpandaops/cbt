@@ -1,14 +1,35 @@
-import { type JSX, useState, Fragment } from 'react';
+import { type JSX, useState, useEffect, Fragment } from 'react';
 import { Menu, MenuButton, MenuItem, MenuItems, Transition } from '@headlessui/react';
 import { LockClosedIcon, Cog6ToothIcon, ArrowRightStartOnRectangleIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '@/hooks/useAuth';
+import { useNotification } from '@/hooks/useNotification';
 import { PasswordLoginDialog } from '@/components/Overlays/PasswordLoginDialog';
 
 export function AdminMenu(): JSX.Element | null {
-  const { managementEnabled, authMethods, session, isLoading, loginWithPassword, loginWithGitHub, logout } = useAuth();
+  const {
+    managementEnabled,
+    authMethods,
+    session,
+    oauthError,
+    isLoading,
+    clearOAuthError,
+    loginWithPassword,
+    loginWithGitHub,
+    logout,
+  } = useAuth();
+  const { showError } = useNotification();
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [passwordError, setPasswordError] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!oauthError) {
+      return;
+    }
+
+    showError(oauthError);
+    clearOAuthError();
+  }, [oauthError, showError, clearOAuthError]);
 
   if (!managementEnabled || isLoading) {
     return null;
