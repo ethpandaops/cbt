@@ -17,3 +17,10 @@ export function getErrorMessage(err: unknown, fallback = 'Unknown error'): strin
 
   return fallback;
 }
+
+export function getErrorCode(err: unknown): number | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+
+  const withCode = err as { code?: unknown };
+  return typeof withCode.code === 'number' ? withCode.code : undefined;
+}
