@@ -20,6 +20,7 @@ import { ModelSkeleton } from '@/components/Domain/Models/ModelSkeleton';
 import { ModelAdminActions } from '@/components/Domain/Models/ModelAdminActions';
 import { SQLCodeBlock } from '@/components/Elements/SQLCodeBlock';
 import { adminFetch } from '@/utils/admin-api';
+import { getErrorCode } from '@/utils/error';
 import { timeAgo } from '@/utils/time';
 
 interface ConfigOverride {
@@ -122,6 +123,11 @@ function ModelDetailComponent(): JSX.Element {
   const externalBounds = useQuery({
     ...getExternalBoundsOptions({ path: { id: decodedId } }),
     enabled: model?.type === 'external',
+    throwOnError: error => getErrorCode(error) !== 404,
+    retry: (failureCount, error) => {
+      if (getErrorCode(error) === 404) return false;
+      return failureCount < 3;
+    },
   });
 
   const transformationModel = useQuery({
@@ -150,12 +156,20 @@ function ModelDetailComponent(): JSX.Element {
   }
 
   if (model.type === 'external') {
-    if (externalModel.isLoading || externalBounds.isLoading) {
+    if (externalModel.isLoading) {
       return <ModelSkeleton />;
     }
 
     const bounds = externalBounds.data;
     const extModel = externalModel.data;
+    const isBoundsLoading = externalBounds.isLoading;
+
+    const boundsLoadingPlaceholder = (
+      <span
+        className="inline-block h-5 w-16 animate-shimmer rounded-sm bg-linear-to-r from-secondary/80 via-surface to-accent/20 bg-[length:200%_100%]"
+        aria-label="Loading bounds"
+      />
+    );
 
     const fields: InfoField[] = [
       { label: 'Database', value: model.database },
@@ -173,12 +187,20 @@ function ModelDetailComponent(): JSX.Element {
       fields.push({ label: 'Interval Type', value: transformation?.name || intervalType });
     }
 
-    if (bounds) {
-      fields.push(
-        { label: 'Min Position', value: bounds.min.toLocaleString(), variant: 'highlight', highlightColor: 'external' },
-        { label: 'Max Position', value: bounds.max.toLocaleString(), variant: 'highlight', highlightColor: 'external' }
-      );
-    }
+    fields.push(
+      {
+        label: 'Min Position',
+        value: isBoundsLoading ? boundsLoadingPlaceholder : bounds ? bounds.min.toLocaleString() : 'N/A',
+        variant: 'highlight',
+        highlightColor: 'external',
+      },
+      {
+        label: 'Max Position',
+        value: isBoundsLoading ? boundsLoadingPlaceholder : bounds ? bounds.max.toLocaleString() : 'N/A',
+        variant: 'highlight',
+        highlightColor: 'external',
+      }
+    );
 
     return (
       <div className="space-y-6">
