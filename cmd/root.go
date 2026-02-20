@@ -91,11 +91,11 @@ func runEngine(cmd *cobra.Command, _ []string) error {
 	// Create and start config application
 	app, err := engine.NewService(logger, config)
 	if err != nil {
-		return err
+		logger.WithError(err).Fatal("Failed to create engine")
 	}
 
 	if err := app.Start(); err != nil {
-		return err
+		logger.WithError(err).Fatal("Failed to start engine")
 	}
 
 	// Wait for interrupt signal
