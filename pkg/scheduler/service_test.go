@@ -798,6 +798,75 @@ func TestRegisterAllHandlers(t *testing.T) {
 	assert.NotNil(t, s.mux, "ServeMux should be initialized")
 }
 
+// TestRegisterHandlersWithEmptySchedules verifies that forward and backfill handlers
+// are registered even when schedules are initially empty. This is critical for config
+// overrides: if backfill is "" at startup and later set to "@every 1m" via a live
+// override, the asynq mux must already have a handler registered for the task type.
+func TestRegisterHandlersWithEmptySchedules(t *testing.T) {
+	tests := []struct {
+		name             string
+		handler          *mockHandler
+		forwardTaskType  string
+		backfillTaskType string
+	}{
+		{
+			name: "empty schedules still registers handlers",
+			handler: &mockHandler{
+				forwardSchedule:  "",
+				backfillSchedule: "",
+			},
+			forwardTaskType:  "transformation:test.model:forward",
+			backfillTaskType: "transformation:test.model:back",
+		},
+		{
+			name: "populated schedules also registers handlers",
+			handler: &mockHandler{
+				forwardSchedule:  "@every 30s",
+				backfillSchedule: "@every 1m",
+			},
+			forwardTaskType:  "transformation:test.model:forward",
+			backfillTaskType: "transformation:test.model:back",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log := logrus.New()
+			log.SetLevel(logrus.WarnLevel)
+
+			svc := &service{
+				log:         log.WithField("service", "scheduler"),
+				cfg:         &Config{Concurrency: 1},
+				done:        make(chan struct{}),
+				dag:         &mockDAGReader{},
+				mux:         asynq.NewServeMux(),
+				coordinator: &mockCoordinator{},
+			}
+
+			trans := &mockTransformation{
+				id: "test.model",
+				conf: transformation.Config{
+					Database: "test_db",
+					Table:    "test_table",
+				},
+				handler: tt.handler,
+			}
+
+			svc.registerTransformationHandlers(trans)
+
+			// Verify handlers are registered by dispatching tasks through the mux.
+			// If no handler is registered, ProcessTask returns "handler not found".
+			forwardTask := asynq.NewTask(tt.forwardTaskType, nil)
+			err := svc.mux.ProcessTask(context.Background(), forwardTask)
+			assert.NoError(t, err, "forward handler should be registered regardless of schedule config")
+
+			backfillTask := asynq.NewTask(tt.backfillTaskType, nil)
+			err = svc.mux.ProcessTask(context.Background(), backfillTask)
+			assert.NoError(t, err, "backfill handler should be registered regardless of schedule config")
+		})
+	}
+}
+
 func TestExtractExternalTaskComponents(t *testing.T) {
 	tests := []struct {
 		name          string
