@@ -540,21 +540,20 @@ func (s *service) registerTransformationHandlers(transformation models.Transform
 		return
 	}
 
-	cfg, ok := handler.Config().(*incremental.Config)
-	if !ok || cfg.Schedules == nil {
+	if _, ok := handler.Config().(*incremental.Config); !ok {
 		return
 	}
 
-	if cfg.Schedules.ForwardFill != "" {
-		forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
-		s.mux.HandleFunc(forwardTask, s.HandleScheduledForward)
-		s.log.WithField("model_id", modelID).Debug("Registered forward fill handler")
-	}
-	if cfg.Schedules.Backfill != "" {
-		backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
-		s.mux.HandleFunc(backfillTask, s.HandleScheduledBackfill)
-		s.log.WithField("model_id", modelID).Debug("Registered backfill handler")
-	}
+	// Always register both forward and backfill handlers regardless of current
+	// schedule config. Schedules can be enabled at runtime via config overrides,
+	// and the handlers themselves already guard against disabled schedules.
+	forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
+	s.mux.HandleFunc(forwardTask, s.HandleScheduledForward)
+	s.log.WithField("model_id", modelID).Debug("Registered forward fill handler")
+
+	backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
+	s.mux.HandleFunc(backfillTask, s.HandleScheduledBackfill)
+	s.log.WithField("model_id", modelID).Debug("Registered backfill handler")
 }
 
 // registerExternalHandlers registers task handlers for a single external model
