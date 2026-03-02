@@ -1,6 +1,6 @@
 module github.com/ethpandaops/cbt
 
-go 1.25.3
+go 1.26.0
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.41.0
@@ -24,6 +24,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/clickhouse v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/redis v0.40.0
 	go.uber.org/mock v0.6.0
+	golang.org/x/oauth2 v0.35.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -123,7 +124,6 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.44.0 // indirect
 	golang.org/x/net v0.47.0 // indirect
-	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/time v0.8.0 // indirect
