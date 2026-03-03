@@ -8,7 +8,7 @@ ARG VITE_API_URL=http://localhost:8888/api/v1
 ENV VITE_API_URL=${VITE_API_URL}
 RUN pnpm run build
 
-FROM golang:1.25 AS builder
+FROM golang:1.26 AS builder
 WORKDIR /src
 COPY go.sum go.mod ./
 RUN go mod download
