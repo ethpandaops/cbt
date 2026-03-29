@@ -128,13 +128,16 @@ func (e *elector) run(ctx context.Context) {
 }
 
 func (e *elector) tryAcquire(ctx context.Context) bool {
-	result, err := e.redis.SetNX(ctx, e.leaderKey, e.instanceID, leaseTTL).Result()
-	if err != nil {
+	err := e.redis.SetArgs(ctx, e.leaderKey, e.instanceID, redis.SetArgs{
+		Mode: "NX",
+		TTL:  leaseTTL,
+	}).Err()
+	if err != nil && !errors.Is(err, redis.Nil) {
 		e.log.WithError(err).Debug("Failed to acquire leader lock")
 		return false
 	}
 
-	if result {
+	if err == nil {
 		e.log.WithFields(logrus.Fields{
 			"instance_id": e.instanceID,
 			"ttl":         leaseTTL,

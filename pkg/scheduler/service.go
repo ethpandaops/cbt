@@ -277,7 +277,7 @@ func (s *service) handleLeaderElection(ctx context.Context) {
 			s.ticker = newTickerService(s.log, s.tracker, s.client, scheduledTasks)
 
 			// Start ticker in goroutine
-			tickerCtx, cancel := context.WithCancel(ctx)
+			tickerCtx, cancel := context.WithCancel(ctx) //nolint:gosec // G118 - cancel is stored in s.tickerCancel and called on demotion
 			s.tickerCancel = cancel
 			s.wg.Add(1)
 			go func() {
