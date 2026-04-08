@@ -212,7 +212,7 @@ func (s *service) Stop() error {
 		close(done)
 	}()
 
-	timeout := time.Duration(s.cfg.ShutdownTimeout) * time.Second
+	timeout := s.cfg.ShutdownTimeout
 	select {
 	case <-done:
 		s.log.Info("Scheduler goroutines stopped successfully")

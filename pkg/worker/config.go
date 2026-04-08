@@ -2,6 +2,7 @@ package worker
 
 import (
 	"errors"
+	"time"
 )
 
 var (
@@ -13,9 +14,9 @@ var (
 
 // Config contains worker-specific settings
 type Config struct {
-	Concurrency     int      `yaml:"concurrency" default:"10"`
-	Tags            []string `yaml:"tags,omitempty"` // Optional tag-based model filtering
-	ShutdownTimeout int      `yaml:"shutdownTimeout" default:"30"`
+	Concurrency     int           `yaml:"concurrency" default:"10"`
+	Tags            []string      `yaml:"tags,omitempty"` // Optional tag-based model filtering
+	ShutdownTimeout time.Duration `yaml:"shutdownTimeout" default:"30s"`
 }
 
 // Validate validates the configuration

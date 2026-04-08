@@ -10,15 +10,17 @@ import (
 
 // QueueManager manages task queuing
 type QueueManager struct {
-	client    *asynq.Client
-	inspector *asynq.Inspector
+	client      *asynq.Client
+	inspector   *asynq.Inspector
+	taskTimeout time.Duration
 }
 
 // NewQueueManager creates a new queue manager
-func NewQueueManager(redisOpt *asynq.RedisClientOpt) *QueueManager {
+func NewQueueManager(redisOpt *asynq.RedisClientOpt, taskTimeout time.Duration) *QueueManager {
 	return &QueueManager{
-		client:    asynq.NewClient(*redisOpt),
-		inspector: asynq.NewInspector(*redisOpt),
+		client:      asynq.NewClient(*redisOpt),
+		inspector:   asynq.NewInspector(*redisOpt),
+		taskTimeout: taskTimeout,
 	}
 }
 
@@ -41,7 +43,7 @@ func (q *QueueManager) EnqueueTransformation(payload TaskPayload, opts ...asynq.
 		asynq.TaskID(payload.UniqueID()),
 		asynq.Queue(payload.GetModelID()), // Model-specific queue
 		asynq.MaxRetry(3),
-		asynq.Timeout(30 * time.Minute),
+		asynq.Timeout(q.taskTimeout),
 	}
 
 	allOpts := defaultOpts

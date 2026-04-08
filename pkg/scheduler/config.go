@@ -3,6 +3,7 @@ package scheduler
 
 import (
 	"errors"
+	"time"
 )
 
 var (
@@ -12,9 +13,10 @@ var (
 
 // Config defines scheduler configuration
 type Config struct {
-	Concurrency     int    `yaml:"concurrency" default:"10"`
-	Consolidation   string `yaml:"consolidation" default:"@every 10m"`
-	ShutdownTimeout int    `yaml:"shutdownTimeout" default:"10"`
+	Concurrency     int           `yaml:"concurrency" default:"10"`
+	Consolidation   string        `yaml:"consolidation" default:"@every 10m"`
+	ShutdownTimeout time.Duration `yaml:"shutdownTimeout" default:"10s"`
+	TaskTimeout     time.Duration `yaml:"taskTimeout" default:"30m"`
 }
 
 // Validate checks if the scheduler configuration is valid
