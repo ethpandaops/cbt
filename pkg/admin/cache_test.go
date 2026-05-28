@@ -212,7 +212,6 @@ func TestCacheManager_AcquireLock_ConcurrentAccess(t *testing.T) {
 	// All goroutines try to acquire the same lock at once
 	for range numGoroutines {
 		wg.Go(func() {
-
 			// Use a short timeout so test doesn't hang
 			shortCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 			defer cancel()

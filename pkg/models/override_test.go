@@ -294,10 +294,10 @@ func TestExternalOverride_ApplyToExternal(t *testing.T) {
 		{
 			name: "apply all overrides",
 			override: &ExternalOverride{
-				Lag: ptrUint64(500),
+				Lag: new(uint64(500)),
 				Cache: &CacheOverride{
-					IncrementalScanInterval: ptrDuration(10 * time.Minute),
-					FullScanInterval:        ptrDuration(1 * time.Hour),
+					IncrementalScanInterval: new(10 * time.Minute),
+					FullScanInterval:        new(1 * time.Hour),
 				},
 			},
 			initial: &external.Config{
@@ -321,7 +321,7 @@ func TestExternalOverride_ApplyToExternal(t *testing.T) {
 		{
 			name: "apply partial overrides - lag only",
 			override: &ExternalOverride{
-				Lag: ptrUint64(250),
+				Lag: new(uint64(250)),
 			},
 			initial: &external.Config{
 				Database: "test_db",
@@ -343,7 +343,7 @@ func TestExternalOverride_ApplyToExternal(t *testing.T) {
 			name: "apply cache overrides only",
 			override: &ExternalOverride{
 				Cache: &CacheOverride{
-					IncrementalScanInterval: ptrDuration(2 * time.Minute),
+					IncrementalScanInterval: new(2 * time.Minute),
 				},
 			},
 			initial: &external.Config{
@@ -449,23 +449,6 @@ backfill: "@every 2m"
 			tt.checkFunc(t, &s)
 		})
 	}
-}
-
-// Helper functions
-//
-//go:fix inline
-func ptrBool(b bool) *bool {
-	return new(b)
-}
-
-//go:fix inline
-func ptrUint64(u uint64) *uint64 {
-	return new(u)
-}
-
-//go:fix inline
-func ptrDuration(d time.Duration) *time.Duration {
-	return new(d)
 }
 
 // TestTransformationOverride_ScheduledFields tests scheduled transformation override fields

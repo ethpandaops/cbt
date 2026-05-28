@@ -558,11 +558,6 @@ func stringPtr(s string) *string {
 	return &s
 }
 
-//go:fix inline
-func boolPtr(v bool) *bool {
-	return new(v)
-}
-
 // convertDepsToAPIFormat converts structured dependencies to API format
 // Returns []generated.TransformationModel_DependsOn_Item where each element is either string (AND) or []string (OR group)
 func convertDepsToAPIFormat(deps []transformation.Dependency) []generated.TransformationModel_DependsOn_Item {
