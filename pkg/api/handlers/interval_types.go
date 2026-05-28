@@ -7,7 +7,7 @@ import (
 // GetIntervalTypes returns the configured interval type transformations
 // GET /api/v1/interval/types
 func (s *Server) GetIntervalTypes(c fiber.Ctx) error {
-	response := map[string]interface{}{
+	response := map[string]any{
 		"interval_types": s.intervalTypes,
 	}
 

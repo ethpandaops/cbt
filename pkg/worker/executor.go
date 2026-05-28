@@ -209,13 +209,13 @@ func shouldSkipScan(log logrus.FieldLogger, modelID, scanType string, cache *adm
 }
 
 // buildCacheState builds the cache state for template rendering
-func buildCacheState(scanType string, cache *admin.BoundsCache) map[string]interface{} {
+func buildCacheState(scanType string, cache *admin.BoundsCache) map[string]any {
 	// Set scan type flags
 	isIncrementalScan := scanType == ScanTypeIncremental
 	isFullScan := scanType == ScanTypeFull
 
 	// Build cache state for template rendering
-	cacheState := map[string]interface{}{
+	cacheState := map[string]any{
 		"is_incremental_scan": isIncrementalScan,
 		"is_full_scan":        isFullScan,
 	}
@@ -230,7 +230,7 @@ func buildCacheState(scanType string, cache *admin.BoundsCache) map[string]inter
 }
 
 // queryExternalBounds executes the query to get bounds for an external model
-func (e *ModelExecutor) queryExternalBounds(ctx context.Context, modelID string, externalModel models.External, cacheState map[string]interface{}) (minBound, maxBound uint64, err error) {
+func (e *ModelExecutor) queryExternalBounds(ctx context.Context, modelID string, externalModel models.External, cacheState map[string]any) (minBound, maxBound uint64, err error) {
 	// Render the external model query with cache state
 	query, err := e.models.RenderExternal(externalModel, cacheState)
 	if err != nil {
@@ -330,7 +330,7 @@ func updateCacheTimestamps(newCache, existingCache *admin.BoundsCache, isIncreme
 }
 
 // Execute runs the model transformation
-func (e *ModelExecutor) Execute(ctx context.Context, taskCtxInterface interface{}) error {
+func (e *ModelExecutor) Execute(ctx context.Context, taskCtxInterface any) error {
 	taskCtx, ok := taskCtxInterface.(*tasks.TaskContext)
 	if !ok {
 		return ErrInvalidTaskContext
@@ -366,7 +366,7 @@ func (e *ModelExecutor) Execute(ctx context.Context, taskCtxInterface interface{
 }
 
 // Validate checks if the model can be executed
-func (e *ModelExecutor) Validate(ctx context.Context, taskCtxInterface interface{}) error {
+func (e *ModelExecutor) Validate(ctx context.Context, taskCtxInterface any) error {
 	taskCtx, ok := taskCtxInterface.(*tasks.TaskContext)
 	if !ok {
 		return ErrInvalidTaskContext

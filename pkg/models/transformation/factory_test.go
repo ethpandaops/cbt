@@ -184,7 +184,7 @@ func TestConcurrentRegistration(t *testing.T) {
 	done := make(chan bool)
 	numGoroutines := 10
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(id int) {
 			typeName := Type(string(rune('a' + id)))
 			RegisterHandler(typeName, func(_ []byte, _ AdminTable) (Handler, error) {
@@ -195,7 +195,7 @@ func TestConcurrentRegistration(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		<-done
 	}
 
@@ -226,7 +226,7 @@ func TestConcurrentCreateHandler(t *testing.T) {
 	numGoroutines := 10
 	adminTable := AdminTable{Database: "admin", Table: "cbt"}
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			handler, err := CreateHandler(TypeIncremental, []byte("test"), adminTable)
 			assert.NoError(t, err)
@@ -237,7 +237,7 @@ func TestConcurrentCreateHandler(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		<-done
 	}
 }

@@ -83,7 +83,7 @@ const (
 // Node represents a node in the dependency graph
 type Node struct {
 	NodeType NodeType
-	Model    interface{}
+	Model    any
 }
 
 // NewDependencyGraph creates a new dependency graph

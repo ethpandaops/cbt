@@ -13,7 +13,6 @@ linters:
     - dogsled
     - errcheck
     - exhaustive
-    - goconst
     - gocritic
     - gocyclo
     - gosec
@@ -49,10 +48,6 @@ linters:
     errcheck:
       check-type-assertions: true
       check-blank: false
-    
-    goconst:
-      min-len: 3
-      min-occurrences: 3
     
     gocritic:
       enabled-tags:
@@ -138,7 +133,6 @@ linters:
           - gocyclo
           - errcheck
           - gosec
-          - goconst
       
       # Exclude gosec G404 (insecure random number source) for tests
       - path: _test\.go

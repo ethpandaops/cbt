@@ -444,7 +444,7 @@ func TestGetTransformation(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.wantError {
-				var errResp map[string]interface{}
+				var errResp map[string]any
 				err = json.Unmarshal(body, &errResp)
 				require.NoError(t, err)
 				assert.Contains(t, errResp, "error")
@@ -546,7 +546,7 @@ func TestGetExternalModel(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.wantError {
-				var errResp map[string]interface{}
+				var errResp map[string]any
 				err = json.Unmarshal(body, &errResp)
 				require.NoError(t, err)
 				assert.Contains(t, errResp, "error")

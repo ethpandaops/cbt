@@ -44,7 +44,7 @@ func (s *Server) ListAllModels(c fiber.Ctx, params generated.ListAllModelsParams
 		return summaries[i].Id < summaries[j].Id
 	})
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"models": summaries,
 		"total":  len(summaries),
 	}
@@ -78,8 +78,8 @@ func (s *Server) appendTransformationSummaries(
 			Type:        generated.ModelSummaryTypeTransformation,
 			Database:    cfg.Database,
 			Table:       cfg.Table,
-			HasOverride: boolPtr(overrideStatus.hasOverride),
-			IsDisabled:  boolPtr(overrideStatus.isDisabled),
+			HasOverride: new(overrideStatus.hasOverride),
+			IsDisabled:  new(overrideStatus.isDisabled),
 		}
 
 		if s.matchesSearch(summary.Id, params.Search) {
@@ -113,8 +113,8 @@ func (s *Server) appendExternalSummaries(
 			Type:        generated.ModelSummaryTypeExternal,
 			Database:    cfg.Database,
 			Table:       cfg.Table,
-			HasOverride: boolPtr(overrideStatus.hasOverride),
-			IsDisabled:  boolPtr(overrideStatus.isDisabled),
+			HasOverride: new(overrideStatus.hasOverride),
+			IsDisabled:  new(overrideStatus.isDisabled),
 		}
 
 		if s.matchesSearch(summary.Id, params.Search) {
@@ -207,7 +207,7 @@ func (s *Server) ListExternalModels(c fiber.Ctx, params generated.ListExternalMo
 		return externalModels[i].Id < externalModels[j].Id
 	})
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"models": externalModels,
 		"total":  len(externalModels),
 	}
@@ -280,7 +280,7 @@ func (s *Server) ListTransformations(c fiber.Ctx, params generated.ListTransform
 		return transformationModels[i].Id < transformationModels[j].Id
 	})
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"models": transformationModels,
 		"total":  len(transformationModels),
 	}
@@ -324,8 +324,8 @@ func buildExternalModel(
 		Id:          modelID,
 		Database:    cfg.Database,
 		Table:       cfg.Table,
-		HasOverride: boolPtr(overrideStatus.hasOverride),
-		IsDisabled:  boolPtr(overrideStatus.isDisabled),
+		HasOverride: new(overrideStatus.hasOverride),
+		IsDisabled:  new(overrideStatus.isDisabled),
 	}
 
 	// Populate interval configuration if available
@@ -378,8 +378,8 @@ func buildTransformationModel(
 		Database:    cfg.Database,
 		Table:       cfg.Table,
 		Content:     node.GetValue(),
-		HasOverride: boolPtr(overrideStatus.hasOverride),
-		IsDisabled:  boolPtr(overrideStatus.isDisabled),
+		HasOverride: new(overrideStatus.hasOverride),
+		IsDisabled:  new(overrideStatus.isDisabled),
 	}
 
 	// Determine content type based on node type
@@ -450,7 +450,7 @@ func populateIncrementalFields(model *generated.TransformationModel, node models
 
 func populateInterval(model *generated.TransformationModel, incrementalHandler interface {
 	GetInterval() (minInterval, maxInterval uint64)
-}, handler interface{}) {
+}, handler any) {
 	minInterval, maxInterval := incrementalHandler.GetInterval()
 
 	var intervalType *string
@@ -488,7 +488,7 @@ func populateSchedules(model *generated.TransformationModel, incrementalHandler 
 	}
 }
 
-func populateLimits(model *generated.TransformationModel, handler interface{}) {
+func populateLimits(model *generated.TransformationModel, handler any) {
 	limitsProvider, ok := handler.(transformation.LimitsHandler)
 	if !ok {
 		return
@@ -508,7 +508,7 @@ func populateLimits(model *generated.TransformationModel, handler interface{}) {
 	}
 }
 
-func populateFill(model *generated.TransformationModel, handler interface{}) {
+func populateFill(model *generated.TransformationModel, handler any) {
 	fillHandler, ok := handler.(transformation.FillHandler)
 	if !ok {
 		return
@@ -558,8 +558,9 @@ func stringPtr(s string) *string {
 	return &s
 }
 
+//go:fix inline
 func boolPtr(v bool) *bool {
-	return &v
+	return new(v)
 }
 
 // convertDepsToAPIFormat converts structured dependencies to API format
@@ -607,7 +608,7 @@ func (s *Server) ListExternalBounds(c fiber.Ctx) error {
 		bounds = append(bounds, mapBoundsCacheToAPI(modelID, boundsCache))
 	}
 
-	return c.JSON(map[string]interface{}{
+	return c.JSON(map[string]any{
 		"bounds": bounds,
 		"total":  len(bounds),
 	})
@@ -694,7 +695,7 @@ func (s *Server) ListTransformationCoverage(c fiber.Ctx, params generated.ListTr
 		})
 	}
 
-	return c.JSON(map[string]interface{}{
+	return c.JSON(map[string]any{
 		"coverage": coverage,
 		"total":    len(coverage),
 	})
@@ -780,7 +781,7 @@ func (s *Server) ListScheduledRuns(c fiber.Ctx, params generated.ListScheduledRu
 		runs = append(runs, run)
 	}
 
-	return c.JSON(map[string]interface{}{
+	return c.JSON(map[string]any{
 		"runs":  runs,
 		"total": len(runs),
 	})
@@ -1201,7 +1202,7 @@ func (s *Server) buildTransformationDependencyDebugInfo(ctx context.Context, dag
 	return depInfo, nil
 }
 
-func (s *Server) setIncrementalFlag(depInfo *generated.DependencyDebugInfo, handler interface{}) {
+func (s *Server) setIncrementalFlag(depInfo *generated.DependencyDebugInfo, handler any) {
 	isIncremental := handler != nil
 	if trackable, ok := handler.(interface{ ShouldTrackPosition() bool }); ok {
 		isIncremental = trackable.ShouldTrackPosition()
@@ -1431,7 +1432,7 @@ func (s *Server) calculateNextValidPosition(info *generated.ValidationDebugInfo)
 // autoDetectInterval determines the appropriate interval for debugging a position.
 // It checks if the position falls within a gap and uses the gap size if so,
 // otherwise falls back to the model's max interval.
-func (s *Server) autoDetectInterval(ctx context.Context, modelID string, position uint64, handler interface{}) uint64 {
+func (s *Server) autoDetectInterval(ctx context.Context, modelID string, position uint64, handler any) uint64 {
 	// Default to model's max interval
 	defaultInterval := uint64(60) // fallback minimum
 	if incrementalHandler, ok := handler.(interface {
@@ -1473,7 +1474,7 @@ func (s *Server) autoDetectInterval(ctx context.Context, modelID string, positio
 		if position >= gap.StartPos && position < gap.EndPos {
 			// Position is in a gap, use the gap size as interval
 			gapSize := gap.EndPos - gap.StartPos
-			s.log.WithFields(map[string]interface{}{
+			s.log.WithFields(map[string]any{
 				"model_id": modelID,
 				"position": position,
 				"gap_size": gapSize,

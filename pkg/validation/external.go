@@ -52,7 +52,7 @@ func (f *FlexUint64) UnmarshalJSON(data []byte) error {
 // Supports string columns (e.g., '123') and numeric columns.
 //
 //nolint:gosec // bounds checked by caller context
-func (f *FlexUint64) Scan(src interface{}) error {
+func (f *FlexUint64) Scan(src any) error {
 	if src == nil {
 		return fmt.Errorf("%w: received nil value", ErrInvalidUint64)
 	}
@@ -67,7 +67,7 @@ func (f *FlexUint64) Scan(src interface{}) error {
 	return nil
 }
 
-func scanFlexUint64(src interface{}) (uint64, error) {
+func scanFlexUint64(src any) (uint64, error) {
 	switch v := src.(type) {
 	case string:
 		return parseFlexUint64String(v)

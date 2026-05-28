@@ -411,7 +411,7 @@ func TestHandler_GetFlattenedDependencies(t *testing.T) {
 func TestHandler_RecordCompletion(t *testing.T) {
 	tests := []struct {
 		name         string
-		adminService interface{}
+		adminService any
 		modelID      string
 		taskInfo     transformation.TaskInfo
 		wantErr      bool

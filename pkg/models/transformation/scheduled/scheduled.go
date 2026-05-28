@@ -149,9 +149,9 @@ func (h *Handler) SubstituteDependencyPlaceholders(externalDefaultDB, transforma
 
 // ApplyOverrides applies configuration overrides to this scheduled transformation handler
 // Uses reflection to avoid circular dependency with models package
-func (h *Handler) ApplyOverrides(override interface{}) {
+func (h *Handler) ApplyOverrides(override any) {
 	v := reflect.ValueOf(override)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	if v.Kind() != reflect.Struct {

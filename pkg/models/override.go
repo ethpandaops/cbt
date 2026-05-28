@@ -155,7 +155,7 @@ func (t *TransformationOverride) applyToTransformation(model Transformation) {
 	// Apply overrides through handler-specific interface
 	// Uses interface{} to allow handlers to use reflection and avoid circular dependencies
 	type overrideApplier interface {
-		ApplyOverrides(override interface{})
+		ApplyOverrides(override any)
 	}
 
 	if applier, ok := handler.(overrideApplier); ok {

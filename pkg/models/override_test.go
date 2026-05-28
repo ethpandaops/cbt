@@ -264,14 +264,14 @@ func TestModelOverride_IsDisabled(t *testing.T) {
 		{
 			name: "explicitly enabled",
 			override: &ModelOverride{
-				Enabled: ptrBool(true),
+				Enabled: new(true),
 			},
 			want: false,
 		},
 		{
 			name: "explicitly disabled",
 			override: &ModelOverride{
-				Enabled: ptrBool(false),
+				Enabled: new(false),
 			},
 			want: true,
 		},
@@ -452,16 +452,20 @@ backfill: "@every 2m"
 }
 
 // Helper functions
+//
+//go:fix inline
 func ptrBool(b bool) *bool {
-	return &b
+	return new(b)
 }
 
+//go:fix inline
 func ptrUint64(u uint64) *uint64 {
-	return &u
+	return new(u)
 }
 
+//go:fix inline
 func ptrDuration(d time.Duration) *time.Duration {
-	return &d
+	return new(d)
 }
 
 // TestTransformationOverride_ScheduledFields tests scheduled transformation override fields
