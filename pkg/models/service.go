@@ -27,7 +27,7 @@ type Service interface {
 
 	// Rendering operations
 	RenderTransformation(model Transformation, position, interval uint64, startTime time.Time) (string, error)
-	RenderExternal(model External, cacheState map[string]interface{}) (string, error)
+	RenderExternal(model External, cacheState map[string]any) (string, error)
 	GetTransformationEnvironmentVariables(model Transformation, position, interval uint64, startTime time.Time) (*[]string, error)
 }
 
@@ -282,7 +282,7 @@ func (s *service) applyTransformationOverrides(appliedOverrides map[string]bool)
 }
 
 // shouldSkipModel checks if a model should be skipped and applies overrides if found
-func (s *service) shouldSkipModel(model interface{}, modelType ModelType, appliedOverrides map[string]bool) bool {
+func (s *service) shouldSkipModel(model any, modelType ModelType, appliedOverrides map[string]bool) bool {
 	var modelID, tableName string
 	var override *ModelOverride
 	var overrideKey string
@@ -416,7 +416,7 @@ func (s *service) GetTransformationEnvironmentVariables(model Transformation, po
 }
 
 // RenderExternal renders an external model template with variables
-func (s *service) RenderExternal(model External, cacheState map[string]interface{}) (string, error) {
+func (s *service) RenderExternal(model External, cacheState map[string]any) (string, error) {
 	return s.templateEngine.RenderExternal(model, cacheState)
 }
 

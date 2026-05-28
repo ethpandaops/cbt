@@ -122,7 +122,7 @@ func (c *client) QueryOne(ctx context.Context, query string, dest any) error {
 	}
 
 	destVal := reflect.ValueOf(dest)
-	if destVal.Kind() != reflect.Ptr {
+	if destVal.Kind() != reflect.Pointer {
 		return ErrDestMustBePointer
 	}
 
@@ -145,7 +145,7 @@ func (c *client) QueryOne(ctx context.Context, query string, dest any) error {
 
 func (c *client) QueryMany(ctx context.Context, query string, dest any) error {
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.Elem().Kind() != reflect.Slice {
+	if destValue.Kind() != reflect.Pointer || destValue.Elem().Kind() != reflect.Slice {
 		return ErrDestMustBePointerToSlice
 	}
 

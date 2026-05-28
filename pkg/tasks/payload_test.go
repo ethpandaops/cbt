@@ -288,7 +288,7 @@ func TestIncrementalTaskPayload_JSONSerialization(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify Type field is present in JSON
-	var jsonMap map[string]interface{}
+	var jsonMap map[string]any
 
 	err = json.Unmarshal(data, &jsonMap)
 	require.NoError(t, err)
@@ -323,7 +323,7 @@ func TestScheduledTaskPayload_JSONSerialization(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify Type field is present in JSON
-	var jsonMap map[string]interface{}
+	var jsonMap map[string]any
 
 	err = json.Unmarshal(data, &jsonMap)
 	require.NoError(t, err)

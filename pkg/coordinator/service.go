@@ -176,7 +176,7 @@ func (s *service) Stop() error {
 }
 
 // GetQueueManager returns the queue manager instance
-func (s *service) GetQueueManager() interface{} {
+func (s *service) GetQueueManager() any {
 	return s.queueManager
 }
 

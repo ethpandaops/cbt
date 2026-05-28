@@ -543,17 +543,15 @@ func TestConcurrentAccess(t *testing.T) {
 	iterations := 100
 
 	// Concurrent reads
-	for i := 0; i < iterations; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range iterations {
+		wg.Go(func() {
 			_, _ = dg.GetNode("db.trans1")
 			_ = dg.GetDependencies("db.trans2")
 			_ = dg.GetDependents("db.trans1")
 			_ = dg.IsPathBetween("db.trans1", "db.trans2")
 			_ = dg.GetTransformationNodes()
 			_ = dg.GetExternalNodes()
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -563,7 +561,7 @@ func TestConcurrentAccess(t *testing.T) {
 func BenchmarkBuildGraph(b *testing.B) {
 	// Create a large graph
 	transformations := make([]Transformation, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		deps := []string{}
 		if i > 0 {
 			// Each node depends on the previous one
@@ -588,7 +586,7 @@ func BenchmarkGetAllDependencies(b *testing.B) {
 
 	// Create a deep dependency chain
 	transformations := make([]Transformation, 50)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		deps := []string{}
 		if i > 0 {
 			deps = append(deps, transformations[i-1].GetID())

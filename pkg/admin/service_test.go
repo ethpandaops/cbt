@@ -506,7 +506,7 @@ func (m *mockClickhouseClient) Execute(_ context.Context, _ string) error {
 	return m.executeError
 }
 
-func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, result interface{}) error {
+func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, result any) error {
 	if m.queryError != nil {
 		return m.queryError
 	}
@@ -538,14 +538,14 @@ func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, result inte
 	return nil
 }
 
-func (m *mockClickhouseClient) QueryMany(_ context.Context, _ string, result interface{}) error {
+func (m *mockClickhouseClient) QueryMany(_ context.Context, _ string, result any) error {
 	if m.queryError != nil {
 		return m.queryError
 	}
 
 	// Use reflection to handle gap results regardless of struct tags
 	slicePtr := reflect.ValueOf(result)
-	if slicePtr.Kind() != reflect.Ptr || slicePtr.Elem().Kind() != reflect.Slice {
+	if slicePtr.Kind() != reflect.Pointer || slicePtr.Elem().Kind() != reflect.Slice {
 		return nil
 	}
 
@@ -567,7 +567,7 @@ func (m *mockClickhouseClient) QueryMany(_ context.Context, _ string, result int
 	return nil
 }
 
-func (m *mockClickhouseClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
+func (m *mockClickhouseClient) BulkInsert(_ context.Context, _ string, _ any) error {
 	return nil
 }
 
@@ -831,7 +831,7 @@ func (m *consolidationMockClient) Execute(_ context.Context, query string) error
 	return m.executeError
 }
 
-func (m *consolidationMockClient) QueryOne(_ context.Context, query string, result interface{}) error {
+func (m *consolidationMockClient) QueryOne(_ context.Context, query string, result any) error {
 	m.queries = append(m.queries, query)
 
 	if m.rangeError != nil {
@@ -856,12 +856,12 @@ func (m *consolidationMockClient) QueryOne(_ context.Context, query string, resu
 	return nil
 }
 
-func (m *consolidationMockClient) QueryMany(_ context.Context, query string, _ interface{}) error {
+func (m *consolidationMockClient) QueryMany(_ context.Context, query string, _ any) error {
 	m.queries = append(m.queries, query)
 	return nil
 }
 
-func (m *consolidationMockClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
+func (m *consolidationMockClient) BulkInsert(_ context.Context, _ string, _ any) error {
 	return nil
 }
 
@@ -1018,7 +1018,7 @@ func TestHyphenatedDatabaseNamesInQueries(t *testing.T) {
 // queryCapturingClient is a mock ClickHouse client that captures queries for inspection
 type queryCapturingClient struct {
 	queries     []string
-	mockResults []interface{}
+	mockResults []any
 	resultIndex int
 }
 
@@ -1027,7 +1027,7 @@ func (m *queryCapturingClient) Execute(_ context.Context, query string) error {
 	return nil
 }
 
-func (m *queryCapturingClient) QueryOne(_ context.Context, query string, result interface{}) error {
+func (m *queryCapturingClient) QueryOne(_ context.Context, query string, result any) error {
 	m.queries = append(m.queries, query)
 
 	// Use reflection to set fields by name, avoiding struct tag mismatches
@@ -1064,7 +1064,7 @@ func (m *queryCapturingClient) QueryOne(_ context.Context, query string, result 
 	return nil
 }
 
-func (m *queryCapturingClient) QueryMany(_ context.Context, query string, result interface{}) error {
+func (m *queryCapturingClient) QueryMany(_ context.Context, query string, result any) error {
 	m.queries = append(m.queries, query)
 
 	if m.resultIndex < len(m.mockResults) {
@@ -1094,7 +1094,7 @@ func (m *queryCapturingClient) QueryMany(_ context.Context, query string, result
 	return nil
 }
 
-func (m *queryCapturingClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
+func (m *queryCapturingClient) BulkInsert(_ context.Context, _ string, _ any) error {
 	return nil
 }
 
@@ -1120,12 +1120,12 @@ func (m *deletePeriodMockClient) Execute(_ context.Context, query string) error 
 	return m.executeError
 }
 
-func (m *deletePeriodMockClient) QueryOne(_ context.Context, query string, _ interface{}) error {
+func (m *deletePeriodMockClient) QueryOne(_ context.Context, query string, _ any) error {
 	m.queries = append(m.queries, query)
 	return nil
 }
 
-func (m *deletePeriodMockClient) QueryMany(_ context.Context, query string, result interface{}) error {
+func (m *deletePeriodMockClient) QueryMany(_ context.Context, query string, result any) error {
 	m.queries = append(m.queries, query)
 
 	if m.queryError != nil {
@@ -1140,7 +1140,7 @@ func (m *deletePeriodMockClient) QueryMany(_ context.Context, query string, resu
 	return nil
 }
 
-func (m *deletePeriodMockClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
+func (m *deletePeriodMockClient) BulkInsert(_ context.Context, _ string, _ any) error {
 	return nil
 }
 

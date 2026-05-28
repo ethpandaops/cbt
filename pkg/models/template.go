@@ -4,6 +4,7 @@ package models
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"strings"
 	"text/template"
 	"time"
@@ -51,7 +52,7 @@ func (t *TemplateEngine) RenderTransformation(model Transformation, position, in
 	return buf.String(), nil
 }
 
-func (t *TemplateEngine) buildTransformationVariables(model Transformation, position, interval uint64, startTime time.Time) (map[string]interface{}, error) {
+func (t *TemplateEngine) buildTransformationVariables(model Transformation, position, interval uint64, startTime time.Time) (map[string]any, error) {
 	config := model.GetConfig()
 
 	variables := t.buildBaseVariables(config, position, interval, startTime)
@@ -66,30 +67,26 @@ func (t *TemplateEngine) buildTransformationVariables(model Transformation, posi
 }
 
 // buildBaseVariables creates the base template variables
-func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, position, interval uint64, startTime time.Time) map[string]interface{} {
+func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, position, interval uint64, startTime time.Time) map[string]any {
 	// Merge global and model-specific env vars (model-specific overrides global)
 	mergedEnv := make(map[string]string)
-	for k, v := range t.globalEnv {
-		mergedEnv[k] = v
-	}
-	for k, v := range config.Env {
-		mergedEnv[k] = v
-	}
+	maps.Copy(mergedEnv, t.globalEnv)
+	maps.Copy(mergedEnv, config.Env)
 
-	return map[string]interface{}{
-		"clickhouse": map[string]interface{}{
+	return map[string]any{
+		"clickhouse": map[string]any{
 			"cluster":      t.clickhouseCfg.Cluster,
 			"local_suffix": t.clickhouseCfg.LocalSuffix,
 		},
-		"self": map[string]interface{}{
+		"self": map[string]any{
 			"database": config.Database,
 			"table":    config.Table,
 			"interval": interval,
 		},
-		"task": map[string]interface{}{
+		"task": map[string]any{
 			"start": startTime.Unix(),
 		},
-		"bounds": map[string]interface{}{
+		"bounds": map[string]any{
 			"start": position,
 			"end":   position + interval,
 		},
@@ -98,8 +95,8 @@ func (t *TemplateEngine) buildBaseVariables(config *transformation.Config, posit
 }
 
 // buildDependencyVariables processes all dependencies and builds the dep variables
-func (t *TemplateEngine) buildDependencyVariables(model Transformation) (map[string]interface{}, error) {
-	deps := map[string]interface{}{}
+func (t *TemplateEngine) buildDependencyVariables(model Transformation) (map[string]any, error) {
+	deps := map[string]any{}
 
 	// Get dependencies from handler if it supports them
 	handler := model.GetHandler()
@@ -113,9 +110,9 @@ func (t *TemplateEngine) buildDependencyVariables(model Transformation) (map[str
 	}
 
 	// Helper function to add a dep entry
-	addDepEntry := func(database, table string, data map[string]interface{}) {
-		db := map[string]interface{}{}
-		if existing, ok := deps[database].(map[string]interface{}); ok {
+	addDepEntry := func(database, table string, data map[string]any) {
+		db := map[string]any{}
+		if existing, ok := deps[database].(map[string]any); ok {
 			db = existing
 		}
 		db[table] = data
@@ -165,7 +162,7 @@ func (t *TemplateEngine) buildDependencyVariables(model Transformation) (map[str
 }
 
 // processSingleDependencyID processes a single dependency ID
-func (t *TemplateEngine) processSingleDependencyID(depID, originalDep string, addDepEntry func(string, string, map[string]interface{})) error {
+func (t *TemplateEngine) processSingleDependencyID(depID, originalDep string, addDepEntry func(string, string, map[string]any)) error {
 	dep, err := t.dag.GetNode(depID)
 	if err != nil {
 		return fmt.Errorf("failed to get dependency: %w", err)
@@ -182,17 +179,17 @@ func (t *TemplateEngine) processSingleDependencyID(depID, originalDep string, ad
 }
 
 // processTransformationDependency processes a transformation dependency
-func (t *TemplateEngine) processTransformationDependency(dep Node, depID, originalDep string, addDepEntry func(string, string, map[string]interface{})) error {
+func (t *TemplateEngine) processTransformationDependency(dep Node, depID, originalDep string, addDepEntry func(string, string, map[string]any)) error {
 	transformModel, ok := dep.Model.(Transformation)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotTransformationModel, depID)
 	}
 
 	tConfig := transformModel.GetConfig()
-	depData := map[string]interface{}{
+	depData := map[string]any{
 		"database": tConfig.Database,
 		"table":    tConfig.Table,
-		"helpers": map[string]interface{}{
+		"helpers": map[string]any{
 			"from": buildFromClause("", tConfig.Database, tConfig.Table, ""),
 		},
 	}
@@ -210,18 +207,18 @@ func (t *TemplateEngine) processTransformationDependency(dep Node, depID, origin
 }
 
 // processExternalDependency processes an external dependency
-func (t *TemplateEngine) processExternalDependency(dep Node, depID, originalDep string, addDepEntry func(string, string, map[string]interface{})) error {
+func (t *TemplateEngine) processExternalDependency(dep Node, depID, originalDep string, addDepEntry func(string, string, map[string]any)) error {
 	external, ok := dep.Model.(External)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotExternalModel, depID)
 	}
 
 	eConfig := external.GetConfig()
-	depData := map[string]interface{}{
+	depData := map[string]any{
 		"cluster":  eConfig.Cluster,
 		"database": eConfig.Database,
 		"table":    eConfig.Table,
-		"helpers": map[string]interface{}{
+		"helpers": map[string]any{
 			"from": buildFromClause(eConfig.Cluster, eConfig.Database, eConfig.Table, t.clickhouseCfg.LocalSuffix),
 		},
 	}
@@ -319,7 +316,7 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 }
 
 // RenderExternal renders an external model template with variables
-func (t *TemplateEngine) RenderExternal(model External, cacheState map[string]interface{}) (string, error) {
+func (t *TemplateEngine) RenderExternal(model External, cacheState map[string]any) (string, error) {
 	variables := t.buildExternalVariables(model, cacheState)
 
 	tmpl, err := template.New("model").Funcs(t.funcMap).Parse(model.GetValue())
@@ -335,19 +332,19 @@ func (t *TemplateEngine) RenderExternal(model External, cacheState map[string]in
 	return buf.String(), nil
 }
 
-func (t *TemplateEngine) buildExternalVariables(model External, cacheState map[string]interface{}) map[string]interface{} {
+func (t *TemplateEngine) buildExternalVariables(model External, cacheState map[string]any) map[string]any {
 	config := model.GetConfig()
 
-	variables := map[string]interface{}{
-		"clickhouse": map[string]interface{}{
+	variables := map[string]any{
+		"clickhouse": map[string]any{
 			"cluster":      t.clickhouseCfg.Cluster,
 			"local_suffix": t.clickhouseCfg.LocalSuffix,
 		},
-		"self": map[string]interface{}{
+		"self": map[string]any{
 			"cluster":  config.Cluster,
 			"database": config.Database,
 			"table":    config.Table,
-			"helpers": map[string]interface{}{
+			"helpers": map[string]any{
 				"from": buildFromClause(config.Cluster, config.Database, config.Table, t.clickhouseCfg.LocalSuffix),
 			},
 		},
