@@ -53,10 +53,7 @@ func exponentialBackoff(tries int) time.Duration {
 		maxShift  = 3 // Cap shift to prevent overflow (50ms * 2^3 = 400ms)
 	)
 
-	shift := tries
-	if shift > maxShift {
-		shift = maxShift
-	}
+	shift := min(tries, maxShift)
 
 	delay := baseDelay << shift
 	if delay > maxDelay {

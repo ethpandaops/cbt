@@ -361,9 +361,9 @@ func TestFilteredTransformations_LargeScale(t *testing.T) {
 	t.Run("many transformations few tags", func(t *testing.T) {
 		// 1000 transformations, each with 5 tags
 		transformations := make([]models.Transformation, 1000)
-		for i := 0; i < 1000; i++ {
+		for i := range 1000 {
 			tags := make([]string, 5)
-			for j := 0; j < 5; j++ {
+			for j := range 5 {
 				tags[j] = fmt.Sprintf("tag_%d_%d", i%10, j) // Creates groups of similar tags
 			}
 			transformations[i] = &mockTransformation{
@@ -392,7 +392,7 @@ func TestFilteredTransformations_LargeScale(t *testing.T) {
 
 		// 100 filter tags, only one matches
 		filterTags := make([]string, 100)
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			filterTags[i] = fmt.Sprintf("filter_tag_%d", i)
 		}
 		filterTags[50] = "target_tag" // One matching tag
@@ -404,9 +404,9 @@ func TestFilteredTransformations_LargeScale(t *testing.T) {
 	t.Run("many transformations many tags", func(t *testing.T) {
 		// 500 transformations with 10 tags each
 		transformations := make([]models.Transformation, 500)
-		for i := 0; i < 500; i++ {
+		for i := range 500 {
 			tags := make([]string, 10)
-			for j := 0; j < 10; j++ {
+			for j := range 10 {
 				tags[j] = fmt.Sprintf("tag_%d", (i*10+j)%100) // 100 unique tags total
 			}
 			transformations[i] = &mockTransformation{
@@ -419,7 +419,7 @@ func TestFilteredTransformations_LargeScale(t *testing.T) {
 
 		// Filter by 50 tags
 		filterTags := make([]string, 50)
-		for i := 0; i < 50; i++ {
+		for i := range 50 {
 			filterTags[i] = fmt.Sprintf("tag_%d", i)
 		}
 
@@ -434,7 +434,7 @@ func TestFilteredTransformations_LargeScale(t *testing.T) {
 // TestFilteredTransformations_OrderPreservation verifies that the original order is preserved.
 func TestFilteredTransformations_OrderPreservation(t *testing.T) {
 	transformations := make([]models.Transformation, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		transformations[i] = &mockTransformation{
 			id:   fmt.Sprintf("model.test_%03d", i), // Zero-padded for easy sorting verification
 			tags: []string{"common_tag"},
@@ -459,9 +459,9 @@ func TestFilteredTransformations_OrderPreservation(t *testing.T) {
 func BenchmarkFilteredTransformations(b *testing.B) {
 	// Setup: 1000 transformations with 5 tags each, filter by 10 tags
 	transformations := make([]models.Transformation, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		tags := make([]string, 5)
-		for j := 0; j < 5; j++ {
+		for j := range 5 {
 			tags[j] = fmt.Sprintf("tag_%d_%d", i%50, j)
 		}
 		transformations[i] = &mockTransformation{
@@ -554,12 +554,12 @@ func BenchmarkNewService(b *testing.B) {
 
 type mockClickhouseClient struct{}
 
-func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, _ interface{}) error { return nil }
-func (m *mockClickhouseClient) QueryMany(_ context.Context, _ string, _ interface{}) error {
+func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, _ any) error { return nil }
+func (m *mockClickhouseClient) QueryMany(_ context.Context, _ string, _ any) error {
 	return nil
 }
 func (m *mockClickhouseClient) Execute(_ context.Context, _ string) error { return nil }
-func (m *mockClickhouseClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
+func (m *mockClickhouseClient) BulkInsert(_ context.Context, _ string, _ any) error {
 	return nil
 }
 func (m *mockClickhouseClient) Start() error { return nil }
@@ -681,7 +681,7 @@ func (m *mockModelsService) GetDAG() models.DAGReader {
 func (m *mockModelsService) RenderTransformation(_ models.Transformation, _, _ uint64, _ time.Time) (string, error) {
 	return "", nil
 }
-func (m *mockModelsService) RenderExternal(_ models.External, _ map[string]interface{}) (string, error) {
+func (m *mockModelsService) RenderExternal(_ models.External, _ map[string]any) (string, error) {
 	return "", nil
 }
 func (m *mockModelsService) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time) (*[]string, error) {

@@ -133,7 +133,7 @@ func (m *mockModelsService) RenderTransformation(_ models.Transformation, _, _ u
 	return "", nil
 }
 
-func (m *mockModelsService) RenderExternal(_ models.External, _ map[string]interface{}) (string, error) {
+func (m *mockModelsService) RenderExternal(_ models.External, _ map[string]any) (string, error) {
 	return "", nil
 }
 

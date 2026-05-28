@@ -51,7 +51,7 @@ func TestModelExecutor_Execute(t *testing.T) {
 	tests := []struct {
 		name            string
 		setupMocks      func(*mockExecutorClickhouseClient, *mockExecutorModelsService, *mockExecutorAdminService)
-		taskCtx         interface{}
+		taskCtx         any
 		wantErr         bool
 		expectedErrType error
 	}{
@@ -208,7 +208,7 @@ func TestModelExecutor_Validate(t *testing.T) {
 	tests := []struct {
 		name       string
 		setupMocks func(*mockExecutorClickhouseClient)
-		taskCtx    interface{}
+		taskCtx    any
 		wantErr    bool
 	}{
 		{
@@ -438,7 +438,7 @@ type mockExecutorClickhouseClient struct {
 	boundsMax      uint64
 }
 
-func (m *mockExecutorClickhouseClient) QueryOne(_ context.Context, query string, result interface{}) error {
+func (m *mockExecutorClickhouseClient) QueryOne(_ context.Context, query string, result any) error {
 	if m.queryOneErr != nil {
 		return m.queryOneErr
 	}
@@ -480,13 +480,13 @@ func tableCount(exists bool) uint64 {
 
 	return 0
 }
-func (m *mockExecutorClickhouseClient) QueryMany(_ context.Context, _ string, _ interface{}) error {
+func (m *mockExecutorClickhouseClient) QueryMany(_ context.Context, _ string, _ any) error {
 	return nil
 }
 func (m *mockExecutorClickhouseClient) Execute(_ context.Context, _ string) error {
 	return m.executeErr
 }
-func (m *mockExecutorClickhouseClient) BulkInsert(_ context.Context, _ string, _ interface{}) error {
+func (m *mockExecutorClickhouseClient) BulkInsert(_ context.Context, _ string, _ any) error {
 	return nil
 }
 func (m *mockExecutorClickhouseClient) Start() error { return nil }
@@ -515,7 +515,7 @@ func (m *mockExecutorModelsService) RenderTransformation(_ models.Transformation
 	}
 	return m.renderedSQL, nil
 }
-func (m *mockExecutorModelsService) RenderExternal(_ models.External, _ map[string]interface{}) (string, error) {
+func (m *mockExecutorModelsService) RenderExternal(_ models.External, _ map[string]any) (string, error) {
 	return "", nil
 }
 func (m *mockExecutorModelsService) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time) (*[]string, error) {

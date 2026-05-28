@@ -109,13 +109,11 @@ func (s *service) Start(_ context.Context) error {
 	}
 
 	// Start server in background with proper lifecycle management
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.wg.Go(func() {
 		if runErr := srv.Run(mux); runErr != nil {
 			s.log.WithError(runErr).Error("Worker server stopped with error")
 		}
-	}()
+	})
 
 	s.server = srv
 

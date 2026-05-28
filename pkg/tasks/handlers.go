@@ -63,8 +63,8 @@ type TaskContext struct {
 
 // Executor defines the interface for task executors
 type Executor interface {
-	Execute(ctx context.Context, taskCtx interface{}) error
-	Validate(ctx context.Context, taskCtx interface{}) error
+	Execute(ctx context.Context, taskCtx any) error
+	Validate(ctx context.Context, taskCtx any) error
 	UpdateBounds(ctx context.Context, modelID, scanType string) error
 }
 

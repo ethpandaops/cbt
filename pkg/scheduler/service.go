@@ -168,13 +168,11 @@ func (s *service) Start(ctx context.Context) error {
 	go s.handleLeaderElection(ctx)
 
 	// Start server in background (always runs for processing scheduled tasks)
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.wg.Go(func() {
 		if runErr := s.server.Run(s.mux); runErr != nil {
 			s.log.WithError(runErr).Error("Scheduler server stopped with error")
 		}
-	}()
+	})
 
 	// Start live override polling on all instances
 	if s.liveOverrides != nil {
@@ -279,13 +277,11 @@ func (s *service) handleLeaderElection(ctx context.Context) {
 			// Start ticker in goroutine
 			tickerCtx, cancel := context.WithCancel(ctx) //nolint:gosec // G118 - cancel is stored in s.tickerCancel and called on demotion
 			s.tickerCancel = cancel
-			s.wg.Add(1)
-			go func() {
-				defer s.wg.Done()
+			s.wg.Go(func() {
 				if err := s.ticker.Start(tickerCtx); err != nil && !errors.Is(err, context.Canceled) {
 					s.log.WithError(err).Error("Ticker service error")
 				}
-			}()
+			})
 
 			// Trigger initial external scans (keep this - still needed)
 			s.triggerInitialExternalScans(ctx)
@@ -446,7 +442,7 @@ func (s *service) buildTransformationScheduledTasks() []scheduledTask {
 		}
 
 		type configProvider interface {
-			Config() interface{}
+			Config() any
 		}
 		cfgProvider, ok := handler.(configProvider)
 		if !ok {
@@ -841,7 +837,7 @@ func (s *service) HandleScheduledTransformation(_ context.Context, t *asynq.Task
 func (s *service) enqueueScheduledTask(payload tasks.TaskPayload) error {
 	// Check if coordinator has GetQueueManager method
 	type queueManagerGetter interface {
-		GetQueueManager() interface{}
+		GetQueueManager() any
 	}
 
 	qmGetter, ok := s.coordinator.(queueManagerGetter)

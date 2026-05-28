@@ -15,7 +15,7 @@ func TestParseTaskPayload(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		payload       interface{}
+		payload       any
 		expectedType  TaskType
 		expectedError bool
 		description   string
@@ -62,7 +62,7 @@ func TestParseTaskPayload(t *testing.T) {
 		},
 		{
 			name: "legacy incremental payload without type field (backwards compat)",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"model_id":    "test.model",
 				"position":    100,
 				"interval":    50,
@@ -75,7 +75,7 @@ func TestParseTaskPayload(t *testing.T) {
 		},
 		{
 			name: "legacy scheduled payload without type field (backwards compat)",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"model_id":       "test.model",
 				"execution_time": time.Now().Format(time.RFC3339),
 				"enqueued_at":    time.Now().Format(time.RFC3339),
@@ -86,7 +86,7 @@ func TestParseTaskPayload(t *testing.T) {
 		},
 		{
 			name: "legacy incremental with only Direction set (backwards compat)",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"model_id":    "test.model",
 				"position":    0,
 				"interval":    0,
@@ -163,7 +163,7 @@ func TestParseTaskPayload_ZeroValues(t *testing.T) {
 	// Legacy payloads without Type field rely on heuristics
 	// Direction is now included in the heuristic check
 	t.Run("legacy with direction only", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"model_id":    "test.model",
 			"position":    0,
 			"interval":    0,
@@ -183,7 +183,7 @@ func TestParseTaskPayload_ZeroValues(t *testing.T) {
 
 	// True scheduled payload (no incremental fields at all)
 	t.Run("legacy scheduled without incremental fields", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"model_id":       "test.model",
 			"execution_time": time.Now().Format(time.RFC3339),
 			"enqueued_at":    time.Now().Format(time.RFC3339),
@@ -207,7 +207,7 @@ func TestParseTaskPayload_TypeFieldPrecedence(t *testing.T) {
 	// (This is a weird edge case but tests that Type field is authoritative)
 	t.Run("type scheduled with incremental fields", func(t *testing.T) {
 		// This is a contrived case - in practice Type should match the struct
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"type":        "scheduled",
 			"model_id":    "test.model",
 			"position":    100,
@@ -226,7 +226,7 @@ func TestParseTaskPayload_TypeFieldPrecedence(t *testing.T) {
 	})
 
 	t.Run("type incremental without incremental fields", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"type":        "incremental",
 			"model_id":    "test.model",
 			"enqueued_at": time.Now().Format(time.RFC3339),
