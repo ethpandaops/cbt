@@ -20,6 +20,14 @@ var (
 	ErrCacheManagerUnavailable = errors.New("cache manager not available")
 )
 
+// consolidationDeleteBatchSize bounds how many (position, interval) keys go into a
+// single DELETE ... IN (...) statement. Large enough that a normal island is one
+// batch — in cluster mode each batch is a distributed DDL on the shared task queue,
+// so fewer is better — yet small enough that the rendered query stays well under
+// ClickHouse's max_query_size even for a long-overdue island of thousands of rows.
+// Each batch is still keyed, preserving the out-of-order-delete safety.
+const consolidationDeleteBatchSize = 5000
+
 // buildTableRef creates a backtick-escaped table reference for SQL queries.
 func buildTableRef(database, table string) string {
 	return fmt.Sprintf("`%s`.`%s`", database, table)
@@ -538,62 +546,131 @@ func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string)
 		"interval":  rangeResult.EndPos - rangeResult.StartPos,
 	}).Debug("Consolidating admin table rows")
 
-	// Capture timestamp for the consolidated row before insertion
-	// This allows us to delete all older rows using timestamp comparison
-	consolidationTime := time.Now().UTC()
-	consolidatedInterval := rangeResult.EndPos - rangeResult.StartPos
+	// Fetch the exact granular rows that make up this island BEFORE inserting the
+	// consolidated row. We delete precisely these keys afterwards — never a range —
+	// so a delete can only ever reference rows that existed at scan time. This is
+	// what makes consolidation safe against late or out-of-order deletes: an older
+	// delete can never clip a consolidated row written by a later run, because that
+	// newer row's (position, interval) was never in any earlier delete's key set.
+	membersQuery := fmt.Sprintf(`
+		SELECT position, interval
+		FROM %s FINAL
+		WHERE database = '%s' AND table = '%s'
+		  AND position >= %d AND position < %d
+	`, buildTableRef(a.adminDatabase, a.adminTable), database, table,
+		rangeResult.StartPos, rangeResult.EndPos)
 
-	// Insert the consolidated row FIRST to avoid gaps
-	// Use explicit timestamp to ensure we can reliably delete older rows
+	var members []ProcessedRange
+	if err := a.client.QueryMany(ctx, membersQuery, &members); err != nil {
+		return 0, fmt.Errorf("failed to fetch island members for consolidation: %w", err)
+	}
+
+	// Guard against the island shrinking between the range scan and this fetch
+	// (e.g. a concurrent delete). Nothing meaningful to merge if fewer than 2 rows.
+	if len(members) < 2 {
+		return 0, nil
+	}
+
+	// Derive the consolidated span from the rows we actually read, so the consolidated
+	// row always covers exactly the rows we are about to delete — even if the range
+	// scan observed a slightly different (e.g. partial) view of the island.
+	startPos := members[0].Position
+
+	var endPos uint64
+
+	for _, m := range members {
+		if m.Position < startPos {
+			startPos = m.Position
+		}
+
+		if end := m.Position + m.Interval; end > endPos {
+			endPos = end
+		}
+	}
+
+	consolidatedInterval := endPos - startPos
+
+	// Insert the consolidated row FIRST so coverage is never lost if the delete fails.
+	consolidationTime := time.Now().UTC()
 	insertQuery := fmt.Sprintf(`
 		INSERT INTO `+"`%s`.`%s`"+` (updated_date_time, database, table, position, interval)
 		VALUES ('%s', '%s', '%s', %d, %d)
 	`, a.adminDatabase, a.adminTable, consolidationTime.Format("2006-01-02 15:04:05.000"),
-		database, table, rangeResult.StartPos, consolidatedInterval)
+		database, table, startPos, consolidatedInterval)
 
 	if err := a.client.Execute(ctx, insertQuery); err != nil {
 		return 0, fmt.Errorf("failed to insert consolidated row: %w", err)
 	}
 
-	// Delete old rows using interval-based exclusion
-	// This is more robust than timestamp-based deletion because:
-	// 1. No dependency on clock precision or synchronization across cluster nodes
-	// 2. Explicitly excludes the consolidated row by its unique characteristic (larger interval)
-	// 3. Works reliably regardless of ReplacingMergeTree merge timing
-	// 4. Semantically clear: "delete all rows in range except the consolidated one"
-	//
-	// The consolidated row has interval = (end_pos - start_pos), which is larger than
-	// any individual row's interval in the consolidated range
-	var deleteQuery string
-	if a.cluster != "" {
-		// Cluster mode: use local suffix and ON CLUSTER
-		deleteQuery = fmt.Sprintf(`
-			DELETE FROM `+"`%s`.`%s%s`"+` ON CLUSTER '%s'
-			WHERE database = '%s' AND table = '%s'
-			  AND position >= %d AND position < %d
-			  AND interval != %d
-		`, a.adminDatabase, a.adminTable, a.localSuffix, a.cluster,
-			database, table, rangeResult.StartPos, rangeResult.EndPos,
-			consolidatedInterval)
-	} else {
-		// Non-cluster mode: simple DELETE
-		deleteQuery = fmt.Sprintf(`
+	// Delete the granular rows by their exact (position, interval) keys, excluding the
+	// consolidated row's own key (in case a member already matched it). Deleting by
+	// explicit identity — rather than "everything in range except this interval" —
+	// is what prevents a stale or out-of-order delete from clipping a newer
+	// consolidated row.
+	tuples := make([]string, 0, len(members))
+
+	for _, m := range members {
+		if m.Position == startPos && m.Interval == consolidatedInterval {
+			continue
+		}
+
+		tuples = append(tuples, fmt.Sprintf("(%d, %d)", m.Position, m.Interval))
+	}
+
+	// Unreachable when the member fetch uses FINAL: dedup guarantees at most one row
+	// can match the consolidated key, so len(tuples) >= len(members)-1 >= 1 past the
+	// "< 2" guard above. Kept as a guard in case the fetch ever becomes non-FINAL.
+	if len(tuples) == 0 {
+		return uint64(len(members)), nil
+	}
+
+	// buildDelete renders a keyed DELETE for one batch of (position, interval) pairs.
+	// Cluster mode targets the local replicated table ON CLUSTER so the delete reaches
+	// whichever shard holds this model's rows.
+	buildDelete := func(keyList string) string {
+		if a.cluster != "" {
+			return fmt.Sprintf(`
+				DELETE FROM `+"`%s`.`%s%s`"+` ON CLUSTER '%s'
+				WHERE database = '%s' AND table = '%s'
+				  AND (position, interval) IN (%s)
+			`, a.adminDatabase, a.adminTable, a.localSuffix, a.cluster,
+				database, table, keyList)
+		}
+
+		return fmt.Sprintf(`
 			DELETE FROM `+"`%s`.`%s`"+`
 			WHERE database = '%s' AND table = '%s'
-			  AND position >= %d AND position < %d
-			  AND interval != %d
+			  AND (position, interval) IN (%s)
 		`, a.adminDatabase, a.adminTable,
-			database, table, rangeResult.StartPos, rangeResult.EndPos,
-			consolidatedInterval)
+			database, table, keyList)
 	}
 
-	if err := a.client.Execute(ctx, deleteQuery); err != nil {
-		// Log error but don't fail - the consolidated row will eventually replace the old ones
-		// due to ReplacingMergeTree behavior
-		return rangeResult.RowCount, fmt.Errorf("consolidated row inserted but failed to delete old rows: %w", err)
+	// Delete in batches so a long-overdue island never produces a single IN-list
+	// that exceeds max_query_size. Each batch is still keyed, so the out-of-order
+	// delete safety holds per batch.
+	batches := (len(tuples) + consolidationDeleteBatchSize - 1) / consolidationDeleteBatchSize
+	if batches > 1 {
+		a.log.WithFields(logrus.Fields{
+			"model_id": modelID,
+			"rows":     len(tuples),
+			"batches":  batches,
+		}).Info("Consolidating large island across batched deletes")
 	}
 
-	return rangeResult.RowCount, nil
+	for start := 0; start < len(tuples); start += consolidationDeleteBatchSize {
+		end := start + consolidationDeleteBatchSize
+		if end > len(tuples) {
+			end = len(tuples)
+		}
+
+		if err := a.client.Execute(ctx, buildDelete(strings.Join(tuples[start:end], ", "))); err != nil {
+			// The consolidated row is already in place; any rows not yet removed are
+			// harmless over-coverage that the next run will clean up.
+			return uint64(len(members)), fmt.Errorf("consolidated row inserted but failed to delete old rows: %w", err)
+		}
+	}
+
+	return uint64(len(members)), nil
 }
 
 // DeletePeriod removes tracking rows that overlap [startPos, endPos) and re-inserts

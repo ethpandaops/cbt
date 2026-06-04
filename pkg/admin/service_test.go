@@ -691,9 +691,7 @@ func TestConsolidateHistoricalDataQueryStructure(t *testing.T) {
 			expectedInDelete: []string{
 				"DELETE FROM",
 				"WHERE database = 'mydb' AND table = 'mytable'",
-				"AND position >=",
-				"AND position <",
-				"AND interval !=",
+				"(position, interval) IN (",
 			},
 			useCluster:  false,
 			clusterName: "",
@@ -711,7 +709,7 @@ func TestConsolidateHistoricalDataQueryStructure(t *testing.T) {
 				"DELETE FROM",
 				"ON CLUSTER 'test_cluster'",
 				"WHERE database = 'mydb' AND table = 'mytable'",
-				"AND interval !=",
+				"(position, interval) IN (",
 			},
 			useCluster:  true,
 			clusterName: "test_cluster",
@@ -745,12 +743,13 @@ func TestConsolidateHistoricalDataQueryStructure(t *testing.T) {
 			_, err := svc.ConsolidateHistoricalData(ctx, tt.modelID)
 			require.NoError(t, err)
 
-			// Should have 3 queries: SELECT (range query), INSERT (consolidated row), DELETE (rows in range)
-			require.Len(t, mockClient.queries, 3, "Expected 3 queries: SELECT, INSERT, DELETE")
+			// Should have 4 queries: SELECT (range scan), SELECT (island members),
+			// INSERT (consolidated row), DELETE (members by key)
+			require.Len(t, mockClient.queries, 4, "Expected 4 queries: SELECT range, SELECT members, INSERT, DELETE")
 
 			consolidationQuery := mockClient.queries[0]
-			insertQuery := mockClient.queries[1]
-			deleteQuery := mockClient.queries[2]
+			insertQuery := mockClient.queries[2]
+			deleteQuery := mockClient.queries[3]
 
 			// Verify consolidation query structure (should be 3-CTE)
 			for _, expected := range tt.expectedInQuery {
@@ -776,9 +775,11 @@ func TestConsolidateHistoricalDataQueryStructure(t *testing.T) {
 					"DELETE query should contain: %s", expected)
 			}
 
-			// Verify interval-based deletion strategy
-			assert.Contains(t, deleteQuery, "AND interval !=",
-				"DELETE should use interval-based exclusion")
+			// Verify explicit-key deletion strategy (safe against out-of-order deletes)
+			assert.Contains(t, deleteQuery, "(position, interval) IN (",
+				"DELETE should delete by explicit (position, interval) keys")
+			assert.NotContains(t, deleteQuery, "interval !=",
+				"DELETE should NOT use interval-based exclusion (clips newer consolidated rows)")
 			assert.NotContains(t, deleteQuery, "updated_date_time <",
 				"DELETE should NOT use timestamp-based deletion")
 		})
@@ -807,13 +808,88 @@ func TestConsolidateHistoricalDataClusterMode(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check DELETE query uses cluster syntax
-	require.Len(t, mockClient.queries, 3)
-	deleteQuery := mockClient.queries[2]
+	require.Len(t, mockClient.queries, 4)
+	deleteQuery := mockClient.queries[3]
 
 	assert.Contains(t, deleteQuery, "ON CLUSTER 'my_cluster'",
 		"DELETE in cluster mode should use ON CLUSTER")
 	assert.Contains(t, deleteQuery, "`admin`.`cbt_incremental_local`",
 		"DELETE in cluster mode should use local suffix")
+}
+
+// TestConsolidateHistoricalDataExcludesConsolidatedKey verifies the DELETE never
+// names the consolidated row's own (position, interval) key. This is the property
+// that stops a stale or out-of-order delete from clipping a newer consolidated row.
+func TestConsolidateHistoricalDataExcludesConsolidatedKey(t *testing.T) {
+	mockClient := &queryCapturingClient{
+		// Island members include a row whose key already equals the consolidated
+		// row's key (start=1000, span=1000); it must be kept, the rest deleted.
+		consolidationMembers: []ProcessedRange{
+			{Position: 1000, Interval: 1000}, // == consolidated key -> must NOT be deleted
+			{Position: 1000, Interval: 500},  // granular -> must be deleted
+			{Position: 1500, Interval: 500},  // granular -> must be deleted
+		},
+	}
+
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+	config := TableConfig{
+		IncrementalDatabase: "admin",
+		IncrementalTable:    "cbt_incremental",
+		ScheduledDatabase:   "admin",
+		ScheduledTable:      "cbt_scheduled",
+	}
+
+	svc := NewService(log, mockClient, "", "", config, nil)
+
+	_, err := svc.ConsolidateHistoricalData(context.Background(), "mydb.mytable")
+	require.NoError(t, err)
+
+	require.Len(t, mockClient.queries, 4)
+	deleteQuery := mockClient.queries[3]
+
+	assert.Contains(t, deleteQuery, "(1000, 500)", "granular row must be deleted")
+	assert.Contains(t, deleteQuery, "(1500, 500)", "granular row must be deleted")
+	assert.NotContains(t, deleteQuery, "(1000, 1000)",
+		"the consolidated row's own key must be excluded from the delete")
+}
+
+// TestConsolidateHistoricalDataChunksLargeDelete verifies a very large island is
+// removed across multiple batched DELETEs rather than one oversized IN-list that
+// could exceed ClickHouse's max_query_size.
+func TestConsolidateHistoricalDataChunksLargeDelete(t *testing.T) {
+	n := consolidationDeleteBatchSize + 1 // one past a single batch -> forces 2 batches
+
+	members := make([]ProcessedRange, 0, n)
+	for i := 0; i < n; i++ {
+		members = append(members, ProcessedRange{Position: uint64(i) * 10, Interval: 10})
+	}
+
+	mockClient := &queryCapturingClient{consolidationMembers: members}
+
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+	config := TableConfig{
+		IncrementalDatabase: "admin",
+		IncrementalTable:    "cbt_incremental",
+		ScheduledDatabase:   "admin",
+		ScheduledTable:      "cbt_scheduled",
+	}
+
+	svc := NewService(log, mockClient, "", "", config, nil)
+
+	_, err := svc.ConsolidateHistoricalData(context.Background(), "mydb.mytable")
+	require.NoError(t, err)
+
+	deletes := 0
+
+	for _, q := range mockClient.queries {
+		if strings.Contains(q, "DELETE FROM") {
+			deletes++
+		}
+	}
+
+	assert.Equal(t, 2, deletes, "large island should be deleted across 2 batches")
 }
 
 // consolidationMockClient is a specialized mock for consolidation testing
@@ -856,8 +932,29 @@ func (m *consolidationMockClient) QueryOne(_ context.Context, query string, resu
 	return nil
 }
 
-func (m *consolidationMockClient) QueryMany(_ context.Context, query string, _ any) error {
+func (m *consolidationMockClient) QueryMany(_ context.Context, query string, result any) error {
 	m.queries = append(m.queries, query)
+
+	rows, ok := result.(*[]ProcessedRange)
+	if !ok || m.rangeRowCount == 0 {
+		return nil
+	}
+
+	// Synthesize evenly-spaced island members spanning [start, end) so the
+	// consolidation flow has concrete rows to delete by key.
+	span := m.rangeEndPos - m.rangeStartPos
+	step := span / m.rangeRowCount
+
+	members := make([]ProcessedRange, 0, m.rangeRowCount)
+	for i := uint64(0); i < m.rangeRowCount; i++ {
+		members = append(members, ProcessedRange{
+			Position: m.rangeStartPos + i*step,
+			Interval: step,
+		})
+	}
+
+	*rows = members
+
 	return nil
 }
 
@@ -1017,9 +1114,10 @@ func TestHyphenatedDatabaseNamesInQueries(t *testing.T) {
 
 // queryCapturingClient is a mock ClickHouse client that captures queries for inspection
 type queryCapturingClient struct {
-	queries     []string
-	mockResults []any
-	resultIndex int
+	queries              []string
+	mockResults          []any
+	resultIndex          int
+	consolidationMembers []ProcessedRange
 }
 
 func (m *queryCapturingClient) Execute(_ context.Context, query string) error {
@@ -1066,6 +1164,20 @@ func (m *queryCapturingClient) QueryOne(_ context.Context, query string, result 
 
 func (m *queryCapturingClient) QueryMany(_ context.Context, query string, result any) error {
 	m.queries = append(m.queries, query)
+
+	// Consolidation island-member fetch.
+	if rows, ok := result.(*[]ProcessedRange); ok {
+		if m.consolidationMembers != nil {
+			*rows = m.consolidationMembers
+		} else {
+			*rows = []ProcessedRange{
+				{Position: 1000, Interval: 500},
+				{Position: 1500, Interval: 500},
+			}
+		}
+
+		return nil
+	}
 
 	if m.resultIndex < len(m.mockResults) {
 		// Return the mock result based on the actual type expected
