@@ -25,7 +25,9 @@ type ModelFile struct {
 	Content   []byte
 }
 
-// DiscoverPaths walks directories to find model files (.sql, .yaml, .yml)
+// DiscoverPaths finds model files (.sql, .yaml, .yml) at the given paths.
+// Each path may be a directory, which is walked recursively, or an individual
+// model file.
 func DiscoverPaths(directories []string) ([]*ModelFile, error) {
 	var models []*ModelFile
 
@@ -41,7 +43,52 @@ func DiscoverPaths(directories []string) ([]*ModelFile, error) {
 	return models, nil
 }
 
+// discoverFile loads a single model file, root-scoped to its parent directory
+// so the file itself cannot be a symlink escaping it.
+func discoverFile(path string) ([]*ModelFile, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext != ExtSQL && ext != ExtYAML && ext != ExtYML {
+		return nil, nil
+	}
+
+	parent := filepath.Dir(path)
+
+	root, err := os.OpenRoot(parent)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	content, err := readFileFromRoot(root, filepath.Base(path))
+	if err != nil {
+		return nil, err
+	}
+
+	return []*ModelFile{{
+		FilePath:  path,
+		Extension: ext,
+		Content:   content,
+	}}, nil
+}
+
 func discoverInDirectory(dir string) ([]*ModelFile, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+
+		return nil, err
+	}
+
+	if !info.IsDir() {
+		return discoverFile(dir)
+	}
+
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
