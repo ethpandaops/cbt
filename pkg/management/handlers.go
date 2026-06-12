@@ -92,7 +92,7 @@ func (h *Handlers) DeletePeriod(c fiber.Ctx) error {
 			Error("Failed to delete period")
 
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": fmt.Sprintf("delete period failed: %s", err.Error()),
+			"error": "delete period failed: " + err.Error(),
 		})
 	}
 
@@ -302,9 +302,7 @@ func (h *Handlers) TriggerRefreshBounds(c fiber.Ctx) error {
 			Error("Failed to trigger bounds refresh")
 
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": fmt.Sprintf(
-				"failed to refresh bounds: %s", err.Error(),
-			),
+			"error": "failed to refresh bounds: " + err.Error(),
 		})
 	}
 
@@ -340,9 +338,7 @@ func (h *Handlers) TriggerScheduledRun(c fiber.Ctx) error {
 			Error("Failed to trigger scheduled run")
 
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": fmt.Sprintf(
-				"failed to trigger scheduled run: %s", err.Error(),
-			),
+			"error": "failed to trigger scheduled run: " + err.Error(),
 		})
 	}
 
@@ -390,7 +386,7 @@ func (h *Handlers) GetConfigOverride(c fiber.Ctx) error {
 	}
 
 	response["model_id"] = override.ModelID
-	response["model_type"] = override.ModelType
+	response["model_type"] = override.Type
 
 	if override.Enabled != nil {
 		response["enabled"] = override.Enabled
@@ -422,13 +418,13 @@ func (h *Handlers) SetConfigOverride(c fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "model not found in DAG")
 	}
 
-	var modelType models.ModelType
+	var modelType models.Type
 
 	switch node.NodeType {
 	case models.NodeTypeTransformation:
-		modelType = models.ModelTypeTransformation
+		modelType = models.TypeTransformation
 	case models.NodeTypeExternal:
-		modelType = models.ModelTypeExternal
+		modelType = models.TypeExternal
 
 		// External models don't support enable/disable
 		if req.Enabled != nil {
@@ -441,13 +437,13 @@ func (h *Handlers) SetConfigOverride(c fiber.Ctx) error {
 	// Validate config if provided
 	if len(req.Config) > 0 {
 		if err := h.validateOverrideConfig(req.Config, modelType); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, fmt.Sprintf("invalid config: %s", err.Error()))
+			return fiber.NewError(fiber.StatusBadRequest, "invalid config: "+err.Error())
 		}
 	}
 
 	override := &admin.ConfigOverride{
 		ModelID:   id,
-		ModelType: string(modelType),
+		Type:      string(modelType),
 		Enabled:   req.Enabled,
 		Override:  req.Config,
 		UpdatedAt: time.Now().UTC(),
@@ -513,9 +509,9 @@ func (h *Handlers) ClearAllConfigOverrides(c fiber.Ctx) error {
 }
 
 // validateOverrideConfig validates the override config JSON based on model type.
-func (h *Handlers) validateOverrideConfig(raw json.RawMessage, modelType models.ModelType) error {
+func (h *Handlers) validateOverrideConfig(raw json.RawMessage, modelType models.Type) error {
 	switch modelType {
-	case models.ModelTypeTransformation:
+	case models.TypeTransformation:
 		var tOv models.TransformationOverride
 		if err := json.Unmarshal(raw, &tOv); err != nil {
 			return fmt.Errorf("invalid transformation override: %w", err)
@@ -525,7 +521,7 @@ func (h *Handlers) validateOverrideConfig(raw json.RawMessage, modelType models.
 			return err
 		}
 
-	case models.ModelTypeExternal:
+	case models.TypeExternal:
 		var eOv models.ExternalOverride
 		if err := json.Unmarshal(raw, &eOv); err != nil {
 			return fmt.Errorf("invalid external override: %w", err)

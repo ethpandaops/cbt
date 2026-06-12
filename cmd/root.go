@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -17,6 +18,26 @@ import (
 //nolint:gochecknoglobals // Global vars needed for cobra CLI
 var (
 	cfgFile string
+)
+
+// engineRunner is the minimal lifecycle surface of the engine that runEngine
+// depends on. It exists so the engine can be substituted in tests.
+type engineRunner interface {
+	Start(ctx context.Context) error
+	Stop() error
+}
+
+// Seams overridable in tests.
+//
+//nolint:gochecknoglobals // Test seams for otherwise-untestable code paths.
+var (
+	osExit = os.Exit
+
+	setDefaults = defaults.Set
+
+	newEngine = func(log *logrus.Logger, cfg *engine.Config) (engineRunner, error) {
+		return engine.NewService(log, cfg)
+	}
 )
 
 // rootCmd represents the base command
@@ -35,7 +56,7 @@ dependency management, and interval-based processing.`,
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		osExit(1)
 	}
 }
 
@@ -51,7 +72,7 @@ func loadConfigFromFile(file string) (*engine.Config, error) {
 
 	config := &engine.Config{}
 
-	if err := defaults.Set(config); err != nil {
+	if err := setDefaults(config); err != nil {
 		return nil, err
 	}
 
@@ -88,20 +109,23 @@ func runEngine(cmd *cobra.Command, _ []string) error {
 
 	logger.Info("Configuration loaded")
 
+	// Canceled on SIGINT/SIGTERM so services can shut down via context
+	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	// Create and start config application
-	app, err := engine.NewService(logger, config)
+	app, err := newEngine(logger, config)
 	if err != nil {
-		logger.WithError(err).Fatal("Failed to create engine")
+		return fmt.Errorf("failed to create engine: %w", err)
 	}
 
-	if err := app.Start(); err != nil {
-		logger.WithError(err).Fatal("Failed to start engine")
+	if err := app.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start engine: %w", err)
 	}
 
 	// Wait for interrupt signal
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+	<-ctx.Done()
+	stop()
 
 	// Graceful shutdown
 	return app.Stop()

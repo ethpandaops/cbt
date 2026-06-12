@@ -632,7 +632,7 @@ func TestTickerService(t *testing.T) {
 		// Should stop within reasonable time
 		select {
 		case err := <-done:
-			assert.Error(t, err, "Should return context.Canceled error")
+			require.Error(t, err, "Should return context.Canceled error")
 		case <-time.After(2 * time.Second):
 			t.Fatal("Ticker did not stop within timeout")
 		}

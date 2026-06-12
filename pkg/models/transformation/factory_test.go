@@ -153,9 +153,9 @@ func TestCreateHandler(t *testing.T) {
 			handler, err := CreateHandler(tt.handlerType, tt.data, adminTable)
 
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				if tt.errType != nil {
-					assert.ErrorIs(t, err, tt.errType)
+					require.ErrorIs(t, err, tt.errType)
 				}
 			} else {
 				require.NoError(t, err)
@@ -250,6 +250,7 @@ type mockHandler struct {
 	shouldTrackPos     bool
 	templateVars       map[string]any
 	recordCompletionFn func() error
+	validateErr        error
 }
 
 func (m *mockHandler) Type() Type {
@@ -261,7 +262,7 @@ func (m *mockHandler) Config() any {
 }
 
 func (m *mockHandler) Validate() error {
-	return nil
+	return m.validateErr
 }
 
 func (m *mockHandler) ShouldTrackPosition() bool {

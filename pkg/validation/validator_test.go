@@ -1066,7 +1066,7 @@ func TestExternalModelValidator_GetMinMax(t *testing.T) {
 
 			adminSvc := tt.setup(ctrl)
 
-			validator := validation.NewExternalModelExecutor(
+			validator := validation.NewExternalModelValidator(
 				logrus.New().WithField("test", tt.name),
 				adminSvc,
 			)

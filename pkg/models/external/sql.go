@@ -15,8 +15,8 @@ var (
 	ErrSQLContentRequired = errors.New("sql content is required")
 )
 
-// ExternalTypeSQL identifies SQL external models
-const ExternalTypeSQL = "sql"
+// TypeSQL identifies SQL external models
+const TypeSQL = "sql"
 
 // SQL represents an external SQL model with YAML frontmatter
 type SQL struct {
@@ -24,8 +24,8 @@ type SQL struct {
 	Content string `yaml:"-"`
 }
 
-// NewExternalSQL creates a new external SQL model from content
-func NewExternalSQL(content []byte) (*SQL, error) {
+// NewSQL creates a new external SQL model from content
+func NewSQL(content []byte) (*SQL, error) {
 	parts := bytes.SplitN(content, []byte("\n---\n"), 2)
 	if len(parts) != 2 {
 		return nil, ErrInvalidFrontmatter
@@ -53,7 +53,7 @@ func (c *SQL) Validate() error {
 
 // GetType returns the external model type
 func (c *SQL) GetType() string {
-	return ExternalTypeSQL
+	return TypeSQL
 }
 
 // GetConfig returns the external model configuration

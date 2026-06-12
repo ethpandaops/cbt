@@ -1,7 +1,6 @@
 package models
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -11,75 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// Mock handler for testing
-type mockHandler struct {
-	dependencies   []string
-	intervalType   string
-	shouldTrackPos bool
-}
-
-func (h *mockHandler) GetFlattenedDependencies() []string {
-	return h.dependencies
-}
-
-func (h *mockHandler) GetIntervalType() string {
-	return h.intervalType
-}
-
-// Implement the full Handler interface (these are no-op for tests)
-func (h *mockHandler) Type() transformation.Type { return "incremental" }
-func (h *mockHandler) Config() any               { return nil }
-func (h *mockHandler) Validate() error           { return nil }
-func (h *mockHandler) ShouldTrackPosition() bool {
-	return h.shouldTrackPos
-}
-func (h *mockHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
-	return nil
-}
-func (h *mockHandler) GetAdminTable() transformation.AdminTable { return transformation.AdminTable{} }
-func (h *mockHandler) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
-	return nil
-}
-
-// Mock transformation for testing
-type mockTransformation struct {
-	id      string
-	config  transformation.Config
-	handler transformation.Handler
-}
-
-func (m *mockTransformation) GetID() string                      { return m.id }
-func (m *mockTransformation) GetConfig() *transformation.Config  { return &m.config }
-func (m *mockTransformation) GetSQL() string                     { return "" }
-func (m *mockTransformation) GetType() string                    { return "transformation" }
-func (m *mockTransformation) GetValue() string                   { return "" }
-func (m *mockTransformation) GetHandler() transformation.Handler { return m.handler }
-func (m *mockTransformation) GetDependencies() []string          { return []string{} }
-func (m *mockTransformation) GetEnvironmentVariables() []string  { return []string{} }
-func (m *mockTransformation) SetDefaultDatabase(defaultDB string) {
-	m.config.SetDefaults(defaultDB)
-}
-
-// Mock external for testing
-type mockExternal struct {
-	id           string
-	config       external.Config
-	typ          string
-	intervalType string
-}
-
-func (m *mockExternal) GetID() string                      { return m.id }
-func (m *mockExternal) GetConfig() external.Config         { return m.config }
-func (m *mockExternal) GetConfigMutable() *external.Config { return &m.config }
-func (m *mockExternal) GetType() string                    { return m.typ }
-func (m *mockExternal) GetSQL() string                     { return "" }
-func (m *mockExternal) GetValue() string                   { return "" }
-func (m *mockExternal) GetEnvironmentVariables() []string  { return []string{} }
-func (m *mockExternal) SetDefaults(defaultCluster, defaultDB string) {
-	m.config.SetDefaults(defaultCluster, defaultDB)
-}
-func (m *mockExternal) GetIntervalType() string { return m.intervalType }
 
 // Test NewDependencyGraph
 func TestNewDependencyGraph(t *testing.T) {
@@ -113,7 +43,7 @@ func TestBuildGraph(t *testing.T) {
 				},
 			},
 			externals: []External{
-				&mockExternal{id: "db.ext1", typ: external.ExternalTypeSQL},
+				&mockExternal{id: "db.ext1", typ: external.TypeSQL},
 			},
 			wantErr:           false,
 			expectedNodeCount: 3,
@@ -157,12 +87,12 @@ func TestBuildGraph(t *testing.T) {
 					// Verify nodes were added
 					for _, trans := range tt.transformations {
 						node, err := dg.GetNode(trans.GetID())
-						assert.NoError(t, err)
+						require.NoError(t, err)
 						assert.Equal(t, NodeTypeTransformation, node.NodeType)
 					}
 					for _, ext := range tt.externals {
 						node, err := dg.GetNode(ext.GetID())
-						assert.NoError(t, err)
+						require.NoError(t, err)
 						assert.Equal(t, NodeTypeExternal, node.NodeType)
 					}
 				}
@@ -178,7 +108,7 @@ func TestGetNode(t *testing.T) {
 		id:     "db.trans1",
 		config: transformation.Config{Database: "db", Table: "trans1"},
 	}
-	ext := &mockExternal{id: "db.ext1", typ: external.ExternalTypeSQL}
+	ext := &mockExternal{id: "db.ext1", typ: external.TypeSQL}
 
 	err := dg.BuildGraph([]Transformation{trans}, []External{ext})
 	require.NoError(t, err)
@@ -229,7 +159,7 @@ func TestGetTransformationNode(t *testing.T) {
 		id:     "db.trans1",
 		config: transformation.Config{Database: "db", Table: "trans1"},
 	}
-	ext := &mockExternal{id: "db.ext1", typ: external.ExternalTypeSQL}
+	ext := &mockExternal{id: "db.ext1", typ: external.TypeSQL}
 
 	err := dg.BuildGraph([]Transformation{trans}, []External{ext})
 	require.NoError(t, err)
@@ -277,7 +207,7 @@ func TestGetExternalNode(t *testing.T) {
 		id:     "db.trans1",
 		config: transformation.Config{Database: "db", Table: "trans1"},
 	}
-	ext := &mockExternal{id: "db.ext1", typ: external.ExternalTypeSQL}
+	ext := &mockExternal{id: "db.ext1", typ: external.TypeSQL}
 
 	err := dg.BuildGraph([]Transformation{trans}, []External{ext})
 	require.NoError(t, err)
@@ -432,7 +362,7 @@ func TestGetTransformationNodes(t *testing.T) {
 		config:  transformation.Config{Database: "db", Table: "trans2"},
 		handler: &mockHandler{dependencies: []string{"db.trans1"}, shouldTrackPos: true},
 	}
-	ext := &mockExternal{id: "ext1", typ: external.ExternalTypeSQL}
+	ext := &mockExternal{id: "ext1", typ: external.TypeSQL}
 
 	err := dg.BuildGraph([]Transformation{trans1, trans2}, []External{ext})
 	require.NoError(t, err)
@@ -575,7 +505,7 @@ func BenchmarkBuildGraph(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		dg := NewDependencyGraph()
 		_ = dg.BuildGraph(transformations, []External{})
 	}
@@ -602,7 +532,7 @@ func BenchmarkGetAllDependencies(b *testing.B) {
 	lastID := transformations[len(transformations)-1].GetID()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = dg.GetAllDependencies(lastID)
 	}
 }
@@ -620,7 +550,7 @@ func TestIntervalTypeValidation(t *testing.T) {
 			setup: func() ([]Transformation, []External) {
 				ext := &mockExternal{
 					id:           "db.ext1",
-					typ:          external.ExternalTypeSQL,
+					typ:          external.TypeSQL,
 					intervalType: "slot",
 				}
 				trans := &mockTransformation{
@@ -641,7 +571,7 @@ func TestIntervalTypeValidation(t *testing.T) {
 			setup: func() ([]Transformation, []External) {
 				ext := &mockExternal{
 					id:           "db.ext1",
-					typ:          external.ExternalTypeSQL,
+					typ:          external.TypeSQL,
 					intervalType: "slot",
 				}
 				trans := &mockTransformation{
@@ -663,12 +593,12 @@ func TestIntervalTypeValidation(t *testing.T) {
 			setup: func() ([]Transformation, []External) {
 				ext1 := &mockExternal{
 					id:           "db.ext1",
-					typ:          external.ExternalTypeSQL,
+					typ:          external.TypeSQL,
 					intervalType: "slot",
 				}
 				ext2 := &mockExternal{
 					id:           "db.ext2",
-					typ:          external.ExternalTypeSQL,
+					typ:          external.TypeSQL,
 					intervalType: "epoch",
 				}
 				trans := &mockTransformation{
@@ -713,7 +643,7 @@ func TestIntervalTypeValidation(t *testing.T) {
 			setup: func() ([]Transformation, []External) {
 				ext := &mockExternal{
 					id:           "db.ext1",
-					typ:          external.ExternalTypeSQL,
+					typ:          external.TypeSQL,
 					intervalType: "block",
 				}
 				trans := &mockTransformation{
@@ -734,7 +664,7 @@ func TestIntervalTypeValidation(t *testing.T) {
 			setup: func() ([]Transformation, []External) {
 				ext := &mockExternal{
 					id:           "db.ext1",
-					typ:          external.ExternalTypeSQL,
+					typ:          external.TypeSQL,
 					intervalType: "block",
 				}
 				trans := &mockTransformation{
@@ -756,7 +686,7 @@ func TestIntervalTypeValidation(t *testing.T) {
 			setup: func() ([]Transformation, []External) {
 				ext := &mockExternal{
 					id:           "db.ext1",
-					typ:          external.ExternalTypeSQL,
+					typ:          external.TypeSQL,
 					intervalType: "epoch",
 				}
 				trans1 := &mockTransformation{
@@ -786,7 +716,7 @@ func TestIntervalTypeValidation(t *testing.T) {
 			setup: func() ([]Transformation, []External) {
 				ext := &mockExternal{
 					id:           "db.ext1",
-					typ:          external.ExternalTypeSQL,
+					typ:          external.TypeSQL,
 					intervalType: "epoch",
 				}
 				trans1 := &mockTransformation{
@@ -817,12 +747,12 @@ func TestIntervalTypeValidation(t *testing.T) {
 			setup: func() ([]Transformation, []External) {
 				ext1 := &mockExternal{
 					id:           "db.ext1",
-					typ:          external.ExternalTypeSQL,
+					typ:          external.TypeSQL,
 					intervalType: "second",
 				}
 				ext2 := &mockExternal{
 					id:           "db.ext2",
-					typ:          external.ExternalTypeSQL,
+					typ:          external.TypeSQL,
 					intervalType: "second",
 				}
 				trans := &mockTransformation{
@@ -843,7 +773,7 @@ func TestIntervalTypeValidation(t *testing.T) {
 			setup: func() ([]Transformation, []External) {
 				ext := &mockExternal{
 					id:           "db.ext1",
-					typ:          external.ExternalTypeSQL,
+					typ:          external.TypeSQL,
 					intervalType: "slot",
 				}
 				trans1 := &mockTransformation{

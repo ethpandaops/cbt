@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfigSetDefaults(t *testing.T) {
@@ -150,15 +151,94 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: true,
 			errMsg:  ErrTableRequired,
 		},
+		{
+			name: "invalid config without interval",
+			config: &Config{
+				Database: "test_db",
+				Table:    "test_table",
+				Cache: &CacheConfig{
+					IncrementalScanInterval: time.Minute,
+					FullScanInterval:        time.Hour,
+				},
+			},
+			wantErr: true,
+			errMsg:  ErrIntervalRequired,
+		},
+		{
+			name: "invalid config with empty interval type",
+			config: &Config{
+				Database: "test_db",
+				Table:    "test_table",
+				Interval: &IntervalConfig{Type: ""},
+				Cache: &CacheConfig{
+					IncrementalScanInterval: time.Minute,
+					FullScanInterval:        time.Hour,
+				},
+			},
+			wantErr: true,
+			errMsg:  ErrIntervalTypeRequired,
+		},
+		{
+			name: "invalid config without cache",
+			config: &Config{
+				Database: "test_db",
+				Table:    "test_table",
+				Interval: &IntervalConfig{Type: "second"},
+			},
+			wantErr: true,
+			errMsg:  ErrCacheConfigRequired,
+		},
+		{
+			name: "invalid config with zero incremental scan interval",
+			config: &Config{
+				Database: "test_db",
+				Table:    "test_table",
+				Interval: &IntervalConfig{Type: "second"},
+				Cache: &CacheConfig{
+					IncrementalScanInterval: 0,
+					FullScanInterval:        time.Hour,
+				},
+			},
+			wantErr: true,
+			errMsg:  ErrInvalidIncrementalInterval,
+		},
+		{
+			name: "invalid config with zero full scan interval",
+			config: &Config{
+				Database: "test_db",
+				Table:    "test_table",
+				Interval: &IntervalConfig{Type: "second"},
+				Cache: &CacheConfig{
+					IncrementalScanInterval: time.Minute,
+					FullScanInterval:        0,
+				},
+			},
+			wantErr: true,
+			errMsg:  ErrInvalidFullInterval,
+		},
+		{
+			name: "invalid config with incremental interval not less than full interval",
+			config: &Config{
+				Database: "test_db",
+				Table:    "test_table",
+				Interval: &IntervalConfig{Type: "second"},
+				Cache: &CacheConfig{
+					IncrementalScanInterval: time.Hour,
+					FullScanInterval:        time.Hour,
+				},
+			},
+			wantErr: true,
+			errMsg:  ErrInvalidIntervalOrder,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.config.Validate()
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				if tt.errMsg != nil {
-					assert.Equal(t, tt.errMsg, err)
+					require.ErrorIs(t, err, tt.errMsg)
 				}
 			} else {
 				assert.NoError(t, err)

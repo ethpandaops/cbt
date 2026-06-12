@@ -3,9 +3,11 @@ package coordinator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/models"
@@ -43,6 +45,9 @@ type Service interface {
 
 	// ProcessExternalScan handles external model scan processing
 	ProcessExternalScan(modelID, scanType string)
+
+	// RunConsolidation performs admin table consolidation for all models
+	RunConsolidation(ctx context.Context)
 
 	// TriggerBoundsRefresh enqueues a full external scan for admin-initiated bounds refresh
 	TriggerBoundsRefresh(ctx context.Context, modelID string) error
@@ -86,31 +91,53 @@ type service struct {
 	queueManager   *tasks.QueueManager
 	inspector      *asynq.Inspector
 	archiveHandler ArchiveHandler
+
+	// newArchiveHandler constructs the archive handler. It defaults to
+	// NewArchiveHandler and exists as a seam so the start-up error paths can be
+	// exercised in tests; production behavior is unchanged.
+	newArchiveHandler func(log logrus.FieldLogger, redisOpt *redis.Options) (ArchiveHandler, error)
+
+	// marshalJSON indirects encoding/json.Marshal so the otherwise-unreachable
+	// payload marshal error paths can be exercised in tests. Defaults to
+	// json.Marshal; production behavior is unchanged.
+	marshalJSON func(v any) ([]byte, error)
+
+	// pollInterval controls the completed-task polling cadence. Zero means the
+	// default of 5s; it exists as a seam so the poll loop can be exercised quickly
+	// in tests without changing production behavior.
+	pollInterval time.Duration
 }
 
 // NewService creates a new coordinator service
 func NewService(log logrus.FieldLogger, redisOpt *redis.Options, dag models.DAGReader, adminService admin.Service, validator validation.Validator) (Service, error) {
 	return &service{
-		log:       log.WithField("service", "coordinator"),
-		redisOpt:  redisOpt,
-		dag:       dag,
-		admin:     adminService,
-		validator: validator,
-		done:      make(chan struct{}),
-		taskCheck: make(chan taskOperation),
-		taskMark:  make(chan string, 100), // Buffered to avoid blocking
+		log:               log.WithField("service", "coordinator"),
+		redisOpt:          redisOpt,
+		dag:               dag,
+		admin:             adminService,
+		validator:         validator,
+		done:              make(chan struct{}),
+		taskCheck:         make(chan taskOperation),
+		taskMark:          make(chan string, 100), // Buffered to avoid blocking
+		newArchiveHandler: NewArchiveHandler,
+		marshalJSON:       json.Marshal,
 	}, nil
 }
 
 // Start initializes and starts the coordinator service
 func (s *service) Start(ctx context.Context) error {
-	asynqRedis := r.NewAsynqRedisOptions(s.redisOpt)
+	asynqRedis := r.NewAsynqOptions(s.redisOpt)
 
 	s.queueManager = tasks.NewQueueManager(asynqRedis)
 
 	s.inspector = asynq.NewInspector(*asynqRedis)
 
-	archiveHandler, err := NewArchiveHandler(s.log, s.redisOpt)
+	newArchiveHandler := s.newArchiveHandler
+	if newArchiveHandler == nil {
+		newArchiveHandler = NewArchiveHandler
+	}
+
+	archiveHandler, err := newArchiveHandler(s.log, s.redisOpt)
 	if err != nil {
 		return fmt.Errorf("failed to create archive handler: %w", err)
 	}
@@ -173,11 +200,6 @@ func (s *service) Stop() error {
 	}
 
 	return nil
-}
-
-// GetQueueManager returns the queue manager instance
-func (s *service) GetQueueManager() any {
-	return s.queueManager
 }
 
 // Process handles transformation processing in the specified direction

@@ -25,6 +25,12 @@ var (
 	ErrFrontendAddrRequired = errors.New("frontend address is required when frontend is enabled")
 )
 
+// validateModelsConfig is a seam over models.Config.Validate so tests can drive
+// the (otherwise unreachable) models validation error path in Config.Validate.
+//
+//nolint:gochecknoglobals // injectable seam for testing the models validation error path
+var validateModelsConfig = func(c *models.Config) error { return c.Validate() }
+
 // Config represents the complete engine configuration
 type Config struct {
 	// Core settings
@@ -132,7 +138,7 @@ func (c *Config) Validate() error {
 		return err
 	}
 
-	if err := c.Models.Validate(); err != nil {
+	if err := validateModelsConfig(&c.Models); err != nil {
 		return err
 	}
 

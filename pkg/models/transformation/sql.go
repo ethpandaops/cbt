@@ -16,8 +16,8 @@ var (
 	ErrSQLContentRequired = errors.New("sql content is required")
 )
 
-// TransformationTypeSQL identifies SQL transformation models
-const TransformationTypeSQL = "sql"
+// TypeSQL identifies SQL transformation models
+const TypeSQL = "sql"
 
 // SQL represents a transformation SQL model with YAML frontmatter
 type SQL struct {
@@ -26,8 +26,8 @@ type SQL struct {
 	Content    string  `yaml:"-"` // SQL content
 }
 
-// NewTransformationSQL creates a new transformation SQL model from content
-func NewTransformationSQL(content []byte) (*SQL, error) {
+// NewSQL creates a new transformation SQL model from content
+func NewSQL(content []byte) (*SQL, error) {
 	parts := bytes.SplitN(content, []byte("\n---\n"), 2)
 	if len(parts) != 2 {
 		return nil, ErrInvalidFrontmatter
@@ -78,7 +78,7 @@ func (c *SQL) Validate() error {
 
 // GetType returns the transformation model type
 func (c *SQL) GetType() string {
-	return TransformationTypeSQL
+	return TypeSQL
 }
 
 // GetConfig returns the base transformation model configuration

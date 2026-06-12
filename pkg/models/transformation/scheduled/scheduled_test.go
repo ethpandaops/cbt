@@ -118,7 +118,7 @@ exec: INSERT INTO test_table SELECT NOW()
 
 			require.NoError(t, err)
 			require.NotNil(t, handler)
-			assert.Equal(t, tt.adminTable, handler.adminTable)
+			assert.Equal(t, tt.adminTable, handler.GetAdminTable())
 			assert.NotNil(t, handler.config)
 		})
 	}
@@ -221,9 +221,9 @@ func TestHandler_Validate(t *testing.T) {
 			err := handler.Validate()
 
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				if tt.errType != nil {
-					assert.ErrorIs(t, err, tt.errType)
+					require.ErrorIs(t, err, tt.errType)
 				}
 			} else {
 				assert.NoError(t, err)
@@ -337,9 +337,9 @@ func TestHandler_RecordCompletion(t *testing.T) {
 			err := handler.RecordCompletion(context.Background(), tt.adminService, tt.modelID, tt.taskInfo)
 
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				if tt.errType != nil {
-					assert.ErrorIs(t, err, tt.errType)
+					require.ErrorIs(t, err, tt.errType)
 				}
 			} else {
 				assert.NoError(t, err)
@@ -430,7 +430,7 @@ unknown_field: value
 			err := decoder.Decode(&config)
 
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				if tt.errMsg != "" {
 					assert.Contains(t, err.Error(), tt.errMsg)
 				}

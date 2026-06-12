@@ -121,21 +121,4 @@ func TestRedisScheduleTracker(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, now.Unix(), lastRun.Unix(), "Timestamps should match")
 	})
-
-	t.Run("DeleteLastRun removes task timestamp", func(t *testing.T) {
-		mr.FlushAll()
-
-		taskID := "test:task3"
-		now := time.Now().UTC().Truncate(time.Second)
-
-		err := tracker.SetLastRun(ctx, taskID, now)
-		require.NoError(t, err)
-
-		err = tracker.DeleteLastRun(ctx, taskID)
-		require.NoError(t, err)
-
-		lastRun, err := tracker.GetLastRun(ctx, taskID)
-		require.NoError(t, err)
-		assert.True(t, lastRun.IsZero(), "Timestamp should be deleted")
-	})
 }

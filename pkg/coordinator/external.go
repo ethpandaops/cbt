@@ -2,10 +2,11 @@ package coordinator
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/ethpandaops/cbt/pkg/tasks"
 	"github.com/hibiken/asynq"
 	"github.com/sirupsen/logrus"
 )
@@ -22,7 +23,7 @@ func (s *service) ProcessExternalScan(modelID, scanType string) {
 		"scan_type": scanType,
 	}
 
-	payloadBytes, err := json.Marshal(payload)
+	payloadBytes, err := s.marshalJSON(payload)
 	if err != nil {
 		s.log.WithError(err).WithFields(logrus.Fields{
 			"model_id":  modelID,
@@ -33,7 +34,7 @@ func (s *service) ProcessExternalScan(modelID, scanType string) {
 
 	// Use the appropriate task type based on scan type
 	var taskType string
-	if scanType == "incremental" {
+	if scanType == tasks.ScanTypeIncremental {
 		taskType = ExternalIncrementalTaskType
 	} else {
 		taskType = ExternalFullTaskType
@@ -50,7 +51,7 @@ func (s *service) ProcessExternalScan(modelID, scanType string) {
 	// Enqueue the task
 	if _, err := s.queueManager.Enqueue(task); err != nil {
 		// Check if task already exists (not an error, just skip)
-		if err.Error() == "task ID already exists" {
+		if errors.Is(err, asynq.ErrTaskIDConflict) {
 			s.log.WithFields(logrus.Fields{
 				"model_id":  modelID,
 				"scan_type": scanType,
@@ -76,9 +77,9 @@ func (s *service) ProcessExternalScan(modelID, scanType string) {
 func (s *service) TriggerBoundsRefresh(_ context.Context, modelID string) error {
 	taskID := fmt.Sprintf("external:%s:full", modelID)
 
-	payload, err := json.Marshal(map[string]string{
+	payload, err := s.marshalJSON(map[string]string{
 		"model_id":  modelID,
-		"scan_type": "full",
+		"scan_type": tasks.ScanTypeFull,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal resync payload: %w", err)
@@ -92,7 +93,7 @@ func (s *service) TriggerBoundsRefresh(_ context.Context, modelID string) error 
 	)
 
 	if _, err := s.queueManager.Enqueue(task); err != nil {
-		if err.Error() == "task ID already exists" {
+		if errors.Is(err, asynq.ErrTaskIDConflict) {
 			return ErrRefreshInProgress
 		}
 

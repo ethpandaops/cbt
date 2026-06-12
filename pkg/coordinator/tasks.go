@@ -23,11 +23,12 @@ type taskOperation struct {
 	response chan bool // For check operations
 }
 
-// checkAndEnqueuePositionWithTrigger validates and enqueues a transformation task
-func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64, direction string) {
+// checkAndEnqueuePositionWithTrigger validates and enqueues a transformation task.
+// It reports whether a task was actually enqueued.
+func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans models.Transformation, position, interval uint64, direction string) bool {
 	// Create task payload
-	payload := tasks.IncrementalTaskPayload{
-		Type:       tasks.TaskTypeIncremental,
+	payload := tasks.IncrementalPayload{
+		Type:       tasks.TypeIncremental,
 		ModelID:    trans.GetID(),
 		Position:   position,
 		Interval:   interval,
@@ -42,13 +43,13 @@ func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans 
 
 		observability.RecordError("coordinator", "task_status_check_error")
 
-		return
+		return false
 	}
 
 	if isPending {
 		s.log.WithField("task_id", payload.UniqueID()).Debug("Task already pending or running")
 
-		return
+		return false
 	}
 
 	// Validate dependencies
@@ -64,7 +65,7 @@ func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans 
 		}).Error("Failed to validate dependencies")
 		observability.RecordDependencyValidation(trans.GetID(), "error", depDuration)
 		observability.RecordError("coordinator", "dependency_validation_error")
-		return
+		return false
 	}
 
 	if !validationResult.CanProcess {
@@ -74,7 +75,7 @@ func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans 
 		}).Debug("Dependencies not satisfied")
 		observability.RecordDependencyValidation(trans.GetID(), "not_satisfied", depDuration)
 
-		return
+		return false
 	}
 
 	observability.RecordDependencyValidation(trans.GetID(), "satisfied", depDuration)
@@ -85,7 +86,7 @@ func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans 
 
 		observability.RecordError("coordinator", "enqueue_error")
 
-		return
+		return false
 	}
 
 	// Record successful enqueue
@@ -96,13 +97,20 @@ func (s *service) checkAndEnqueuePositionWithTrigger(ctx context.Context, trans 
 		"position": position,
 		"interval": interval,
 	}).Info("Enqueued transformation task")
+
+	return true
 }
 
 // pollCompletedTasks periodically checks for completed tasks
 func (s *service) pollCompletedTasks() {
 	defer s.wg.Done()
 
-	ticker := time.NewTicker(5 * time.Second)
+	interval := s.pollInterval
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -115,11 +123,26 @@ func (s *service) pollCompletedTasks() {
 	}
 }
 
-// taskTracker manages task processing state using channels (ethPandaOps pattern)
+// taskTracker manages task processing state using channels (ethPandaOps pattern).
+// Tracked entries are kept in two generations: when the current generation
+// exceeds maxProcessedTaskEntries it is rotated to the previous generation
+// instead of being dropped, so recently completed tasks stay deduplicated
+// while memory remains bounded at ~2x maxProcessedTaskEntries.
 func (s *service) taskTracker() {
 	defer s.wg.Done()
 
-	processedTasks := make(map[string]bool, 100)
+	currentGen := make(map[string]struct{}, 100)
+	previousGen := make(map[string]struct{})
+
+	isProcessed := func(taskID string) bool {
+		if _, ok := currentGen[taskID]; ok {
+			return true
+		}
+
+		_, ok := previousGen[taskID]
+
+		return ok
+	}
 
 	for {
 		select {
@@ -127,20 +150,18 @@ func (s *service) taskTracker() {
 			return
 		case op := <-s.taskCheck:
 			// Check if task is processed and respond
-			processed := processedTasks[op.taskID]
 			select {
-			case op.response <- processed:
+			case op.response <- isProcessed(op.taskID):
 			case <-s.done:
 				return
 			}
 		case taskID := <-s.taskMark:
 			// Mark task as processed
-			processedTasks[taskID] = true
-			// Clean up old entries if map gets too large
-			if len(processedTasks) > maxProcessedTaskEntries {
-				// Keep recent entries only
-				newMap := make(map[string]bool, 100)
-				processedTasks = newMap
+			currentGen[taskID] = struct{}{}
+			// Rotate generations once the current one grows too large
+			if len(currentGen) > maxProcessedTaskEntries {
+				previousGen = currentGen
+				currentGen = make(map[string]struct{}, 100)
 			}
 		}
 	}
@@ -185,7 +206,7 @@ func (s *service) checkCompletedTasks() {
 			// Check if we've already processed this task (channel-based)
 			if !s.isTaskProcessed(taskInfo.ID) {
 				// Parse the task payload to get position and interval
-				var payload tasks.TaskPayload
+				var payload tasks.Payload
 				if err := json.Unmarshal(taskInfo.Payload, &payload); err == nil {
 					ctx := context.Background()
 					s.onTaskComplete(ctx, payload)
@@ -199,13 +220,17 @@ func (s *service) checkCompletedTasks() {
 }
 
 // onTaskComplete handles post-task completion logic and triggers dependent tasks
-func (s *service) onTaskComplete(ctx context.Context, payload tasks.TaskPayload) {
+func (s *service) onTaskComplete(ctx context.Context, payload tasks.Payload) {
+	if payload == nil {
+		return
+	}
+
 	logFields := logrus.Fields{
 		"model_id": payload.GetModelID(),
 	}
 
 	// Add position for incremental tasks
-	if incPayload, ok := payload.(tasks.IncrementalTaskPayload); ok {
+	if incPayload, ok := payload.(tasks.IncrementalPayload); ok {
 		logFields["position"] = incPayload.Position
 	}
 

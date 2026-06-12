@@ -2,10 +2,10 @@ package models
 
 // Config represents the complete coordinator configuration
 type Config struct {
-	External       ExternalConfig            `yaml:"external"`
-	Transformation TransformationConfig      `yaml:"transformations"`
-	Overrides      map[string]*ModelOverride `yaml:"overrides,omitempty"`
-	Env            map[string]string         `yaml:"env,omitempty"`
+	External       ExternalConfig       `yaml:"external"`
+	Transformation TransformationConfig `yaml:"transformations"`
+	Overrides      map[string]*Override `yaml:"overrides,omitempty"`
+	Env            map[string]string    `yaml:"env,omitempty"`
 }
 
 // ExternalConfig defines configuration for external models

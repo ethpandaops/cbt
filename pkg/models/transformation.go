@@ -1,6 +1,6 @@
 package models
 
-//go:generate mockgen -package mock -destination mock/transformation.mock.go -source transformation.go Transformation
+//go:generate go tool mockgen -package mock -destination mock/transformation.mock.go -source transformation.go Transformation
 
 import (
 	"errors"
@@ -15,15 +15,7 @@ var (
 	ErrInvalidTransformationType = errors.New("invalid transformation type")
 )
 
-// TransformationType defines the type of transformation model
-type TransformationType string
-
 const (
-	// TransformationTypeSQL represents SQL transformation models
-	TransformationTypeSQL TransformationType = transformation.TransformationTypeSQL
-	// TransformationTypeExec represents exec transformation models
-	TransformationTypeExec TransformationType = transformation.TransformationTypeExec
-
 	// ExtSQL is the SQL file extension
 	ExtSQL = ".sql"
 	// ExtYAML is the YAML file extension
@@ -48,14 +40,14 @@ func NewTransformation(content []byte, filePath string) (Transformation, error) 
 
 	switch ext {
 	case ExtSQL:
-		model, parseErr := transformation.NewTransformationSQL(content)
+		model, parseErr := transformation.NewSQL(content)
 		if parseErr != nil {
 			return nil, parseErr
 		}
 
 		return model, nil
 	case ExtYAML, ExtYML:
-		model, parseErr := transformation.NewTransformationExec(content)
+		model, parseErr := transformation.NewExec(content)
 		if parseErr != nil {
 			return nil, parseErr
 		}

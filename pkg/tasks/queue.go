@@ -2,7 +2,8 @@ package tasks
 
 import (
 	"encoding/json"
-	"strings"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -28,10 +29,10 @@ const (
 )
 
 // EnqueueTransformation enqueues a transformation task
-func (q *QueueManager) EnqueueTransformation(payload TaskPayload, opts ...asynq.Option) error {
+func (q *QueueManager) EnqueueTransformation(payload Payload, opts ...asynq.Option) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal transformation payload for %s: %w", payload.GetModelID(), err)
 	}
 
 	task := asynq.NewTask(TypeModelTransformation, data)
@@ -47,18 +48,24 @@ func (q *QueueManager) EnqueueTransformation(payload TaskPayload, opts ...asynq.
 	allOpts := defaultOpts
 	allOpts = append(allOpts, opts...)
 
-	_, err = q.client.Enqueue(task, allOpts...)
-	return err
+	if _, err := q.client.Enqueue(task, allOpts...); err != nil {
+		return fmt.Errorf("failed to enqueue transformation task for %s: %w", payload.GetModelID(), err)
+	}
+
+	return nil
 }
 
 // IsTaskPendingOrRunning checks if a task is pending or running
-func (q *QueueManager) IsTaskPendingOrRunning(task TaskPayload) (bool, error) {
+func (q *QueueManager) IsTaskPendingOrRunning(task Payload) (bool, error) {
 	info, err := q.inspector.GetTaskInfo(task.QueueName(), task.UniqueID())
 	if err != nil {
-		if strings.Contains(err.Error(), "NOT FOUND") || strings.Contains(err.Error(), "queue not found") || strings.Contains(err.Error(), "task not found") {
+		// A missing queue or task means there is nothing pending/running.
+		// asynq.Inspector.GetTaskInfo wraps these sentinels with %w.
+		if errors.Is(err, asynq.ErrQueueNotFound) || errors.Is(err, asynq.ErrTaskNotFound) {
 			return false, nil
 		}
-		return false, err
+
+		return false, fmt.Errorf("failed to get task info for %s: %w", task.UniqueID(), err)
 	}
 
 	return info.State == asynq.TaskStatePending ||
@@ -71,7 +78,17 @@ func (q *QueueManager) Enqueue(task *asynq.Task, opts ...asynq.Option) (*asynq.T
 	return q.client.Enqueue(task, opts...)
 }
 
-// Close closes the queue manager
+// Close closes the queue manager, releasing both the client and inspector.
 func (q *QueueManager) Close() error {
-	return q.client.Close()
+	var errs []error
+
+	if err := q.client.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to close queue client: %w", err))
+	}
+
+	if err := q.inspector.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to close queue inspector: %w", err))
+	}
+
+	return errors.Join(errs...)
 }

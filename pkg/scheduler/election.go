@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -18,17 +17,16 @@ const (
 	renewInterval   = 3 * time.Second
 )
 
-var (
-	// ErrElectorStopped is returned when the elector is stopped while waiting for leadership
-	ErrElectorStopped = errors.New("elector stopped while waiting for leadership")
-)
-
 // LeaderElector manages distributed leader election using Redis
 type LeaderElector interface {
 	Start(ctx context.Context) error
 	Stop() error
 	IsLeader() bool
-	WaitForLeadership(ctx context.Context) error
+
+	// PromotedChan returns a channel that signals when this instance is promoted to leader
+	PromotedChan() <-chan struct{}
+	// DemotedChan returns a channel that signals when this instance is demoted from leader
+	DemotedChan() <-chan struct{}
 }
 
 // elector implements the LeaderElector interface
@@ -40,6 +38,11 @@ type elector struct {
 
 	isLeader bool
 	mu       sync.RWMutex
+
+	// renewInterval and leaseTTL are fields (defaulting to the package-level
+	// constants) so tests can drive the election loop with short intervals.
+	renewInterval time.Duration
+	leaseTTL      time.Duration
 
 	done chan struct{}
 	wg   sync.WaitGroup
@@ -53,13 +56,15 @@ func NewLeaderElector(log logrus.FieldLogger, redisOpt *redis.Options) LeaderEle
 	instanceID := uuid.New().String()
 
 	return &elector{
-		log:        log.WithField("component", "election"),
-		redis:      redis.NewClient(redisOpt),
-		instanceID: instanceID,
-		leaderKey:  leaderKeyPrefix,
-		done:       make(chan struct{}),
-		promoted:   make(chan struct{}, 1),
-		demoted:    make(chan struct{}, 1),
+		log:           log.WithField("component", "election"),
+		redis:         redis.NewClient(redisOpt),
+		instanceID:    instanceID,
+		leaderKey:     leaderKeyPrefix,
+		renewInterval: renewInterval,
+		leaseTTL:      leaseTTL,
+		done:          make(chan struct{}),
+		promoted:      make(chan struct{}, 1),
+		demoted:       make(chan struct{}, 1),
 	}
 }
 
@@ -91,7 +96,7 @@ func (e *elector) Stop() error {
 func (e *elector) run(ctx context.Context) {
 	defer e.wg.Done()
 
-	ticker := time.NewTicker(renewInterval)
+	ticker := time.NewTicker(e.renewInterval)
 	defer ticker.Stop()
 
 	for {
@@ -130,7 +135,7 @@ func (e *elector) run(ctx context.Context) {
 func (e *elector) tryAcquire(ctx context.Context) bool {
 	err := e.redis.SetArgs(ctx, e.leaderKey, e.instanceID, redis.SetArgs{
 		Mode: "NX",
-		TTL:  leaseTTL,
+		TTL:  e.leaseTTL,
 	}).Err()
 	if err != nil && !errors.Is(err, redis.Nil) {
 		e.log.WithError(err).Debug("Failed to acquire leader lock")
@@ -140,7 +145,7 @@ func (e *elector) tryAcquire(ctx context.Context) bool {
 	if err == nil {
 		e.log.WithFields(logrus.Fields{
 			"instance_id": e.instanceID,
-			"ttl":         leaseTTL,
+			"ttl":         e.leaseTTL,
 		}).Debug("Acquired leader lock")
 		return true
 	}
@@ -154,14 +159,14 @@ func (e *elector) tryAcquire(ctx context.Context) bool {
 	}
 
 	if owner == e.instanceID {
-		if err := e.redis.Expire(ctx, e.leaderKey, leaseTTL).Err(); err != nil {
+		if err := e.redis.Expire(ctx, e.leaderKey, e.leaseTTL).Err(); err != nil {
 			e.log.WithError(err).Warn("Failed to renew leader lease")
 			return false
 		}
 
 		e.log.WithFields(logrus.Fields{
 			"instance_id": e.instanceID,
-			"ttl":         leaseTTL,
+			"ttl":         e.leaseTTL,
 		}).Debug("Renewed leader lease")
 		return true
 	}
@@ -174,18 +179,26 @@ func (e *elector) tryAcquire(ctx context.Context) bool {
 	return false
 }
 
+// relinquishScript deletes the leader lock only if this instance still owns
+// it. The check and delete must be atomic: a GET-then-DEL pair can delete a
+// lock that another instance acquired after our lease expired.
+const relinquishScript = `
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+	return redis.call("DEL", KEYS[1])
+end
+return 0
+`
+
 func (e *elector) relinquish(ctx context.Context) {
 	if !e.IsLeader() {
 		return
 	}
 
-	owner, err := e.redis.Get(ctx, e.leaderKey).Result()
-	if err == nil && owner == e.instanceID {
-		if err := e.redis.Del(ctx, e.leaderKey).Err(); err != nil {
-			e.log.WithError(err).Warn("Failed to delete leader lock")
-		} else {
-			e.log.WithField("instance_id", e.instanceID).Info("Relinquished leader lock")
-		}
+	deleted, err := redis.NewScript(relinquishScript).Run(ctx, e.redis, []string{e.leaderKey}, e.instanceID).Int()
+	if err != nil {
+		e.log.WithError(err).Warn("Failed to delete leader lock")
+	} else if deleted == 1 {
+		e.log.WithField("instance_id", e.instanceID).Info("Relinquished leader lock")
 	}
 
 	e.setLeader(false)
@@ -201,24 +214,6 @@ func (e *elector) IsLeader() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.isLeader
-}
-
-func (e *elector) WaitForLeadership(ctx context.Context) error {
-	if e.IsLeader() {
-		return nil
-	}
-
-	e.log.Info("Waiting for leadership promotion")
-
-	select {
-	case <-e.promoted:
-		e.log.Info("Leadership acquired")
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("context canceled while waiting for leadership: %w", ctx.Err())
-	case <-e.done:
-		return ErrElectorStopped
-	}
 }
 
 func (e *elector) PromotedChan() <-chan struct{} {

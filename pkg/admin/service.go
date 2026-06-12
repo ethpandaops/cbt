@@ -1,16 +1,14 @@
 package admin
 
-//go:generate mockgen -package mock -destination mock/service.mock.go -source service.go Service
+//go:generate go tool mockgen -package mock -destination mock/service.mock.go -source service.go Service
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
-	"github.com/ethpandaops/cbt/pkg/models/modelid"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
@@ -28,23 +26,15 @@ var (
 // Each batch is still keyed, preserving the out-of-order-delete safety.
 const consolidationDeleteBatchSize = 5000
 
-// buildTableRef creates a backtick-escaped table reference for SQL queries.
-func buildTableRef(database, table string) string {
-	return fmt.Sprintf("`%s`.`%s`", database, table)
-}
-
-// Service defines the public interface for the admin service
-type Service interface {
+// PositionTracker tracks completed incremental transformations: recording
+// completions, querying processed positions, gaps, coverage, consolidation, and
+// period deletion against the incremental admin table.
+type PositionTracker interface {
 	// Position tracking (for incremental transformations)
 	GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error) // Returns next position for forward fill
 	GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error)   // Returns position of last record
 	GetFirstPosition(ctx context.Context, modelID string) (uint64, error)
 	RecordCompletion(ctx context.Context, modelID string, position, interval uint64) error
-
-	// Scheduled transformation tracking
-	RecordScheduledCompletion(ctx context.Context, modelID string, startDateTime time.Time) error
-	GetLastScheduledExecution(ctx context.Context, modelID string) (*time.Time, error)
-	GetAllLastScheduledExecutions(ctx context.Context, modelIDs []string) (map[string]*time.Time, error)
 
 	// Coverage and gap management
 	GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error)
@@ -58,30 +48,52 @@ type Service interface {
 	// Period deletion
 	DeletePeriod(ctx context.Context, modelID string, startPos, endPos uint64) (uint64, error)
 
-	// External bounds cache
+	// Admin table info
+	GetIncrementalAdminDatabase() string
+	GetIncrementalAdminTable() string
+}
+
+// ScheduledTracker tracks completed scheduled transformations against the
+// scheduled admin table.
+type ScheduledTracker interface {
+	RecordScheduledCompletion(ctx context.Context, modelID string, startDateTime time.Time) error
+	GetLastScheduledExecution(ctx context.Context, modelID string) (*time.Time, error)
+	GetAllLastScheduledExecutions(ctx context.Context, modelIDs []string) (map[string]*time.Time, error)
+
+	// Admin table info
+	GetScheduledAdminDatabase() string
+	GetScheduledAdminTable() string
+}
+
+// BoundsStore caches external model bounds and provides distributed locking for
+// bounds updates. (Named BoundsStore to avoid colliding with the BoundsCache type.)
+type BoundsStore interface {
 	GetExternalBounds(ctx context.Context, modelID string) (*BoundsCache, error)
 	SetExternalBounds(ctx context.Context, cache *BoundsCache) error
 	DeleteExternalBounds(ctx context.Context, modelID string) error
 
 	// Distributed locking for bounds updates
 	AcquireBoundsLock(ctx context.Context, modelID string) (BoundsLock, error)
+}
 
-	// Admin table info
-	GetIncrementalAdminDatabase() string
-	GetIncrementalAdminTable() string
-	GetScheduledAdminDatabase() string
-	GetScheduledAdminTable() string
-
-	// Config override operations
+// OverrideStore manages live configuration overrides stored in the cache.
+type OverrideStore interface {
 	GetConfigOverride(ctx context.Context, modelID string) (*ConfigOverride, error)
 	GetAllConfigOverrides(ctx context.Context) ([]ConfigOverride, error)
 	SetConfigOverride(ctx context.Context, override *ConfigOverride) error
 	DeleteConfigOverride(ctx context.Context, modelID string) error
 	DeleteAllConfigOverrides(ctx context.Context) error
 	GetConfigOverrideVersion(ctx context.Context) (int64, error)
+}
 
-	// GetCacheManager returns the underlying cache manager
-	GetCacheManager() *CacheManager
+// Service defines the public interface for the admin service. It composes the
+// capability interfaces so existing consumers keep compiling, while narrower
+// dependencies can depend on just the sub-interface they need.
+type Service interface {
+	PositionTracker
+	ScheduledTracker
+	BoundsStore
+	OverrideStore
 }
 
 // GapInfo represents a gap in the processed data
@@ -122,7 +134,12 @@ type TableConfig struct {
 
 // NewService creates a new admin table manager with type-specific admin tables
 func NewService(log logrus.FieldLogger, client clickhouse.ClientInterface, cluster, localSuffix string, config TableConfig, redisClient *redis.Client) Service {
-	cacheManager := NewCacheManager(redisClient)
+	// Leave the cache manager nil when no Redis client is provided so the
+	// nil guards on cache operations take effect instead of wrapping a nil client.
+	var cacheManager *CacheManager
+	if redisClient != nil {
+		cacheManager = NewCacheManager(redisClient)
+	}
 
 	return &service{
 		log:                    log.WithField("service", "admin"),
@@ -135,6 +152,34 @@ func NewService(log logrus.FieldLogger, client clickhouse.ClientInterface, clust
 		scheduledAdminTable:    config.ScheduledTable,
 		cacheManager:           cacheManager,
 	}
+}
+
+// buildTableRef creates a backtick-escaped table reference for SQL queries.
+func buildTableRef(database, table string) string {
+	return fmt.Sprintf("`%s`.`%s`", database, table)
+}
+
+// buildKeyedDelete renders a DELETE for rows matching (database, table) and an
+// explicit key predicate. In cluster mode it targets the local replicated table
+// ON CLUSTER so the delete reaches whichever shard holds the model's rows; in
+// plain mode it targets the admin table directly. keyPredicate is appended to the
+// WHERE clause (e.g. "(position, interval) IN (...)" or a range condition).
+func (a *service) buildKeyedDelete(database, table, keyPredicate string) string {
+	if a.cluster != "" {
+		return fmt.Sprintf(`
+			DELETE FROM `+"`%s`.`%s%s`"+` ON CLUSTER '%s'
+			WHERE database = '%s' AND table = '%s'
+			  AND %s
+		`, a.adminDatabase, a.adminTable, a.localSuffix, a.cluster,
+			database, table, keyPredicate)
+	}
+
+	return fmt.Sprintf(`
+		DELETE FROM %s
+		WHERE database = '%s' AND table = '%s'
+		  AND %s
+	`, buildTableRef(a.adminDatabase, a.adminTable),
+		database, table, keyPredicate)
 }
 
 // GetIncrementalAdminDatabase returns the incremental admin database name
@@ -155,886 +200,6 @@ func (a *service) GetScheduledAdminDatabase() string {
 // GetScheduledAdminTable returns the scheduled admin table name
 func (a *service) GetScheduledAdminTable() string {
 	return a.scheduledAdminTable
-}
-
-// RecordCompletion records a completed transformation in the admin table
-func (a *service) RecordCompletion(ctx context.Context, modelID string, position, interval uint64) error {
-	database, table, err := modelid.Parse(modelID)
-	if err != nil {
-		return err
-	}
-
-	// Log what we're recording for better debugging
-	a.log.WithFields(logrus.Fields{
-		"model_id":    modelID,
-		"position":    position,
-		"interval":    interval,
-		"range_start": position,
-		"range_end":   position + interval,
-	}).Debug("Recording task completion in admin table")
-
-	// Using string formatting with proper escaping
-	// In production, consider using parameterized queries for better security
-	query := fmt.Sprintf(`
-		INSERT INTO %s (updated_date_time, database, table, position, interval)
-		VALUES (now(), '%s', '%s', %d, %d)
-	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, position, interval)
-
-	if err := a.client.Execute(ctx, query); err != nil {
-		return fmt.Errorf("failed to insert admin record: %w", err)
-	}
-
-	return nil
-}
-
-// GetFirstPosition returns the first processed position for a model
-func (a *service) GetFirstPosition(ctx context.Context, modelID string) (uint64, error) {
-	database, table, err := modelid.Parse(modelID)
-	if err != nil {
-		return 0, err
-	}
-
-	query := fmt.Sprintf(`
-		SELECT coalesce(min(position), 0) as first_pos
-		FROM %s FINAL
-		WHERE database = '%s' AND table = '%s'
-	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
-
-	var result struct {
-		FirstPos uint64 `ch:"first_pos"`
-	}
-
-	err = a.client.QueryOne(ctx, query, &result)
-	if err != nil {
-		return 0, err
-	}
-
-	return result.FirstPos, nil
-}
-
-// GetNextUnprocessedPosition returns the next position to process for forward fill
-// This is the end of the last processed range: max(position + interval)
-func (a *service) GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error) {
-	database, table, err := modelid.Parse(modelID)
-	if err != nil {
-		return 0, err
-	}
-
-	query := fmt.Sprintf(`
-		SELECT coalesce(max(position + interval), 0) as last_end_pos
-		FROM %s FINAL
-		WHERE database = '%s' AND table = '%s'
-	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
-
-	var result struct {
-		LastEndPos uint64 `ch:"last_end_pos"`
-	}
-
-	err = a.client.QueryOne(ctx, query, &result)
-	if err != nil {
-		return 0, err
-	}
-
-	return result.LastEndPos, nil
-}
-
-// GetLastProcessedPosition returns the position of the last processed record (max(position))
-// This is useful for understanding the actual last record processed, not where to continue from
-func (a *service) GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error) {
-	database, table, err := modelid.Parse(modelID)
-	if err != nil {
-		return 0, err
-	}
-
-	query := fmt.Sprintf(`
-		SELECT coalesce(max(position), 0) as last_pos
-		FROM %s FINAL
-		WHERE database = '%s' AND table = '%s'
-	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
-
-	var result struct {
-		LastPos uint64 `ch:"last_pos"`
-	}
-
-	err = a.client.QueryOne(ctx, query, &result)
-	if err != nil {
-		return 0, err
-	}
-
-	return result.LastPos, nil
-}
-
-// GetCoverage checks if a range is fully covered in the admin table
-func (a *service) GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error) {
-	database, table, err := modelid.Parse(modelID)
-	if err != nil {
-		return false, err
-	}
-
-	query := fmt.Sprintf(`
-		WITH coverage AS (
-			SELECT position, position + interval as end_pos
-			FROM %s FINAL
-			WHERE database = '%s' AND table = '%s'
-			  AND position < %d
-			  AND position + interval > %d
-		)
-		SELECT CASE
-			WHEN min(position) <= %d AND max(end_pos) >= %d
-			THEN 1 ELSE 0
-		END as fully_covered
-		FROM coverage
-	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, endPos, startPos, startPos, endPos)
-
-	var result struct {
-		FullyCovered uint8 `ch:"fully_covered"`
-	}
-
-	err = a.client.QueryOne(ctx, query, &result)
-	if err != nil {
-		return false, err
-	}
-
-	return result.FullyCovered == 1, nil
-}
-
-// FindGaps finds all gaps in the processed data for a model
-func (a *service) FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]GapInfo, error) {
-	database, table, err := modelid.Parse(modelID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Log the gap detection parameters
-	a.log.WithFields(logrus.Fields{
-		"model_id": modelID,
-		"min_pos":  minPos,
-		"max_pos":  maxPos,
-		"interval": interval,
-	}).Debug("Finding gaps in processed data - scanning admin table")
-
-	// Use a similar approach to consolidation but find gaps instead
-	// This properly handles overlapping and contiguous ranges
-	// Note: ClickHouse doesn't allow window functions in WHERE clauses,
-	// so we calculate prev_max_end in a CTE first
-	// IMPORTANT: Include intervals that start before minPos but extend into the range
-	// to avoid false positive gaps
-	query := fmt.Sprintf(`
-		WITH ordered_rows AS (
-			SELECT
-				position,
-				interval,
-				position + interval as end_pos,
-				row_number() OVER (ORDER BY position) as rn
-			FROM %s FINAL
-			WHERE database = '%s' AND table = '%s'
-			  AND position + interval > %d
-			  AND position < %d
-			ORDER BY position
-		),
-		with_max AS (
-			SELECT
-				position,
-				interval,
-				end_pos,
-				rn,
-				max(end_pos) OVER (ORDER BY position ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as max_end_so_far
-			FROM ordered_rows
-		),
-		with_lag AS (
-			SELECT
-				position,
-				end_pos,
-				rn,
-				max_end_so_far,
-				-- Get the max_end_so_far from the previous row
-				if(rn > 1,
-				   any(max_end_so_far) OVER (ORDER BY position ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING),
-				   0) as prev_max_end
-			FROM with_max
-		),
-		gaps AS (
-			SELECT
-				prev_max_end as gap_start,
-				position as gap_end
-			FROM with_lag
-			WHERE rn > 1
-			  AND prev_max_end IS NOT NULL
-			  AND position > prev_max_end
-		)
-		SELECT
-			gap_start,
-			gap_end
-		FROM gaps
-		ORDER BY gap_start DESC
-	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, minPos, maxPos)
-
-	var gapResults []struct {
-		GapStart uint64 `ch:"gap_start"`
-		GapEnd   uint64 `ch:"gap_end"`
-	}
-
-	err = a.client.QueryMany(ctx, query, &gapResults)
-	if err != nil {
-		return nil, err
-	}
-
-	gaps := make([]GapInfo, 0, len(gapResults))
-	for _, result := range gapResults {
-		a.log.WithFields(logrus.Fields{
-			"model_id":  modelID,
-			"gap_start": result.GapStart,
-			"gap_end":   result.GapEnd,
-			"gap_size":  result.GapEnd - result.GapStart,
-		}).Debug("Found gap between consolidated ranges")
-
-		gaps = append(gaps, GapInfo{
-			StartPos: result.GapStart,
-			EndPos:   result.GapEnd,
-		})
-	}
-
-	// Also check for a gap at the beginning
-	firstPosQuery := fmt.Sprintf(`
-		SELECT min(position) as first_pos
-		FROM %s FINAL
-		WHERE database = '%s' AND table = '%s'
-		  AND position >= %d
-	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, minPos)
-
-	var firstPosResult struct {
-		FirstPos *uint64 `ch:"first_pos"`
-	}
-
-	err = a.client.QueryOne(ctx, firstPosQuery, &firstPosResult)
-	if err != nil {
-		return nil, err
-	}
-
-	if firstPosResult.FirstPos != nil && *firstPosResult.FirstPos > minPos {
-		// There's a gap at the beginning - append at end since we're processing DESC
-		a.log.WithFields(logrus.Fields{
-			"model_id":  modelID,
-			"gap_start": minPos,
-			"gap_end":   *firstPosResult.FirstPos,
-			"gap_size":  *firstPosResult.FirstPos - minPos,
-			"first_pos": *firstPosResult.FirstPos,
-			"min_pos":   minPos,
-		}).Debug("Found gap at beginning of range")
-
-		gaps = append(gaps, GapInfo{StartPos: minPos, EndPos: *firstPosResult.FirstPos})
-	}
-
-	// Log summary of gaps found
-	if len(gaps) > 0 {
-		a.log.WithFields(logrus.Fields{
-			"model_id":   modelID,
-			"gap_count":  len(gaps),
-			"total_gaps": gaps,
-		}).Debug("Gap detection complete")
-	}
-
-	return gaps, nil
-}
-
-// GetProcessedRanges returns all processed ranges for a model from the admin table
-// This returns the raw admin_incremental table data with no filtering or aggregation
-func (a *service) GetProcessedRanges(ctx context.Context, modelID string) ([]ProcessedRange, error) {
-	database, table, err := modelid.Parse(modelID)
-	if err != nil {
-		return nil, err
-	}
-
-	query := fmt.Sprintf(`
-		SELECT position, interval
-		FROM %s FINAL
-		WHERE database = '%s' AND table = '%s'
-		ORDER BY position DESC
-	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
-
-	var ranges []ProcessedRange
-
-	err = a.client.QueryMany(ctx, query, &ranges)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query processed ranges: %w", err)
-	}
-
-	a.log.WithFields(logrus.Fields{
-		"model_id":    modelID,
-		"range_count": len(ranges),
-	}).Debug("Retrieved processed ranges from admin table")
-
-	return ranges, nil
-}
-
-// ConsolidateHistoricalData consolidates historical admin table rows for a model
-func (a *service) ConsolidateHistoricalData(ctx context.Context, modelID string) (uint64, error) {
-	database, table, err := modelid.Parse(modelID)
-	if err != nil {
-		return 0, err
-	}
-
-	// Find contiguous/overlapping ranges that can be consolidated using a 3-CTE approach
-	// Uses window functions to detect "islands" of contiguous/overlapping ranges
-	// Each island is consolidated into a single row spanning the full range
-	rangeQuery := fmt.Sprintf(`
-		WITH ordered_rows AS (
-			SELECT
-				position,
-				position + interval as end_pos,
-				MAX(position + interval) OVER (
-					ORDER BY position
-					ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-				) as prev_max_end
-			FROM %s FINAL
-			WHERE database = '%s' AND table = '%s'
-		),
-		island_groups AS (
-			SELECT
-				position,
-				end_pos,
-				SUM(CASE WHEN position > COALESCE(prev_max_end, 0) THEN 1 ELSE 0 END)
-					OVER (ORDER BY position) as island_id
-			FROM ordered_rows
-		),
-		consolidated_ranges AS (
-			SELECT
-				MIN(position) as start_pos,
-				MAX(end_pos) as end_pos,
-				COUNT(*) as row_count
-			FROM island_groups
-			GROUP BY island_id
-			HAVING COUNT(*) > 1
-		)
-		SELECT
-			start_pos,
-			end_pos,
-			row_count
-		FROM consolidated_ranges
-		ORDER BY row_count DESC, start_pos
-		LIMIT 1
-	`, buildTableRef(a.adminDatabase, a.adminTable), database, table)
-
-	var rangeResult struct {
-		StartPos uint64 `ch:"start_pos"`
-		EndPos   uint64 `ch:"end_pos"`
-		RowCount uint64 `ch:"row_count"`
-	}
-
-	err = a.client.QueryOne(ctx, rangeQuery, &rangeResult)
-	if err != nil {
-		return 0, fmt.Errorf("failed to find contiguous ranges: %w", err)
-	}
-
-	// Check if we actually got valid results (not zeros/nulls)
-	// If all fields are zero, it means no ranges were found
-	if rangeResult.RowCount == 0 || (rangeResult.StartPos == 0 && rangeResult.EndPos == 0) {
-		return 0, nil // No valid ranges to consolidate
-	}
-
-	// Don't consolidate a single row - it would just create a duplicate
-	if rangeResult.RowCount == 1 {
-		return 0, nil // Single row doesn't need consolidation
-	}
-
-	// Log what we're about to consolidate for debugging
-	a.log.WithFields(logrus.Fields{
-		"model_id":  modelID,
-		"row_count": rangeResult.RowCount,
-		"start_pos": rangeResult.StartPos,
-		"end_pos":   rangeResult.EndPos,
-		"interval":  rangeResult.EndPos - rangeResult.StartPos,
-	}).Debug("Consolidating admin table rows")
-
-	// Fetch the exact granular rows that make up this island BEFORE inserting the
-	// consolidated row. We delete precisely these keys afterwards — never a range —
-	// so a delete can only ever reference rows that existed at scan time. This is
-	// what makes consolidation safe against late or out-of-order deletes: an older
-	// delete can never clip a consolidated row written by a later run, because that
-	// newer row's (position, interval) was never in any earlier delete's key set.
-	membersQuery := fmt.Sprintf(`
-		SELECT position, interval
-		FROM %s FINAL
-		WHERE database = '%s' AND table = '%s'
-		  AND position >= %d AND position < %d
-	`, buildTableRef(a.adminDatabase, a.adminTable), database, table,
-		rangeResult.StartPos, rangeResult.EndPos)
-
-	var members []ProcessedRange
-	if err := a.client.QueryMany(ctx, membersQuery, &members); err != nil {
-		return 0, fmt.Errorf("failed to fetch island members for consolidation: %w", err)
-	}
-
-	// Guard against the island shrinking between the range scan and this fetch
-	// (e.g. a concurrent delete). Nothing meaningful to merge if fewer than 2 rows.
-	if len(members) < 2 {
-		return 0, nil
-	}
-
-	// Derive the consolidated span from the rows we actually read, so the consolidated
-	// row always covers exactly the rows we are about to delete — even if the range
-	// scan observed a slightly different (e.g. partial) view of the island.
-	startPos := members[0].Position
-
-	var endPos uint64
-
-	for _, m := range members {
-		if m.Position < startPos {
-			startPos = m.Position
-		}
-
-		if end := m.Position + m.Interval; end > endPos {
-			endPos = end
-		}
-	}
-
-	consolidatedInterval := endPos - startPos
-
-	// Insert the consolidated row FIRST so coverage is never lost if the delete fails.
-	consolidationTime := time.Now().UTC()
-	insertQuery := fmt.Sprintf(`
-		INSERT INTO `+"`%s`.`%s`"+` (updated_date_time, database, table, position, interval)
-		VALUES ('%s', '%s', '%s', %d, %d)
-	`, a.adminDatabase, a.adminTable, consolidationTime.Format("2006-01-02 15:04:05.000"),
-		database, table, startPos, consolidatedInterval)
-
-	if err := a.client.Execute(ctx, insertQuery); err != nil {
-		return 0, fmt.Errorf("failed to insert consolidated row: %w", err)
-	}
-
-	// Delete the granular rows by their exact (position, interval) keys, excluding the
-	// consolidated row's own key (in case a member already matched it). Deleting by
-	// explicit identity — rather than "everything in range except this interval" —
-	// is what prevents a stale or out-of-order delete from clipping a newer
-	// consolidated row.
-	tuples := make([]string, 0, len(members))
-
-	for _, m := range members {
-		if m.Position == startPos && m.Interval == consolidatedInterval {
-			continue
-		}
-
-		tuples = append(tuples, fmt.Sprintf("(%d, %d)", m.Position, m.Interval))
-	}
-
-	// Unreachable when the member fetch uses FINAL: dedup guarantees at most one row
-	// can match the consolidated key, so len(tuples) >= len(members)-1 >= 1 past the
-	// "< 2" guard above. Kept as a guard in case the fetch ever becomes non-FINAL.
-	if len(tuples) == 0 {
-		return uint64(len(members)), nil
-	}
-
-	// buildDelete renders a keyed DELETE for one batch of (position, interval) pairs.
-	// Cluster mode targets the local replicated table ON CLUSTER so the delete reaches
-	// whichever shard holds this model's rows.
-	buildDelete := func(keyList string) string {
-		if a.cluster != "" {
-			return fmt.Sprintf(`
-				DELETE FROM `+"`%s`.`%s%s`"+` ON CLUSTER '%s'
-				WHERE database = '%s' AND table = '%s'
-				  AND (position, interval) IN (%s)
-			`, a.adminDatabase, a.adminTable, a.localSuffix, a.cluster,
-				database, table, keyList)
-		}
-
-		return fmt.Sprintf(`
-			DELETE FROM `+"`%s`.`%s`"+`
-			WHERE database = '%s' AND table = '%s'
-			  AND (position, interval) IN (%s)
-		`, a.adminDatabase, a.adminTable,
-			database, table, keyList)
-	}
-
-	// Delete in batches so a long-overdue island never produces a single IN-list
-	// that exceeds max_query_size. Each batch is still keyed, so the out-of-order
-	// delete safety holds per batch.
-	batches := (len(tuples) + consolidationDeleteBatchSize - 1) / consolidationDeleteBatchSize
-	if batches > 1 {
-		a.log.WithFields(logrus.Fields{
-			"model_id": modelID,
-			"rows":     len(tuples),
-			"batches":  batches,
-		}).Info("Consolidating large island across batched deletes")
-	}
-
-	for start := 0; start < len(tuples); start += consolidationDeleteBatchSize {
-		end := start + consolidationDeleteBatchSize
-		if end > len(tuples) {
-			end = len(tuples)
-		}
-
-		if err := a.client.Execute(ctx, buildDelete(strings.Join(tuples[start:end], ", "))); err != nil {
-			// The consolidated row is already in place; any rows not yet removed are
-			// harmless over-coverage that the next run will clean up.
-			return uint64(len(members)), fmt.Errorf("consolidated row inserted but failed to delete old rows: %w", err)
-		}
-	}
-
-	return uint64(len(members)), nil
-}
-
-// DeletePeriod removes tracking rows that overlap [startPos, endPos) and re-inserts
-// remainder rows to preserve coverage outside the deleted window.
-// Returns the number of original overlapping rows deleted.
-func (a *service) DeletePeriod(ctx context.Context, modelID string, startPos, endPos uint64) (uint64, error) {
-	database, table, err := modelid.Parse(modelID)
-	if err != nil {
-		return 0, err
-	}
-
-	// 1. Query overlapping rows
-	selectQuery := fmt.Sprintf(`
-		SELECT position, interval
-		FROM %s FINAL
-		WHERE database = '%s' AND table = '%s'
-		  AND position + interval > %d
-		  AND position < %d
-		ORDER BY position
-	`, buildTableRef(a.adminDatabase, a.adminTable), database, table, startPos, endPos)
-
-	var overlapping []ProcessedRange
-
-	if err := a.client.QueryMany(ctx, selectQuery, &overlapping); err != nil {
-		return 0, fmt.Errorf("failed to query overlapping rows: %w", err)
-	}
-
-	if len(overlapping) == 0 {
-		return 0, nil
-	}
-
-	// 2. Compute remainder rows
-	type remainder struct {
-		position uint64
-		interval uint64
-	}
-
-	remainders := make([]remainder, 0, len(overlapping)*2)
-
-	for _, row := range overlapping {
-		rowEnd := row.Position + row.Interval
-
-		// Left remainder: portion before the deletion window
-		if row.Position < startPos {
-			remainders = append(remainders, remainder{
-				position: row.Position,
-				interval: startPos - row.Position,
-			})
-		}
-
-		// Right remainder: portion after the deletion window
-		if rowEnd > endPos {
-			remainders = append(remainders, remainder{
-				position: endPos,
-				interval: rowEnd - endPos,
-			})
-		}
-	}
-
-	deletedCount := uint64(len(overlapping))
-
-	// 3. Delete all overlapping rows
-	var deleteQuery string
-	if a.cluster != "" {
-		deleteQuery = fmt.Sprintf(`
-			DELETE FROM `+"`%s`.`%s%s`"+` ON CLUSTER '%s'
-			WHERE database = '%s' AND table = '%s'
-			  AND position + interval > %d
-			  AND position < %d
-		`, a.adminDatabase, a.adminTable, a.localSuffix, a.cluster,
-			database, table, startPos, endPos)
-	} else {
-		deleteQuery = fmt.Sprintf(`
-			DELETE FROM %s
-			WHERE database = '%s' AND table = '%s'
-			  AND position + interval > %d
-			  AND position < %d
-		`, buildTableRef(a.adminDatabase, a.adminTable),
-			database, table, startPos, endPos)
-	}
-
-	if err := a.client.Execute(ctx, deleteQuery); err != nil {
-		return 0, fmt.Errorf("failed to delete overlapping rows: %w", err)
-	}
-
-	// 4. Insert remainder rows
-	for _, r := range remainders {
-		insertQuery := fmt.Sprintf(`
-			INSERT INTO %s (updated_date_time, database, table, position, interval)
-			VALUES (now(), '%s', '%s', %d, %d)
-		`, buildTableRef(a.adminDatabase, a.adminTable), database, table, r.position, r.interval)
-
-		if err := a.client.Execute(ctx, insertQuery); err != nil {
-			return deletedCount, fmt.Errorf(
-				"deleted rows but failed to insert remainder (%d, %d): %w",
-				r.position, r.interval, err,
-			)
-		}
-	}
-
-	a.log.WithFields(logrus.Fields{
-		"model_id":       modelID,
-		"start_pos":      startPos,
-		"end_pos":        endPos,
-		"deleted_rows":   deletedCount,
-		"remainder_rows": len(remainders),
-	}).Info("Deleted period from admin table")
-
-	return deletedCount, nil
-}
-
-// GetExternalBounds retrieves cached external model bounds
-func (a *service) GetExternalBounds(ctx context.Context, modelID string) (*BoundsCache, error) {
-	if a.cacheManager == nil {
-		return nil, nil
-	}
-	return a.cacheManager.GetBounds(ctx, modelID)
-}
-
-// SetExternalBounds stores external model bounds in cache
-func (a *service) SetExternalBounds(ctx context.Context, cache *BoundsCache) error {
-	if a.cacheManager == nil {
-		return ErrCacheManagerUnavailable
-	}
-	return a.cacheManager.SetBounds(ctx, cache)
-}
-
-// DeleteExternalBounds removes cached external model bounds
-func (a *service) DeleteExternalBounds(ctx context.Context, modelID string) error {
-	if a.cacheManager == nil {
-		return ErrCacheManagerUnavailable
-	}
-
-	return a.cacheManager.DeleteBounds(ctx, modelID)
-}
-
-// AcquireBoundsLock acquires a distributed lock for bounds updates on a specific model
-func (a *service) AcquireBoundsLock(ctx context.Context, modelID string) (BoundsLock, error) {
-	if a.cacheManager == nil {
-		return nil, ErrCacheManagerUnavailable
-	}
-	return a.cacheManager.AcquireLock(ctx, modelID)
-}
-
-// RecordScheduledCompletion records a completed scheduled transformation
-func (a *service) RecordScheduledCompletion(ctx context.Context, modelID string, startDateTime time.Time) error {
-	database, table, err := modelid.Parse(modelID)
-	if err != nil {
-		return err
-	}
-
-	a.log.WithFields(logrus.Fields{
-		"model_id":        modelID,
-		"start_date_time": startDateTime,
-	}).Debug("Recording scheduled task completion in admin table")
-
-	query := fmt.Sprintf(`
-		INSERT INTO %s (updated_date_time, database, table, start_date_time)
-		VALUES (now(), '%s', '%s', '%s')
-	`, buildTableRef(a.scheduledAdminDatabase, a.scheduledAdminTable), database, table, startDateTime.UTC().Format("2006-01-02 15:04:05.000"))
-
-	return a.client.Execute(ctx, query)
-}
-
-// GetLastScheduledExecution returns the last execution time for a scheduled transformation
-func (a *service) GetLastScheduledExecution(ctx context.Context, modelID string) (*time.Time, error) {
-	database, table, err := modelid.Parse(modelID)
-	if err != nil {
-		return nil, err
-	}
-
-	query := fmt.Sprintf(`
-		SELECT max(start_date_time) as last_execution
-		FROM %s FINAL
-		WHERE database = '%s' AND table = '%s'
-	`, buildTableRef(a.scheduledAdminDatabase, a.scheduledAdminTable), database, table)
-
-	var result struct {
-		LastExecution *time.Time `ch:"last_execution"`
-	}
-
-	err = a.client.QueryOne(ctx, query, &result)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check for nil, Go's zero time, or Unix epoch (ClickHouse's "zero" DateTime)
-	if result.LastExecution == nil || result.LastExecution.IsZero() || result.LastExecution.Unix() == 0 {
-		return nil, nil
-	}
-
-	// Ensure the timestamp is in UTC to match how we store it
-	utcTime := result.LastExecution.UTC()
-
-	return &utcTime, nil
-}
-
-// GetAllProcessedRanges returns processed ranges for multiple models in a single query.
-// This avoids the N+1 query problem when listing coverage for all models.
-func (a *service) GetAllProcessedRanges(ctx context.Context, modelIDs []string) (map[string][]ProcessedRange, error) {
-	if len(modelIDs) == 0 {
-		return make(map[string][]ProcessedRange), nil
-	}
-
-	// Build the WHERE IN clause with (database, table) tuples
-	tuples := make([]string, 0, len(modelIDs))
-
-	for _, id := range modelIDs {
-		database, table, err := modelid.Parse(id)
-		if err != nil {
-			return nil, err
-		}
-
-		tuples = append(tuples, fmt.Sprintf("('%s', '%s')", database, table))
-	}
-
-	query := fmt.Sprintf(`
-		SELECT database, table, position, interval
-		FROM %s FINAL
-		WHERE (database, table) IN (%s)
-		ORDER BY database, table, position DESC
-	`, buildTableRef(a.adminDatabase, a.adminTable), strings.Join(tuples, ", "))
-
-	var rows []struct {
-		Database string `ch:"database"`
-		Table    string `ch:"table"`
-		Position uint64 `ch:"position"`
-		Interval uint64 `ch:"interval"`
-	}
-
-	if err := a.client.QueryMany(ctx, query, &rows); err != nil {
-		return nil, fmt.Errorf("failed to batch query processed ranges: %w", err)
-	}
-
-	result := make(map[string][]ProcessedRange, len(modelIDs))
-	for _, row := range rows {
-		id := modelid.Format(row.Database, row.Table)
-		result[id] = append(result[id], ProcessedRange{
-			Position: row.Position,
-			Interval: row.Interval,
-		})
-	}
-
-	a.log.WithFields(logrus.Fields{
-		"model_count": len(modelIDs),
-		"total_rows":  len(rows),
-	}).Debug("Batch retrieved processed ranges from admin table")
-
-	return result, nil
-}
-
-// GetAllLastScheduledExecutions returns the last execution time for multiple scheduled
-// models in a single query. This avoids the N+1 query problem when listing runs.
-func (a *service) GetAllLastScheduledExecutions(ctx context.Context, modelIDs []string) (map[string]*time.Time, error) {
-	if len(modelIDs) == 0 {
-		return make(map[string]*time.Time), nil
-	}
-
-	// Build the WHERE IN clause with (database, table) tuples
-	tuples := make([]string, 0, len(modelIDs))
-
-	for _, id := range modelIDs {
-		database, table, err := modelid.Parse(id)
-		if err != nil {
-			return nil, err
-		}
-
-		tuples = append(tuples, fmt.Sprintf("('%s', '%s')", database, table))
-	}
-
-	query := fmt.Sprintf(`
-		SELECT database, table, max(start_date_time) as last_execution
-		FROM %s FINAL
-		WHERE (database, table) IN (%s)
-		GROUP BY database, table
-	`, buildTableRef(a.scheduledAdminDatabase, a.scheduledAdminTable), strings.Join(tuples, ", "))
-
-	var rows []struct {
-		Database      string    `ch:"database"`
-		Table         string    `ch:"table"`
-		LastExecution time.Time `ch:"last_execution"`
-	}
-
-	if err := a.client.QueryMany(ctx, query, &rows); err != nil {
-		return nil, fmt.Errorf("failed to batch query scheduled executions: %w", err)
-	}
-
-	result := make(map[string]*time.Time, len(modelIDs))
-	for _, row := range rows {
-		// Skip zero/epoch timestamps (ClickHouse "zero" DateTime)
-		if row.LastExecution.IsZero() || row.LastExecution.Unix() == 0 {
-			continue
-		}
-
-		id := modelid.Format(row.Database, row.Table)
-		utcTime := row.LastExecution.UTC()
-		result[id] = &utcTime
-	}
-
-	a.log.WithFields(logrus.Fields{
-		"model_count":  len(modelIDs),
-		"result_count": len(result),
-	}).Debug("Batch retrieved last scheduled executions from admin table")
-
-	return result, nil
-}
-
-// GetConfigOverride retrieves a config override for a specific model.
-func (a *service) GetConfigOverride(ctx context.Context, modelID string) (*ConfigOverride, error) {
-	if a.cacheManager == nil {
-		return nil, ErrCacheManagerUnavailable
-	}
-
-	return a.cacheManager.GetConfigOverride(ctx, modelID)
-}
-
-// GetAllConfigOverrides retrieves all config overrides.
-func (a *service) GetAllConfigOverrides(ctx context.Context) ([]ConfigOverride, error) {
-	if a.cacheManager == nil {
-		return nil, ErrCacheManagerUnavailable
-	}
-
-	return a.cacheManager.GetAllConfigOverrides(ctx)
-}
-
-// SetConfigOverride stores a config override.
-func (a *service) SetConfigOverride(ctx context.Context, override *ConfigOverride) error {
-	if a.cacheManager == nil {
-		return ErrCacheManagerUnavailable
-	}
-
-	return a.cacheManager.SetConfigOverride(ctx, override)
-}
-
-// DeleteConfigOverride removes a config override for a specific model.
-func (a *service) DeleteConfigOverride(ctx context.Context, modelID string) error {
-	if a.cacheManager == nil {
-		return ErrCacheManagerUnavailable
-	}
-
-	return a.cacheManager.DeleteConfigOverride(ctx, modelID)
-}
-
-// DeleteAllConfigOverrides removes all config overrides.
-func (a *service) DeleteAllConfigOverrides(ctx context.Context) error {
-	if a.cacheManager == nil {
-		return ErrCacheManagerUnavailable
-	}
-
-	return a.cacheManager.DeleteAllConfigOverrides(ctx)
-}
-
-// GetConfigOverrideVersion returns the current config override version counter.
-func (a *service) GetConfigOverrideVersion(ctx context.Context) (int64, error) {
-	if a.cacheManager == nil {
-		return 0, ErrCacheManagerUnavailable
-	}
-
-	return a.cacheManager.GetConfigOverrideVersion(ctx)
-}
-
-// GetCacheManager returns the underlying cache manager.
-func (a *service) GetCacheManager() *CacheManager {
-	return a.cacheManager
 }
 
 // Ensure service implements the interface

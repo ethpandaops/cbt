@@ -24,11 +24,33 @@ import (
 const (
 	oauthStatePrefix  = "cbt:oauth_state:"
 	oauthStateTTL     = 10 * time.Minute
+	sessionCookieName = "cbt_session"
+)
+
+// GitHub OAuth and API endpoints. These are package-level variables (rather than
+// constants) so tests can point them at an httptest server; production code never
+// mutates them.
+//
+//nolint:gochecknoglobals // test seams: tests point these at an httptest server.
+var (
 	githubAuthURL     = "https://github.com/login/oauth/authorize"
 	githubExchangeURL = "https://github.com/login/oauth/access_token" //nolint:gosec // OAuth endpoint URL, not a credential
 	githubAPIBase     = "https://api.github.com"
-	sessionCookieName = "cbt_session"
 )
+
+// randRead is the source of cryptographic randomness used by the helpers below.
+// It is a package-level variable so tests can inject a failing reader to exercise
+// the error branches; production always uses crypto/rand.
+//
+//nolint:gochecknoglobals // test seam for crypto/rand failure injection.
+var randRead = rand.Read
+
+// jsonMarshal is the JSON encoder used when persisting OAuth state and session
+// data. It is a package-level variable so tests can inject a failing marshaler to
+// exercise the otherwise-unreachable error branches; production uses encoding/json.
+//
+//nolint:gochecknoglobals // test seam for json.Marshal failure injection.
+var jsonMarshal = json.Marshal
 
 var (
 	// ErrEmptyGitHubLogin is returned when the GitHub API returns an empty login.
@@ -52,6 +74,7 @@ type GitHubHandler struct {
 	oauth2Config *oauth2.Config
 	redisClient  *redis.Client
 	sessionStore *SessionStore
+	httpClient   *http.Client
 	log          logrus.FieldLogger
 }
 
@@ -83,6 +106,7 @@ func NewGitHubHandler(
 		oauth2Config: oauth2Cfg,
 		redisClient:  redisClient,
 		sessionStore: sessionStore,
+		httpClient:   http.DefaultClient,
 		log:          log,
 	}
 }
@@ -106,7 +130,7 @@ func (h *GitHubHandler) HandleLogin(c fiber.Ctx) error {
 
 	stateData := &oauthStateData{Verifier: verifier}
 
-	raw, err := json.Marshal(stateData)
+	raw, err := jsonMarshal(stateData)
 	if err != nil {
 		return fiber.NewError(
 			fiber.StatusInternalServerError, "failed to marshal state",
@@ -168,9 +192,14 @@ func (h *GitHubHandler) HandleCallback(c fiber.Ctx) error {
 		)
 	}
 
-	// Exchange code for token with PKCE verifier.
+	// Exchange code for token with PKCE verifier. Inject the handler's HTTP
+	// client so tests can route the exchange through an httptest server.
+	exchangeCtx := context.WithValue(
+		c.Context(), oauth2.HTTPClient, h.httpClient,
+	)
+
 	token, err := h.oauth2Config.Exchange(
-		c.Context(),
+		exchangeCtx,
 		code,
 		oauth2.SetAuthURLParam("code_verifier", stateData.Verifier),
 	)
@@ -270,7 +299,7 @@ func (h *GitHubHandler) getGitHubUsername(
 	ctx context.Context,
 	accessToken string,
 ) (string, error) {
-	body, err := h.githubAPIGet(ctx, accessToken, "/user")
+	body, err := h.fetchGitHubUser(ctx, accessToken)
 	if err != nil {
 		return "", fmt.Errorf("get user: %w", err)
 	}
@@ -342,7 +371,7 @@ func (h *GitHubHandler) checkOrgMembership(
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // request host is fixed to githubAPIBase.
+	resp, err := h.httpClient.Do(req) //nolint:gosec // request host is fixed to githubAPIBase.
 	if err != nil {
 		return false, fmt.Errorf("do request: %w", err)
 	}
@@ -352,13 +381,14 @@ func (h *GitHubHandler) checkOrgMembership(
 	return resp.StatusCode == http.StatusNoContent, nil
 }
 
-// githubAPIGet performs a GET request against the GitHub API.
-func (h *GitHubHandler) githubAPIGet(
+// fetchGitHubUser fetches the authenticated user from the GitHub API and
+// returns the raw response body.
+func (h *GitHubHandler) fetchGitHubUser(
 	ctx context.Context,
-	accessToken, urlPath string,
+	accessToken string,
 ) ([]byte, error) {
 	req, err := http.NewRequestWithContext(
-		ctx, http.MethodGet, githubAPIBase+urlPath, http.NoBody,
+		ctx, http.MethodGet, githubAPIBase+"/user", http.NoBody,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -367,7 +397,7 @@ func (h *GitHubHandler) githubAPIGet(
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // request host is fixed to githubAPIBase.
+	resp, err := h.httpClient.Do(req) //nolint:gosec // request host is fixed to githubAPIBase.
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
 	}
@@ -389,7 +419,7 @@ func (h *GitHubHandler) githubAPIGet(
 
 func generateRandomHex(n int) (string, error) {
 	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := randRead(b); err != nil {
 		return "", err
 	}
 
@@ -398,7 +428,7 @@ func generateRandomHex(n int) (string, error) {
 
 func generatePKCEVerifier() (string, error) {
 	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := randRead(b); err != nil {
 		return "", err
 	}
 

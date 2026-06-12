@@ -16,22 +16,13 @@ import (
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/observability"
 	"github.com/ethpandaops/cbt/pkg/tasks"
-	"github.com/ethpandaops/cbt/pkg/validation"
 	"github.com/sirupsen/logrus"
 )
 
 // Define static errors
 var (
-	ErrInvalidTaskContext        = errors.New("invalid task context type")
 	ErrInvalidTransformationType = errors.New("invalid transformation type")
 	ErrTableDoesNotExist         = errors.New("table does not exist")
-)
-
-const (
-	// ScanTypeIncremental is the incremental scan type
-	ScanTypeIncremental = "incremental"
-	// ScanTypeFull is the full scan type
-	ScanTypeFull = "full"
 )
 
 // ModelExecutor implements the execution of model transformations
@@ -125,8 +116,8 @@ func (e *ModelExecutor) applyBoundsWithLock(ctx context.Context, modelID string,
 	}
 
 	now := time.Now().UTC()
-	isIncrementalScan := scanType == ScanTypeIncremental
-	isFullScan := scanType == ScanTypeFull
+	isIncrementalScan := scanType == tasks.ScanTypeIncremental
+	isFullScan := scanType == tasks.ScanTypeFull
 
 	// Compute final bounds with zero protection
 	finalMin, finalMax := e.computeFinalBounds(minBound, maxBound, freshCache, scanType)
@@ -191,13 +182,13 @@ func (e *ModelExecutor) detectInvalidBounds(queryMin, queryMax uint64) string {
 // shouldSkipScan checks if the scan should be skipped based on current state
 func shouldSkipScan(log logrus.FieldLogger, modelID, scanType string, cache *admin.BoundsCache, now time.Time) bool {
 	// Check if this is initial scan
-	if scanType == ScanTypeIncremental && cache == nil {
+	if scanType == tasks.ScanTypeIncremental && cache == nil {
 		log.WithField("model_id", modelID).Warn("No cache for incremental scan, skipping until full scan completes")
 		return true
 	}
 
 	// Check if initial scan is complete for incremental scans
-	if scanType == ScanTypeIncremental && cache != nil && !cache.InitialScanComplete {
+	if scanType == tasks.ScanTypeIncremental && cache != nil && !cache.InitialScanComplete {
 		// Check if initial scan is stuck (more than 30 minutes old)
 		if cache.InitialScanStarted != nil && now.Sub(*cache.InitialScanStarted) > 30*time.Minute {
 			log.WithField("model_id", modelID).Warn("Initial scan appears stuck, will retry on next full scan")
@@ -211,8 +202,8 @@ func shouldSkipScan(log logrus.FieldLogger, modelID, scanType string, cache *adm
 // buildCacheState builds the cache state for template rendering
 func buildCacheState(scanType string, cache *admin.BoundsCache) map[string]any {
 	// Set scan type flags
-	isIncrementalScan := scanType == ScanTypeIncremental
-	isFullScan := scanType == ScanTypeFull
+	isIncrementalScan := scanType == tasks.ScanTypeIncremental
+	isFullScan := scanType == tasks.ScanTypeFull
 
 	// Build cache state for template rendering
 	cacheState := map[string]any{
@@ -245,8 +236,8 @@ func (e *ModelExecutor) queryExternalBounds(ctx context.Context, modelID string,
 	// Execute the query to get bounds
 	// Use FlexUint64 to handle cases where SQL returns string literals (e.g., cached values)
 	var result struct {
-		Min validation.FlexUint64 `ch:"min"`
-		Max validation.FlexUint64 `ch:"max"`
+		Min clickhouse.FlexUint64 `ch:"min"`
+		Max clickhouse.FlexUint64 `ch:"max"`
 	}
 
 	e.log.WithFields(logrus.Fields{
@@ -330,12 +321,7 @@ func updateCacheTimestamps(newCache, existingCache *admin.BoundsCache, isIncreme
 }
 
 // Execute runs the model transformation
-func (e *ModelExecutor) Execute(ctx context.Context, taskCtxInterface any) error {
-	taskCtx, ok := taskCtxInterface.(*tasks.TaskContext)
-	if !ok {
-		return ErrInvalidTaskContext
-	}
-
+func (e *ModelExecutor) Execute(ctx context.Context, taskCtx *tasks.ExecutionContext) error {
 	// Validate first
 	if err := e.Validate(ctx, taskCtx); err != nil {
 		return err
@@ -350,11 +336,11 @@ func (e *ModelExecutor) Execute(ctx context.Context, taskCtxInterface any) error
 	}).Info("Executing model transformation")
 
 	switch taskCtx.Transformation.GetType() {
-	case transformation.TransformationTypeExec:
+	case transformation.TypeExec:
 		if err := e.executeCommand(ctx, taskCtx); err != nil {
 			return err
 		}
-	case transformation.TransformationTypeSQL:
+	case transformation.TypeSQL:
 		if err := e.executeSQL(ctx, taskCtx); err != nil {
 			return err
 		}
@@ -366,12 +352,7 @@ func (e *ModelExecutor) Execute(ctx context.Context, taskCtxInterface any) error
 }
 
 // Validate checks if the model can be executed
-func (e *ModelExecutor) Validate(ctx context.Context, taskCtxInterface any) error {
-	taskCtx, ok := taskCtxInterface.(*tasks.TaskContext)
-	if !ok {
-		return ErrInvalidTaskContext
-	}
-
+func (e *ModelExecutor) Validate(ctx context.Context, taskCtx *tasks.ExecutionContext) error {
 	config := taskCtx.Transformation.GetConfig()
 
 	exists, err := clickhouse.TableExists(ctx, e.chClient, config.Database, config.Table)
@@ -386,7 +367,7 @@ func (e *ModelExecutor) Validate(ctx context.Context, taskCtxInterface any) erro
 	return nil
 }
 
-func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskContext) error {
+func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.ExecutionContext) error {
 	config := taskCtx.Transformation.GetConfig()
 
 	renderedSQL, err := e.models.RenderTransformation(taskCtx.Transformation, taskCtx.Position, taskCtx.Interval, taskCtx.ExecutionTime)
@@ -442,7 +423,7 @@ func (e *ModelExecutor) executeSQL(ctx context.Context, taskCtx *tasks.TaskConte
 	return nil
 }
 
-func (e *ModelExecutor) executeCommand(ctx context.Context, taskCtx *tasks.TaskContext) error {
+func (e *ModelExecutor) executeCommand(ctx context.Context, taskCtx *tasks.ExecutionContext) error {
 	config := taskCtx.Transformation.GetConfig()
 	command := taskCtx.Transformation.GetValue()
 

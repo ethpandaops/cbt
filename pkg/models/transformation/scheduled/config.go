@@ -10,10 +10,6 @@ import (
 var (
 	// ErrScheduleRequired is returned when schedule is not specified
 	ErrScheduleRequired = errors.New("schedule is required for scheduled transformations")
-	// ErrIntervalNotAllowed is returned when interval is specified for scheduled transformations
-	ErrIntervalNotAllowed = errors.New("interval cannot be specified for scheduled transformations")
-	// ErrSchedulesNotAllowed is returned when schedules are specified for scheduled transformations
-	ErrSchedulesNotAllowed = errors.New("schedules (forwardfill/backfill) cannot be specified for scheduled transformations, use schedule field instead")
 	// ErrAdminServiceInvalid is returned when admin service doesn't implement required interface
 	ErrAdminServiceInvalid = errors.New("admin service does not implement RecordScheduledCompletion")
 )
@@ -26,9 +22,11 @@ type Config struct {
 	Schedule     string                      `yaml:"schedule"` // Cron expression for scheduling
 	Dependencies []transformation.Dependency `yaml:"dependencies,omitempty"`
 	Tags         []string                    `yaml:"tags,omitempty"`
-	Env          map[string]string           `yaml:"env,omitempty"` // Model-specific environment variables
-	Exec         string                      `yaml:"exec,omitempty"`
-	SQL          string                      `yaml:"-"` // SQL content from separate file
+	// Env and Exec are never read from this struct; they exist only so the strict
+	// YAML decoder (KnownFields) accepts those keys. Consumption happens via
+	// transformation.Config and transformation.Exec.
+	Env  map[string]string `yaml:"env,omitempty"`
+	Exec string            `yaml:"exec,omitempty"`
 
 	// OriginalDependencies stores the dependencies before placeholder substitution
 	OriginalDependencies []transformation.Dependency `yaml:"-"`

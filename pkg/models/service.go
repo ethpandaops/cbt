@@ -188,31 +188,31 @@ func (s *service) applyOverrides() {
 	}
 	s.log.WithField("override_keys", overrideKeys).Debug("Found override keys")
 
-	modelTypes := s.buildModelTypeMapping()
+	modelTypes := s.buildTypeMapping()
 	s.resolveAllOverrides(modelTypes)
 	appliedOverrides := s.applyOverridesToModels()
 	s.warnUnmatchedOverrides(appliedOverrides)
 }
 
-// buildModelTypeMapping creates a map of model IDs to their types
-func (s *service) buildModelTypeMapping() map[string]ModelType {
-	modelTypes := make(map[string]ModelType, len(s.externalModels)+len(s.transformationModels))
+// buildTypeMapping creates a map of model IDs to their types
+func (s *service) buildTypeMapping() map[string]Type {
+	modelTypes := make(map[string]Type, len(s.externalModels)+len(s.transformationModels))
 
 	for _, model := range s.externalModels {
 		config := model.GetConfig()
-		modelTypes[config.GetID()] = ModelTypeExternal
+		modelTypes[config.GetID()] = TypeExternal
 	}
 
 	for _, model := range s.transformationModels {
 		config := model.GetConfig()
-		modelTypes[config.GetID()] = ModelTypeTransformation
+		modelTypes[config.GetID()] = TypeTransformation
 	}
 
 	return modelTypes
 }
 
 // resolveAllOverrides resolves the config for all overrides based on model type lookup
-func (s *service) resolveAllOverrides(modelTypes map[string]ModelType) {
+func (s *service) resolveAllOverrides(modelTypes map[string]Type) {
 	for modelID := range s.config.Overrides {
 		override := s.config.Overrides[modelID]
 		modelType, exists := modelTypes[modelID]
@@ -227,7 +227,7 @@ func (s *service) resolveAllOverrides(modelTypes map[string]ModelType) {
 	}
 }
 
-func (s *service) resolveOverrideByType(modelID string, override *ModelOverride, modelType ModelType) {
+func (s *service) resolveOverrideByType(modelID string, override *Override, modelType Type) {
 	if err := override.ResolveConfig(modelType); err != nil {
 		s.log.WithField("model", modelID).WithError(err).Warn("Failed to resolve override config")
 		return
@@ -235,7 +235,7 @@ func (s *service) resolveOverrideByType(modelID string, override *ModelOverride,
 	s.log.WithField("model", modelID).Debug("Resolved override configuration")
 }
 
-func (s *service) resolveOverrideWithDefaultDB(modelID string, override *ModelOverride, modelTypes map[string]ModelType) {
+func (s *service) resolveOverrideWithDefaultDB(modelID string, override *Override, modelTypes map[string]Type) {
 	if err := s.resolveOverrideWithDefaults(modelID, override, modelTypes); err != nil {
 		s.log.WithField("model", modelID).Debug("Could not resolve override (will check during model iteration)")
 		return
@@ -258,7 +258,7 @@ func (s *service) applyExternalOverrides(appliedOverrides map[string]bool) []Ext
 	filtered := make([]External, 0, len(s.externalModels))
 
 	for _, model := range s.externalModels {
-		if s.shouldSkipModel(model, ModelTypeExternal, appliedOverrides) {
+		if s.shouldSkipModel(model, TypeExternal, appliedOverrides) {
 			continue
 		}
 		filtered = append(filtered, model)
@@ -272,7 +272,7 @@ func (s *service) applyTransformationOverrides(appliedOverrides map[string]bool)
 	filtered := make([]Transformation, 0, len(s.transformationModels))
 
 	for _, model := range s.transformationModels {
-		if s.shouldSkipModel(model, ModelTypeTransformation, appliedOverrides) {
+		if s.shouldSkipModel(model, TypeTransformation, appliedOverrides) {
 			continue
 		}
 		filtered = append(filtered, model)
@@ -282,13 +282,13 @@ func (s *service) applyTransformationOverrides(appliedOverrides map[string]bool)
 }
 
 // shouldSkipModel checks if a model should be skipped and applies overrides if found
-func (s *service) shouldSkipModel(model any, modelType ModelType, appliedOverrides map[string]bool) bool {
+func (s *service) shouldSkipModel(model any, modelType Type, appliedOverrides map[string]bool) bool {
 	var modelID, tableName string
-	var override *ModelOverride
+	var override *Override
 	var overrideKey string
 
 	switch modelType {
-	case ModelTypeExternal:
+	case TypeExternal:
 		extModel, ok := model.(External)
 		if !ok {
 			return false
@@ -296,7 +296,7 @@ func (s *service) shouldSkipModel(model any, modelType ModelType, appliedOverrid
 		config := extModel.GetConfig()
 		modelID = config.GetID()
 		tableName = config.Table
-		override, overrideKey = s.findOverride(modelID, tableName, ModelTypeExternal)
+		override, overrideKey = s.findOverride(modelID, tableName, TypeExternal)
 
 		if override != nil {
 			appliedOverrides[overrideKey] = true
@@ -311,7 +311,7 @@ func (s *service) shouldSkipModel(model any, modelType ModelType, appliedOverrid
 			s.log.WithField("model", modelID).Debug("Applied external configuration override")
 		}
 
-	case ModelTypeTransformation:
+	case TypeTransformation:
 		transModel, ok := model.(Transformation)
 		if !ok {
 			return false
@@ -319,7 +319,7 @@ func (s *service) shouldSkipModel(model any, modelType ModelType, appliedOverrid
 		config := transModel.GetConfig()
 		modelID = config.GetID()
 		tableName = config.Table
-		override, overrideKey = s.findOverride(modelID, tableName, ModelTypeTransformation)
+		override, overrideKey = s.findOverride(modelID, tableName, TypeTransformation)
 
 		if override != nil {
 			appliedOverrides[overrideKey] = true
@@ -347,7 +347,7 @@ func (s *service) warnUnmatchedOverrides(appliedOverrides map[string]bool) {
 }
 
 // resolveOverrideWithDefaults attempts to resolve an override using default database lookup
-func (s *service) resolveOverrideWithDefaults(overrideKey string, override *ModelOverride, modelTypes map[string]ModelType) error {
+func (s *service) resolveOverrideWithDefaults(overrideKey string, override *Override, modelTypes map[string]Type) error {
 	// Check if this could be a table-only key
 	// Try with external default database
 	if s.config.External.DefaultDatabase != "" {
@@ -369,7 +369,7 @@ func (s *service) resolveOverrideWithDefaults(overrideKey string, override *Mode
 }
 
 // findOverride looks up an override using both full ID and table-only formats
-func (s *service) findOverride(fullID, tableName string, modelType ModelType) (override *ModelOverride, overrideKey string) {
+func (s *service) findOverride(fullID, tableName string, modelType Type) (override *Override, overrideKey string) {
 	// First, try with the full model ID (database.table)
 	if override, exists := s.config.Overrides[fullID]; exists {
 		return override, fullID
@@ -378,7 +378,7 @@ func (s *service) findOverride(fullID, tableName string, modelType ModelType) (o
 	// If the model uses the default database, also try with just the table name
 	// This allows more intuitive overrides when using default databases
 	var defaultDatabase string
-	if modelType == ModelTypeExternal {
+	if modelType == TypeExternal {
 		defaultDatabase = s.config.External.DefaultDatabase
 	} else {
 		defaultDatabase = s.config.Transformation.DefaultDatabase

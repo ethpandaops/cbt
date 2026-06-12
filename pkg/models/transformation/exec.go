@@ -12,8 +12,8 @@ var (
 	ErrExecRequired = errors.New("exec is required")
 )
 
-// TransformationTypeExec identifies exec transformation models
-const TransformationTypeExec = "exec"
+// TypeExec identifies exec transformation models
+const TypeExec = "exec"
 
 // Exec represents a transformation exec model with YAML config
 type Exec struct {
@@ -22,8 +22,8 @@ type Exec struct {
 	Handler Handler `yaml:"-"` // Type-specific handler
 }
 
-// NewTransformationExec creates a new transformation exec model from content
-func NewTransformationExec(content []byte) (*Exec, error) {
+// NewExec creates a new transformation exec model from content
+func NewExec(content []byte) (*Exec, error) {
 	var config *Exec
 	if err := yaml.Unmarshal(content, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse yaml: %w", err)
@@ -65,7 +65,7 @@ func (c *Exec) Validate() error {
 
 // GetType returns the transformation model type
 func (c *Exec) GetType() string {
-	return TransformationTypeExec
+	return TypeExec
 }
 
 // GetConfig returns the transformation model configuration

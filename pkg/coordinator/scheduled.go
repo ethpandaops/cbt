@@ -33,8 +33,8 @@ func (s *service) TriggerScheduledRun(_ context.Context, modelID string) error {
 	}
 
 	now := time.Now().UTC()
-	payload := tasks.ScheduledTaskPayload{
-		Type:          tasks.TaskTypeScheduled,
+	payload := tasks.ScheduledPayload{
+		Type:          tasks.TypeScheduled,
 		ModelID:       modelID,
 		ExecutionTime: now,
 		EnqueuedAt:    now,

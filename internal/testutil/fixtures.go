@@ -23,8 +23,8 @@ func init() {
 	})
 }
 
-// TestTransformationConfig holds configuration for creating test transformations.
-type TestTransformationConfig struct {
+// TransformationConfig holds configuration for creating test transformations.
+type TransformationConfig struct {
 	Database     string
 	Table        string
 	SQL          string
@@ -34,35 +34,35 @@ type TestTransformationConfig struct {
 	IntervalType string
 }
 
-// TestTransformationOption is a functional option for customizing test transformations.
-type TestTransformationOption func(*TestTransformationConfig)
+// TransformationOption is a functional option for customizing test transformations.
+type TransformationOption func(*TransformationConfig)
 
 // WithDependencies sets the dependencies for the transformation.
-func WithDependencies(deps ...string) TestTransformationOption {
-	return func(cfg *TestTransformationConfig) {
+func WithDependencies(deps ...string) TransformationOption {
+	return func(cfg *TransformationConfig) {
 		cfg.Dependencies = deps
 	}
 }
 
 // WithInterval sets the min and max interval for the transformation.
-func WithInterval(min, max uint64) TestTransformationOption {
-	return func(cfg *TestTransformationConfig) {
+func WithInterval(min, max uint64) TransformationOption {
+	return func(cfg *TransformationConfig) {
 		cfg.MinInterval = min
 		cfg.MaxInterval = max
 	}
 }
 
 // WithIntervalType sets the interval type for the transformation.
-func WithIntervalType(intervalType string) TestTransformationOption {
-	return func(cfg *TestTransformationConfig) {
+func WithIntervalType(intervalType string) TransformationOption {
+	return func(cfg *TransformationConfig) {
 		cfg.IntervalType = intervalType
 	}
 }
 
-// NewTestTransformationSQL creates a test transformation SQL model.
+// NewTransformationSQL creates a test transformation SQL model.
 // The SQL should contain the transformation logic with template variables.
-func NewTestTransformationSQL(database, table, sql string, opts ...TestTransformationOption) (models.Transformation, error) {
-	cfg := &TestTransformationConfig{
+func NewTransformationSQL(database, table, sql string, opts ...TransformationOption) (models.Transformation, error) {
+	cfg := &TransformationConfig{
 		Database:     database,
 		Table:        table,
 		SQL:          sql,
@@ -101,11 +101,11 @@ schedules:
 %s---
 %s`, cfg.Database, cfg.Table, cfg.IntervalType, cfg.MinInterval, cfg.MaxInterval, depsYAML, cfg.SQL)
 
-	return transformation.NewTransformationSQL([]byte(content))
+	return transformation.NewSQL([]byte(content))
 }
 
-// TestExternalConfig holds configuration for creating test external models.
-type TestExternalConfig struct {
+// ExternalConfig holds configuration for creating test external models.
+type ExternalConfig struct {
 	Database                string
 	Table                   string
 	SQL                     string
@@ -115,35 +115,21 @@ type TestExternalConfig struct {
 	FullScanInterval        time.Duration
 }
 
-// TestExternalOption is a functional option for customizing test external models.
-type TestExternalOption func(*TestExternalConfig)
-
-// WithExternalLag sets the lag for the external model.
-func WithExternalLag(lag uint64) TestExternalOption {
-	return func(cfg *TestExternalConfig) {
-		cfg.Lag = lag
-	}
-}
-
-// WithExternalIntervalType sets the interval type for the external model.
-func WithExternalIntervalType(intervalType string) TestExternalOption {
-	return func(cfg *TestExternalConfig) {
-		cfg.IntervalType = intervalType
-	}
-}
+// ExternalOption is a functional option for customizing test external models.
+type ExternalOption func(*ExternalConfig)
 
 // WithCacheIntervals sets the cache scan intervals for the external model.
-func WithCacheIntervals(incremental, full time.Duration) TestExternalOption {
-	return func(cfg *TestExternalConfig) {
+func WithCacheIntervals(incremental, full time.Duration) ExternalOption {
+	return func(cfg *ExternalConfig) {
 		cfg.IncrementalScanInterval = incremental
 		cfg.FullScanInterval = full
 	}
 }
 
-// NewTestExternalSQL creates a test external SQL model.
+// NewExternalSQL creates a test external SQL model.
 // The SQL should query min/max bounds from the source table.
-func NewTestExternalSQL(database, table, sql string, opts ...TestExternalOption) (models.External, error) {
-	cfg := &TestExternalConfig{
+func NewExternalSQL(database, table, sql string, opts ...ExternalOption) (models.External, error) {
+	cfg := &ExternalConfig{
 		Database:                database,
 		Table:                   table,
 		SQL:                     sql,
@@ -171,7 +157,7 @@ cache:
 %s`, cfg.Database, cfg.Table, cfg.IntervalType, cfg.Lag,
 		cfg.IncrementalScanInterval.String(), cfg.FullScanInterval.String(), cfg.SQL)
 
-	return external.NewExternalSQL([]byte(content))
+	return external.NewSQL([]byte(content))
 }
 
 // DefaultExternalBoundsSQL returns SQL that queries min/max position from a source table.
@@ -190,8 +176,8 @@ FROM %s.%s
 WHERE position >= {{ .bounds.start }} AND position < {{ .bounds.end }}`, sourceDatabase, sourceTable)
 }
 
-// TestDAG creates a DAG with the given transformations and externals.
-func TestDAG(transformations []models.Transformation, externals []models.External) models.DAGReader {
+// DAG creates a DAG with the given transformations and externals.
+func DAG(transformations []models.Transformation, externals []models.External) models.DAGReader {
 	dag := models.NewDependencyGraph()
 	_ = dag.BuildGraph(transformations, externals)
 	return dag
@@ -316,32 +302,6 @@ WHERE position >= {{ default "0" .cache.previous_max }}
 {{ end }}`, sourceDatabase, sourceTable)
 }
 
-// ConditionalExternalBoundsSQL creates SQL that uses different logic for incremental
-// vs full scans, with environment variable support. Mimics the libp2p_gossipsub pattern.
-func ConditionalExternalBoundsSQL(database, table string) string {
-	return fmt.Sprintf(`SELECT
-    {{ if .cache.is_incremental_scan }}
-      '{{ .cache.previous_min }}' as min,
-    {{ else }}
-      min(position) as min,
-    {{ end }}
-    max(position) as max
-FROM %s.%s
-WHERE
-    network = '{{ .env.NETWORK }}'
-
-    {{- $start := default "0" .env.MIN_POSITION -}}
-    {{- if .cache.is_incremental_scan -}}
-      {{- if .cache.previous_max -}}
-        {{- $start = .cache.previous_max -}}
-      {{- end -}}
-    {{- end }}
-    AND position >= {{ $start }}
-    {{- if .cache.is_incremental_scan }}
-      AND position <= {{ $start }} + {{ default "100" .env.SCAN_WINDOW }}
-    {{- end }}`, database, table)
-}
-
 // NetworkFilteredExternalBoundsSQL creates SQL that filters by network environment variable.
 func NetworkFilteredExternalBoundsSQL(database, table string) string {
 	return fmt.Sprintf(`SELECT
@@ -401,45 +361,8 @@ func SlowFullScanSQL(database, table string) string {
     {{ end }}`, database, table, database, table)
 }
 
-// NewTestExternalSQLWithEnv creates a test external SQL model with environment variables.
-func NewTestExternalSQLWithEnv(
-	database, table, sql string,
-	env map[string]string,
-	opts ...TestExternalOption,
-) (models.External, error) {
-	cfg := &TestExternalConfig{
-		Database:                database,
-		Table:                   table,
-		SQL:                     sql,
-		IntervalType:            "slot",
-		Lag:                     0,
-		IncrementalScanInterval: 1 * time.Minute,
-		FullScanInterval:        5 * time.Minute,
-	}
-
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
-	// Build the SQL file content with YAML frontmatter
-	content := fmt.Sprintf(`---
-database: %s
-table: %s
-interval:
-  type: %s
-lag: %d
-cache:
-  incremental_scan_interval: %s
-  full_scan_interval: %s
----
-%s`, cfg.Database, cfg.Table, cfg.IntervalType, cfg.Lag,
-		cfg.IncrementalScanInterval.String(), cfg.FullScanInterval.String(), cfg.SQL)
-
-	return external.NewExternalSQL([]byte(content))
-}
-
-// TestChainConfig holds configuration for creating transformation chains.
-type TestChainConfig struct {
+// ChainConfig holds configuration for creating transformation chains.
+type ChainConfig struct {
 	SourceDatabase string
 	SourceTable    string
 	Level1Database string
@@ -451,9 +374,9 @@ type TestChainConfig struct {
 	IntervalType   string
 }
 
-// DefaultTestChainConfig returns a default chain configuration.
-func DefaultTestChainConfig() TestChainConfig {
-	return TestChainConfig{
+// DefaultChainConfig returns a default chain configuration.
+func DefaultChainConfig() ChainConfig {
+	return ChainConfig{
 		SourceDatabase: "source",
 		SourceTable:    "events_source",
 		Level1Database: "transform",
@@ -466,9 +389,9 @@ func DefaultTestChainConfig() TestChainConfig {
 	}
 }
 
-// NewTestTransformationChain creates a chain of transformations for testing nested dependencies.
+// NewTransformationChain creates a chain of transformations for testing nested dependencies.
 // Returns: [external, level1_transform (depends on external), level2_transform (depends on level1)]
-func NewTestTransformationChain(cfg TestChainConfig) (
+func NewTransformationChain(cfg ChainConfig) (
 	external models.External,
 	level1Transform models.Transformation,
 	level2Transform models.Transformation,
@@ -477,14 +400,14 @@ func NewTestTransformationChain(cfg TestChainConfig) (
 ) {
 	// Create external model for bounds
 	externalSQL := DefaultExternalBoundsSQL(cfg.SourceDatabase, cfg.SourceTable)
-	external, err = NewTestExternalSQL(cfg.SourceDatabase, cfg.SourceTable, externalSQL)
+	external, err = NewExternalSQL(cfg.SourceDatabase, cfg.SourceTable, externalSQL)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to create external: %w", err)
 	}
 
 	// Create level 1 transformation (depends on external)
 	level1SQL := EventsAggregatedSQL(cfg.SourceDatabase, cfg.SourceTable)
-	level1Transform, err = NewTestTransformationSQL(
+	level1Transform, err = NewTransformationSQL(
 		cfg.Level1Database, cfg.Level1Table, level1SQL,
 		WithDependencies(cfg.SourceDatabase+"."+cfg.SourceTable),
 		WithInterval(cfg.MinInterval, cfg.MaxInterval),
@@ -496,7 +419,7 @@ func NewTestTransformationChain(cfg TestChainConfig) (
 
 	// Create level 2 transformation (depends on level 1 transformation)
 	level2SQL := EventsByAccountCumulativeSQL(cfg.Level1Database, cfg.Level1Table)
-	level2Transform, err = NewTestTransformationSQL(
+	level2Transform, err = NewTransformationSQL(
 		cfg.Level2Database, cfg.Level2Table, level2SQL,
 		WithDependencies(cfg.Level1Database+"."+cfg.Level1Table),
 		WithInterval(cfg.MinInterval, cfg.MaxInterval),
@@ -507,7 +430,7 @@ func NewTestTransformationChain(cfg TestChainConfig) (
 	}
 
 	// Build DAG
-	dag = TestDAG(
+	dag = DAG(
 		[]models.Transformation{level1Transform, level2Transform},
 		[]models.External{external},
 	)
@@ -515,67 +438,67 @@ func NewTestTransformationChain(cfg TestChainConfig) (
 	return external, level1Transform, level2Transform, dag, nil
 }
 
-// NewTestCumulativeTransformation creates a transformation that reads its own
+// NewCumulativeTransformation creates a transformation that reads its own
 // previous state and applies incremental deltas (cumulative state pattern).
-func NewTestCumulativeTransformation(
+func NewCumulativeTransformation(
 	targetDatabase, targetTable string,
 	sourceDatabase, sourceTable string,
-	opts ...TestTransformationOption,
+	opts ...TransformationOption,
 ) (models.Transformation, error) {
 	sql := EventsByAccountCumulativeSQL(sourceDatabase, sourceTable)
-	defaultOpts := []TestTransformationOption{
+	defaultOpts := []TransformationOption{
 		WithDependencies(sourceDatabase + "." + sourceTable),
 		WithInterval(0, 100),
 	}
-	return NewTestTransformationSQL(targetDatabase, targetTable, sql, append(defaultOpts, opts...)...)
+	return NewTransformationSQL(targetDatabase, targetTable, sql, append(defaultOpts, opts...)...)
 }
 
-// NewTestMultiStatementTransformation creates a transformation with multiple
+// NewMultiStatementTransformation creates a transformation with multiple
 // INSERT statements (main transformation + helper table update).
-func NewTestMultiStatementTransformation(
+func NewMultiStatementTransformation(
 	targetDatabase, targetTable string,
 	sourceDatabase, sourceTable string,
 	helperDatabase, helperTable string,
-	opts ...TestTransformationOption,
+	opts ...TransformationOption,
 ) (models.Transformation, error) {
 	sql := MultiStatementSQL(sourceDatabase, sourceTable, helperDatabase, helperTable)
-	defaultOpts := []TestTransformationOption{
+	defaultOpts := []TransformationOption{
 		WithDependencies(sourceDatabase + "." + sourceTable),
 		WithInterval(0, 100),
 	}
-	return NewTestTransformationSQL(targetDatabase, targetTable, sql, append(defaultOpts, opts...)...)
+	return NewTransformationSQL(targetDatabase, targetTable, sql, append(defaultOpts, opts...)...)
 }
 
-// NewTestMultiDependencyTransformation creates a transformation that depends on
+// NewMultiDependencyTransformation creates a transformation that depends on
 // multiple source transformations (UNION pattern).
-func NewTestMultiDependencyTransformation(
+func NewMultiDependencyTransformation(
 	targetDatabase, targetTable string,
 	source1Database, source1Table string,
 	source2Database, source2Table string,
-	opts ...TestTransformationOption,
+	opts ...TransformationOption,
 ) (models.Transformation, error) {
 	sql := MultiDependencyUnionSQL(source1Database, source1Table, source2Database, source2Table)
-	defaultOpts := []TestTransformationOption{
+	defaultOpts := []TransformationOption{
 		WithDependencies(
 			source1Database+"."+source1Table,
 			source2Database+"."+source2Table,
 		),
 		WithInterval(0, 100),
 	}
-	return NewTestTransformationSQL(targetDatabase, targetTable, sql, append(defaultOpts, opts...)...)
+	return NewTransformationSQL(targetDatabase, targetTable, sql, append(defaultOpts, opts...)...)
 }
 
-// NewTestWindowFunctionTransformation creates a transformation using window functions
+// NewWindowFunctionTransformation creates a transformation using window functions
 // for testing leadInFrame/lagInFrame patterns.
-func NewTestWindowFunctionTransformation(
+func NewWindowFunctionTransformation(
 	targetDatabase, targetTable string,
 	sourceDatabase, sourceTable string,
-	opts ...TestTransformationOption,
+	opts ...TransformationOption,
 ) (models.Transformation, error) {
 	sql := EventsWithNextSQL(sourceDatabase, sourceTable)
-	defaultOpts := []TestTransformationOption{
+	defaultOpts := []TransformationOption{
 		WithDependencies(sourceDatabase + "." + sourceTable),
 		WithInterval(0, 100),
 	}
-	return NewTestTransformationSQL(targetDatabase, targetTable, sql, append(defaultOpts, opts...)...)
+	return NewTransformationSQL(targetDatabase, targetTable, sql, append(defaultOpts, opts...)...)
 }

@@ -5,11 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ethpandaops/cbt/internal/testutil"
+	"github.com/ethpandaops/cbt/internal/testutil/adminfake"
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/clickhouse"
 	"github.com/ethpandaops/cbt/pkg/models"
@@ -33,9 +34,9 @@ var (
 // Test NewModelExecutor
 func TestNewModelExecutor(t *testing.T) {
 	log := logrus.New()
-	mockCH := &mockExecutorClickhouseClient{}
-	mockModels := &mockExecutorModelsService{}
-	mockAdmin := &mockExecutorAdminService{}
+	mockCH := &testutil.FakeClickHouseClient{}
+	mockModels := &testutil.FakeModelsService{}
+	mockAdmin := &adminfake.FakeAdminService{}
 
 	executor := NewModelExecutor(log, mockCH, mockModels, mockAdmin)
 
@@ -50,31 +51,21 @@ func TestNewModelExecutor(t *testing.T) {
 func TestModelExecutor_Execute(t *testing.T) {
 	tests := []struct {
 		name            string
-		setupMocks      func(*mockExecutorClickhouseClient, *mockExecutorModelsService, *mockExecutorAdminService)
-		taskCtx         any
+		setupMocks      func(*testutil.FakeClickHouseClient, *testutil.FakeModelsService, *adminfake.FakeAdminService)
+		taskCtx         *tasks.ExecutionContext
 		wantErr         bool
 		expectedErrType error
 	}{
 		{
-			name: "invalid task context type",
-			setupMocks: func(_ *mockExecutorClickhouseClient, _ *mockExecutorModelsService, _ *mockExecutorAdminService) {
-				// No setup needed
-			},
-			taskCtx:         "invalid",
-			wantErr:         true,
-			expectedErrType: ErrInvalidTaskContext,
-		},
-		{
 			name: "validation fails - table does not exist",
-			setupMocks: func(ch *mockExecutorClickhouseClient, _ *mockExecutorModelsService, _ *mockExecutorAdminService) {
-				ch.tableExists = false
+			setupMocks: func(ch *testutil.FakeClickHouseClient, _ *testutil.FakeModelsService, _ *adminfake.FakeAdminService) {
+				ch.TableExists = false
 			},
-			taskCtx: &tasks.TaskContext{
-				Transformation: &mockExecutorTransformation{
-					id:   "test.model",
-					typ:  transformation.TransformationTypeSQL,
-					sql:  "SELECT 1",
-					conf: transformation.Config{Database: "test", Table: "model"},
+			taskCtx: &tasks.ExecutionContext{
+				Transformation: &testutil.FakeTransformation{
+					ID:     "test.model",
+					Type:   transformation.TypeSQL,
+					Config: transformation.Config{Database: "test", Table: "model"},
 				},
 				Position:      100,
 				Interval:      50,
@@ -84,16 +75,15 @@ func TestModelExecutor_Execute(t *testing.T) {
 		},
 		{
 			name: "SQL execution success",
-			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, _ *mockExecutorAdminService) {
-				ch.tableExists = true
-				m.renderedSQL = "SELECT 1; SELECT 2"
+			setupMocks: func(ch *testutil.FakeClickHouseClient, m *testutil.FakeModelsService, _ *adminfake.FakeAdminService) {
+				ch.TableExists = true
+				m.RenderedSQL = "SELECT 1; SELECT 2"
 			},
-			taskCtx: &tasks.TaskContext{
-				Transformation: &mockExecutorTransformation{
-					id:   "test.model",
-					typ:  transformation.TransformationTypeSQL,
-					sql:  "SELECT 1",
-					conf: transformation.Config{Database: "test", Table: "model"},
+			taskCtx: &tasks.ExecutionContext{
+				Transformation: &testutil.FakeTransformation{
+					ID:     "test.model",
+					Type:   transformation.TypeSQL,
+					Config: transformation.Config{Database: "test", Table: "model"},
 				},
 				Position:      100,
 				Interval:      50,
@@ -103,16 +93,16 @@ func TestModelExecutor_Execute(t *testing.T) {
 		},
 		{
 			name: "exec command success",
-			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, _ *mockExecutorAdminService) {
-				ch.tableExists = true
-				m.envVars = &[]string{"VAR1=value1"}
+			setupMocks: func(ch *testutil.FakeClickHouseClient, m *testutil.FakeModelsService, _ *adminfake.FakeAdminService) {
+				ch.TableExists = true
+				m.EnvVars = &[]string{"VAR1=value1"}
 			},
-			taskCtx: &tasks.TaskContext{
-				Transformation: &mockExecutorTransformation{
-					id:    "test.model",
-					typ:   transformation.TransformationTypeExec,
-					value: "echo 'test'",
-					conf:  transformation.Config{Database: "test", Table: "model"},
+			taskCtx: &tasks.ExecutionContext{
+				Transformation: &testutil.FakeTransformation{
+					ID:     "test.model",
+					Type:   transformation.TypeExec,
+					Value:  "echo 'test'",
+					Config: transformation.Config{Database: "test", Table: "model"},
 				},
 				Position:      100,
 				Interval:      50,
@@ -122,14 +112,14 @@ func TestModelExecutor_Execute(t *testing.T) {
 		},
 		{
 			name: "invalid transformation type",
-			setupMocks: func(ch *mockExecutorClickhouseClient, _ *mockExecutorModelsService, _ *mockExecutorAdminService) {
-				ch.tableExists = true
+			setupMocks: func(ch *testutil.FakeClickHouseClient, _ *testutil.FakeModelsService, _ *adminfake.FakeAdminService) {
+				ch.TableExists = true
 			},
-			taskCtx: &tasks.TaskContext{
-				Transformation: &mockExecutorTransformation{
-					id:   "test.model",
-					typ:  "invalid",
-					conf: transformation.Config{Database: "test", Table: "model"},
+			taskCtx: &tasks.ExecutionContext{
+				Transformation: &testutil.FakeTransformation{
+					ID:     "test.model",
+					Type:   "invalid",
+					Config: transformation.Config{Database: "test", Table: "model"},
 				},
 				Position:      100,
 				Interval:      50,
@@ -139,16 +129,15 @@ func TestModelExecutor_Execute(t *testing.T) {
 		},
 		{
 			name: "SQL render fails",
-			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, _ *mockExecutorAdminService) {
-				ch.tableExists = true
-				m.renderErr = errMockRender
+			setupMocks: func(ch *testutil.FakeClickHouseClient, m *testutil.FakeModelsService, _ *adminfake.FakeAdminService) {
+				ch.TableExists = true
+				m.RenderErr = errMockRender
 			},
-			taskCtx: &tasks.TaskContext{
-				Transformation: &mockExecutorTransformation{
-					id:   "test.model",
-					typ:  transformation.TransformationTypeSQL,
-					sql:  "SELECT 1",
-					conf: transformation.Config{Database: "test", Table: "model"},
+			taskCtx: &tasks.ExecutionContext{
+				Transformation: &testutil.FakeTransformation{
+					ID:     "test.model",
+					Type:   transformation.TypeSQL,
+					Config: transformation.Config{Database: "test", Table: "model"},
 				},
 				Position:      100,
 				Interval:      50,
@@ -158,17 +147,16 @@ func TestModelExecutor_Execute(t *testing.T) {
 		},
 		{
 			name: "SQL execution fails",
-			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, _ *mockExecutorAdminService) {
-				ch.tableExists = true
-				ch.executeErr = errMockExecute
-				m.renderedSQL = "SELECT 1"
+			setupMocks: func(ch *testutil.FakeClickHouseClient, m *testutil.FakeModelsService, _ *adminfake.FakeAdminService) {
+				ch.TableExists = true
+				ch.ExecuteErr = errMockExecute
+				m.RenderedSQL = "SELECT 1"
 			},
-			taskCtx: &tasks.TaskContext{
-				Transformation: &mockExecutorTransformation{
-					id:   "test.model",
-					typ:  transformation.TransformationTypeSQL,
-					sql:  "SELECT 1",
-					conf: transformation.Config{Database: "test", Table: "model"},
+			taskCtx: &tasks.ExecutionContext{
+				Transformation: &testutil.FakeTransformation{
+					ID:     "test.model",
+					Type:   transformation.TypeSQL,
+					Config: transformation.Config{Database: "test", Table: "model"},
 				},
 				Position:      100,
 				Interval:      50,
@@ -182,9 +170,9 @@ func TestModelExecutor_Execute(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			log := logrus.New()
 			log.SetLevel(logrus.WarnLevel)
-			mockCH := &mockExecutorClickhouseClient{}
-			mockModels := &mockExecutorModelsService{}
-			mockAdmin := &mockExecutorAdminService{}
+			mockCH := &testutil.FakeClickHouseClient{}
+			mockModels := &testutil.FakeModelsService{}
+			mockAdmin := &adminfake.FakeAdminService{}
 
 			tt.setupMocks(mockCH, mockModels, mockAdmin)
 
@@ -194,7 +182,7 @@ func TestModelExecutor_Execute(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.expectedErrType != nil {
-					assert.ErrorIs(t, err, tt.expectedErrType)
+					require.ErrorIs(t, err, tt.expectedErrType)
 				}
 			} else {
 				require.NoError(t, err)
@@ -207,48 +195,42 @@ func TestModelExecutor_Execute(t *testing.T) {
 func TestModelExecutor_Validate(t *testing.T) {
 	tests := []struct {
 		name       string
-		setupMocks func(*mockExecutorClickhouseClient)
-		taskCtx    any
+		setupMocks func(*testutil.FakeClickHouseClient)
+		taskCtx    *tasks.ExecutionContext
 		wantErr    bool
 	}{
 		{
-			name:       "invalid task context",
-			setupMocks: func(_ *mockExecutorClickhouseClient) {},
-			taskCtx:    "invalid",
-			wantErr:    true,
-		},
-		{
 			name: "table exists",
-			setupMocks: func(ch *mockExecutorClickhouseClient) {
-				ch.tableExists = true
+			setupMocks: func(ch *testutil.FakeClickHouseClient) {
+				ch.TableExists = true
 			},
-			taskCtx: &tasks.TaskContext{
-				Transformation: &mockExecutorTransformation{
-					conf: transformation.Config{Database: "test", Table: "model"},
+			taskCtx: &tasks.ExecutionContext{
+				Transformation: &testutil.FakeTransformation{
+					Config: transformation.Config{Database: "test", Table: "model"},
 				},
 			},
 			wantErr: false,
 		},
 		{
 			name: "table does not exist",
-			setupMocks: func(ch *mockExecutorClickhouseClient) {
-				ch.tableExists = false
+			setupMocks: func(ch *testutil.FakeClickHouseClient) {
+				ch.TableExists = false
 			},
-			taskCtx: &tasks.TaskContext{
-				Transformation: &mockExecutorTransformation{
-					conf: transformation.Config{Database: "test", Table: "model"},
+			taskCtx: &tasks.ExecutionContext{
+				Transformation: &testutil.FakeTransformation{
+					Config: transformation.Config{Database: "test", Table: "model"},
 				},
 			},
 			wantErr: true,
 		},
 		{
 			name: "table check fails",
-			setupMocks: func(ch *mockExecutorClickhouseClient) {
-				ch.tableExistsErr = errCheckFailed
+			setupMocks: func(ch *testutil.FakeClickHouseClient) {
+				ch.QueryOneErr = errCheckFailed
 			},
-			taskCtx: &tasks.TaskContext{
-				Transformation: &mockExecutorTransformation{
-					conf: transformation.Config{Database: "test", Table: "model"},
+			taskCtx: &tasks.ExecutionContext{
+				Transformation: &testutil.FakeTransformation{
+					Config: transformation.Config{Database: "test", Table: "model"},
 				},
 			},
 			wantErr: true,
@@ -259,9 +241,9 @@ func TestModelExecutor_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			log := logrus.New()
 			log.SetLevel(logrus.WarnLevel)
-			mockCH := &mockExecutorClickhouseClient{}
-			mockModels := &mockExecutorModelsService{}
-			mockAdmin := &mockExecutorAdminService{}
+			mockCH := &testutil.FakeClickHouseClient{}
+			mockModels := &testutil.FakeModelsService{}
+			mockAdmin := &adminfake.FakeAdminService{}
 
 			tt.setupMocks(mockCH)
 
@@ -281,69 +263,69 @@ func TestModelExecutor_Validate(t *testing.T) {
 func TestModelExecutor_UpdateBounds(t *testing.T) {
 	tests := []struct {
 		name       string
-		setupMocks func(*mockExecutorClickhouseClient, *mockExecutorModelsService, *mockExecutorAdminService)
+		setupMocks func(*testutil.FakeClickHouseClient, *testutil.FakeModelsService, *adminfake.FakeAdminService)
 		modelID    string
 		wantErr    bool
 	}{
 		{
 			name: "no existing cache triggers full scan",
-			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, a *mockExecutorAdminService) {
+			setupMocks: func(ch *testutil.FakeClickHouseClient, m *testutil.FakeModelsService, a *adminfake.FakeAdminService) {
 				// No existing cache - should trigger full scan and succeed
-				a.externalBounds = nil
-				m.dagReader = &mockDAGReader{
-					externalNode: &mockExternal{
-						id:   "test.external",
-						conf: external.Config{Database: "test", Table: "external"},
+				a.ExternalBoundsDefault = nil
+				m.DAG = &testutil.FakeDAGReader{
+					ExternalNode: &testutil.FakeExternal{
+						ID:     "test.external",
+						Config: external.Config{Database: "test", Table: "external"},
 					},
 				}
-				m.renderedSQL = "SELECT min(id), max(id) FROM test.external"
-				ch.boundsMin = 1
-				ch.boundsMax = 100
+				m.RenderedSQL = "SELECT min(id), max(id) FROM test.external"
+				ch.BoundsMin = 1
+				ch.BoundsMax = 100
 			},
 			modelID: "test.external",
 			wantErr: false,
 		},
 		{
 			name: "external model not found",
-			setupMocks: func(_ *mockExecutorClickhouseClient, m *mockExecutorModelsService, _ *mockExecutorAdminService) {
+			setupMocks: func(_ *testutil.FakeClickHouseClient, m *testutil.FakeModelsService, _ *adminfake.FakeAdminService) {
 				// Setup for model not found error
-				m.dagReader = &mockDAGReader{externalNodeErr: errNotFound}
+				m.DAG = &testutil.FakeDAGReader{ExternalNodeErr: errNotFound}
 			},
 			modelID: "test.external",
 			wantErr: true,
 		},
 		{
 			name: "successful bounds update - initial full scan",
-			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, a *mockExecutorAdminService) {
+			setupMocks: func(ch *testutil.FakeClickHouseClient, m *testutil.FakeModelsService, a *adminfake.FakeAdminService) {
 				// No existing cache (initial full scan)
-				a.externalBounds = nil
-				m.dagReader = &mockDAGReader{
-					externalNode: &mockExternal{
-						id:   "test.external",
-						conf: external.Config{Database: "test", Table: "external"},
+				a.ExternalBoundsDefault = nil
+				m.DAG = &testutil.FakeDAGReader{
+					ExternalNode: &testutil.FakeExternal{
+						ID:     "test.external",
+						Config: external.Config{Database: "test", Table: "external"},
 					},
 				}
-				m.renderedSQL = "SELECT min(id), max(id) FROM test.external"
-				ch.boundsMin = 100
-				ch.boundsMax = 200
+				m.RenderedSQL = "SELECT min(id), max(id) FROM test.external"
+				ch.BoundsMin = 100
+				ch.BoundsMax = 200
 			},
 			modelID: "test.external",
 			wantErr: false,
 		},
 		{
 			name: "successful bounds update - incremental scan",
-			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, a *mockExecutorAdminService) {
-				a.externalBounds = &admin.BoundsCache{
+			setupMocks: func(ch *testutil.FakeClickHouseClient, m *testutil.FakeModelsService, a *adminfake.FakeAdminService) {
+				a.ExternalBoundsDefault = &admin.BoundsCache{
 					ModelID:             "test.external",
 					Min:                 100,
 					Max:                 200,
 					LastFullScan:        time.Now().Add(-1 * time.Minute),
 					LastIncrementalScan: time.Now().Add(-10 * time.Second),
 				}
-				m.dagReader = &mockDAGReader{
-					externalNode: &mockExternal{
-						id: "test.external",
-						conf: external.Config{
+				m.DAG = &testutil.FakeDAGReader{
+					ExternalNode: &testutil.FakeExternal{
+						ID: "test.external",
+						Config: external.Config{
 							Database: "test",
 							Table:    "external",
 							Cache: &external.CacheConfig{
@@ -353,25 +335,25 @@ func TestModelExecutor_UpdateBounds(t *testing.T) {
 						},
 					},
 				}
-				m.renderedSQL = "SELECT min(id), max(id) FROM test.external WHERE ..."
-				ch.boundsMin = 100
-				ch.boundsMax = 250
+				m.RenderedSQL = "SELECT min(id), max(id) FROM test.external WHERE ..."
+				ch.BoundsMin = 100
+				ch.BoundsMax = 250
 			},
 			modelID: "test.external",
 			wantErr: false,
 		},
 		{
 			name: "query bounds fails",
-			setupMocks: func(ch *mockExecutorClickhouseClient, m *mockExecutorModelsService, a *mockExecutorAdminService) {
-				a.externalBounds = nil
-				m.dagReader = &mockDAGReader{
-					externalNode: &mockExternal{
-						id:   "test.external",
-						conf: external.Config{Database: "test", Table: "external"},
+			setupMocks: func(ch *testutil.FakeClickHouseClient, m *testutil.FakeModelsService, a *adminfake.FakeAdminService) {
+				a.ExternalBoundsDefault = nil
+				m.DAG = &testutil.FakeDAGReader{
+					ExternalNode: &testutil.FakeExternal{
+						ID:     "test.external",
+						Config: external.Config{Database: "test", Table: "external"},
 					},
 				}
-				m.renderedSQL = "SELECT min(id), max(id) FROM test.external"
-				ch.queryOneErr = errQueryFailed
+				m.RenderedSQL = "SELECT min(id), max(id) FROM test.external"
+				ch.QueryOneErr = errQueryFailed
 			},
 			modelID: "test.external",
 			wantErr: true,
@@ -382,9 +364,9 @@ func TestModelExecutor_UpdateBounds(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			log := logrus.New()
 			log.SetLevel(logrus.WarnLevel)
-			mockCH := &mockExecutorClickhouseClient{}
-			mockModels := &mockExecutorModelsService{}
-			mockAdmin := &mockExecutorAdminService{}
+			mockCH := &testutil.FakeClickHouseClient{}
+			mockModels := &testutil.FakeModelsService{}
+			mockAdmin := &adminfake.FakeAdminService{}
 
 			tt.setupMocks(mockCH, mockModels, mockAdmin)
 
@@ -404,17 +386,16 @@ func TestModelExecutor_UpdateBounds(t *testing.T) {
 func BenchmarkModelExecutor_Execute(b *testing.B) {
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel)
-	mockCH := &mockExecutorClickhouseClient{tableExists: true}
-	mockModels := &mockExecutorModelsService{renderedSQL: "SELECT 1"}
-	mockAdmin := &mockExecutorAdminService{}
+	mockCH := &testutil.FakeClickHouseClient{TableExists: true}
+	mockModels := &testutil.FakeModelsService{RenderedSQL: "SELECT 1"}
+	mockAdmin := &adminfake.FakeAdminService{}
 
 	executor := NewModelExecutor(log, mockCH, mockModels, mockAdmin)
-	taskCtx := &tasks.TaskContext{
-		Transformation: &mockExecutorTransformation{
-			id:   "test.model",
-			typ:  transformation.TransformationTypeSQL,
-			sql:  "SELECT 1",
-			conf: transformation.Config{Database: "test", Table: "model"},
+	taskCtx := &tasks.ExecutionContext{
+		Transformation: &testutil.FakeTransformation{
+			ID:     "test.model",
+			Type:   transformation.TypeSQL,
+			Config: transformation.Config{Database: "test", Table: "model"},
 		},
 		Position:      100,
 		Interval:      50,
@@ -422,220 +403,10 @@ func BenchmarkModelExecutor_Execute(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = executor.Execute(context.Background(), taskCtx)
 	}
 }
-
-// Mock implementations for executor tests
-
-type mockExecutorClickhouseClient struct {
-	tableExists    bool
-	tableExistsErr error
-	executeErr     error
-	queryOneErr    error
-	boundsMin      uint64
-	boundsMax      uint64
-}
-
-func (m *mockExecutorClickhouseClient) QueryOne(_ context.Context, query string, result any) error {
-	if m.queryOneErr != nil {
-		return m.queryOneErr
-	}
-
-	if m.tableExistsErr != nil {
-		return m.tableExistsErr
-	}
-
-	// Use reflection to set fields regardless of struct tags
-	v := reflect.ValueOf(result).Elem()
-
-	// Handle TableExists query (Count field)
-	if strings.Contains(query, "system.tables") {
-		m.setUintField(v, "Count", tableCount(m.tableExists))
-
-		return nil
-	}
-
-	// Handle bounds query (Min and Max fields)
-	m.setUintField(v, "Min", m.boundsMin)
-	m.setUintField(v, "Max", m.boundsMax)
-
-	return nil
-}
-
-func (m *mockExecutorClickhouseClient) setUintField(v reflect.Value, fieldName string, value uint64) {
-	field := v.FieldByName(fieldName)
-	if !field.IsValid() || !field.CanSet() {
-		return
-	}
-
-	field.SetUint(value)
-}
-
-func tableCount(exists bool) uint64 {
-	if exists {
-		return 1
-	}
-
-	return 0
-}
-func (m *mockExecutorClickhouseClient) QueryMany(_ context.Context, _ string, _ any) error {
-	return nil
-}
-func (m *mockExecutorClickhouseClient) Execute(_ context.Context, _ string) error {
-	return m.executeErr
-}
-func (m *mockExecutorClickhouseClient) BulkInsert(_ context.Context, _ string, _ any) error {
-	return nil
-}
-func (m *mockExecutorClickhouseClient) Start() error { return nil }
-func (m *mockExecutorClickhouseClient) Stop() error  { return nil }
-
-var _ clickhouse.ClientInterface = (*mockExecutorClickhouseClient)(nil)
-
-type mockExecutorModelsService struct {
-	renderedSQL string
-	renderErr   error
-	envVars     *[]string
-	dagReader   models.DAGReader
-}
-
-func (m *mockExecutorModelsService) Start() error { return nil }
-func (m *mockExecutorModelsService) Stop() error  { return nil }
-func (m *mockExecutorModelsService) GetDAG() models.DAGReader {
-	if m.dagReader != nil {
-		return m.dagReader
-	}
-	return &mockDAGReader{}
-}
-func (m *mockExecutorModelsService) RenderTransformation(_ models.Transformation, _, _ uint64, _ time.Time) (string, error) {
-	if m.renderErr != nil {
-		return "", m.renderErr
-	}
-	return m.renderedSQL, nil
-}
-func (m *mockExecutorModelsService) RenderExternal(_ models.External, _ map[string]any) (string, error) {
-	return "", nil
-}
-func (m *mockExecutorModelsService) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time) (*[]string, error) {
-	if m.envVars != nil {
-		return m.envVars, nil
-	}
-	vars := []string{}
-	return &vars, nil
-}
-
-var _ models.Service = (*mockExecutorModelsService)(nil)
-
-type mockExecutorAdminService struct {
-	recordErr      error
-	externalBounds *admin.BoundsCache
-	setBoundsErr   error
-	onSetBounds    func(*admin.BoundsCache)
-}
-
-func (m *mockExecutorAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-func (m *mockExecutorAdminService) GetLastProcessedPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-func (m *mockExecutorAdminService) GetFirstPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-func (m *mockExecutorAdminService) RecordCompletion(_ context.Context, _ string, _, _ uint64) error {
-	return m.recordErr
-}
-func (m *mockExecutorAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64) (bool, error) {
-	return true, nil
-}
-func (m *mockExecutorAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
-	return []admin.GapInfo{}, nil
-}
-func (m *mockExecutorAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-func (m *mockExecutorAdminService) GetExternalBounds(_ context.Context, _ string) (*admin.BoundsCache, error) {
-	return m.externalBounds, nil
-}
-func (m *mockExecutorAdminService) SetExternalBounds(_ context.Context, cache *admin.BoundsCache) error {
-	if m.onSetBounds != nil {
-		m.onSetBounds(cache)
-	}
-	return m.setBoundsErr
-}
-
-func (m *mockExecutorAdminService) DeleteExternalBounds(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockExecutorAdminService) GetIncrementalAdminDatabase() string { return "admin_db" }
-func (m *mockExecutorAdminService) GetIncrementalAdminTable() string    { return "admin_table" }
-func (m *mockExecutorAdminService) GetScheduledAdminDatabase() string   { return "admin" }
-func (m *mockExecutorAdminService) GetScheduledAdminTable() string      { return "cbt_scheduled" }
-func (m *mockExecutorAdminService) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
-	return nil
-}
-func (m *mockExecutorAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
-	return nil, nil
-}
-func (m *mockExecutorAdminService) GetAllProcessedRanges(_ context.Context, _ []string) (map[string][]admin.ProcessedRange, error) {
-	return make(map[string][]admin.ProcessedRange), nil
-}
-
-func (m *mockExecutorAdminService) GetAllLastScheduledExecutions(_ context.Context, _ []string) (map[string]*time.Time, error) {
-	return make(map[string]*time.Time), nil
-}
-
-func (m *mockExecutorAdminService) DeletePeriod(_ context.Context, _ string, _, _ uint64) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockExecutorAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
-	return []admin.ProcessedRange{}, nil
-}
-func (m *mockExecutorAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
-	return &mockBoundsLock{}, nil
-}
-
-func (m *mockExecutorAdminService) GetConfigOverride(_ context.Context, _ string) (*admin.ConfigOverride, error) {
-	return nil, nil
-}
-
-func (m *mockExecutorAdminService) GetAllConfigOverrides(_ context.Context) ([]admin.ConfigOverride, error) {
-	return nil, nil
-}
-
-func (m *mockExecutorAdminService) SetConfigOverride(_ context.Context, _ *admin.ConfigOverride) error {
-	return nil
-}
-
-func (m *mockExecutorAdminService) DeleteConfigOverride(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockExecutorAdminService) DeleteAllConfigOverrides(_ context.Context) error {
-	return nil
-}
-
-func (m *mockExecutorAdminService) GetConfigOverrideVersion(_ context.Context) (int64, error) {
-	return 0, nil
-}
-
-func (m *mockExecutorAdminService) GetCacheManager() *admin.CacheManager {
-	return nil
-}
-
-// mockBoundsLock implements admin.BoundsLock for testing
-type mockBoundsLock struct{}
-
-func (m *mockBoundsLock) Unlock(_ context.Context) error {
-	return nil
-}
-
-var _ admin.BoundsLock = (*mockBoundsLock)(nil)
-var _ admin.Service = (*mockExecutorAdminService)(nil)
 
 // Test computeFinalBounds - zero protection logic
 func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
@@ -655,7 +426,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 	}{
 		{
 			name:          "incremental zero with existing cache preserves bounds",
-			scanType:      ScanTypeIncremental,
+			scanType:      tasks.ScanTypeIncremental,
 			queryMin:      0,
 			queryMax:      0,
 			existingCache: &admin.BoundsCache{Min: 100, Max: 200},
@@ -664,7 +435,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		},
 		{
 			name:          "incremental zero with no cache uses zeros",
-			scanType:      ScanTypeIncremental,
+			scanType:      tasks.ScanTypeIncremental,
 			queryMin:      0,
 			queryMax:      0,
 			existingCache: nil,
@@ -673,7 +444,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		},
 		{
 			name:          "incremental with data uses query values",
-			scanType:      ScanTypeIncremental,
+			scanType:      tasks.ScanTypeIncremental,
 			queryMin:      150,
 			queryMax:      250,
 			existingCache: &admin.BoundsCache{Min: 100, Max: 200},
@@ -682,7 +453,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		},
 		{
 			name:          "full scan zero with existing cache preserves bounds",
-			scanType:      ScanTypeFull,
+			scanType:      tasks.ScanTypeFull,
 			queryMin:      0,
 			queryMax:      0,
 			existingCache: &admin.BoundsCache{Min: 100, Max: 200},
@@ -691,7 +462,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		},
 		{
 			name:          "full scan zero with no cache uses zeros",
-			scanType:      ScanTypeFull,
+			scanType:      tasks.ScanTypeFull,
 			queryMin:      0,
 			queryMax:      0,
 			existingCache: nil,
@@ -700,7 +471,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		},
 		{
 			name:          "full scan zero with cache max=0 uses zeros",
-			scanType:      ScanTypeFull,
+			scanType:      tasks.ScanTypeFull,
 			queryMin:      0,
 			queryMax:      0,
 			existingCache: &admin.BoundsCache{Min: 0, Max: 0},
@@ -709,7 +480,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		},
 		{
 			name:          "full scan with data overwrites cache",
-			scanType:      ScanTypeFull,
+			scanType:      tasks.ScanTypeFull,
 			queryMin:      50,
 			queryMax:      300,
 			existingCache: &admin.BoundsCache{Min: 100, Max: 200},
@@ -718,7 +489,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		},
 		{
 			name:          "full scan with data and no cache uses query values",
-			scanType:      ScanTypeFull,
+			scanType:      tasks.ScanTypeFull,
 			queryMin:      100,
 			queryMax:      200,
 			existingCache: nil,
@@ -728,7 +499,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		// Asymmetric zero protection tests (bug fix)
 		{
 			name:          "incremental min valid max zero with cache - preserve bounds",
-			scanType:      ScanTypeIncremental,
+			scanType:      tasks.ScanTypeIncremental,
 			queryMin:      150,
 			queryMax:      0,
 			existingCache: &admin.BoundsCache{Min: 100, Max: 500},
@@ -737,7 +508,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		},
 		{
 			name:          "full scan min valid max zero with cache - preserve bounds",
-			scanType:      ScanTypeFull,
+			scanType:      tasks.ScanTypeFull,
 			queryMin:      150,
 			queryMax:      0,
 			existingCache: &admin.BoundsCache{Min: 100, Max: 500},
@@ -746,7 +517,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		},
 		{
 			name:          "incremental min greater than max with cache - preserve bounds",
-			scanType:      ScanTypeIncremental,
+			scanType:      tasks.ScanTypeIncremental,
 			queryMin:      600,
 			queryMax:      200,
 			existingCache: &admin.BoundsCache{Min: 100, Max: 500},
@@ -755,7 +526,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		},
 		{
 			name:          "full scan min greater than max with cache - preserve bounds",
-			scanType:      ScanTypeFull,
+			scanType:      tasks.ScanTypeFull,
 			queryMin:      600,
 			queryMax:      200,
 			existingCache: &admin.BoundsCache{Min: 100, Max: 500},
@@ -764,7 +535,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		},
 		{
 			name:          "min valid max zero no cache - use query values",
-			scanType:      ScanTypeIncremental,
+			scanType:      tasks.ScanTypeIncremental,
 			queryMin:      150,
 			queryMax:      0,
 			existingCache: nil, // No existing cache
@@ -773,7 +544,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		},
 		{
 			name:          "min zero max valid - legitimate zero start",
-			scanType:      ScanTypeFull,
+			scanType:      tasks.ScanTypeFull,
 			queryMin:      0,
 			queryMax:      500,
 			existingCache: &admin.BoundsCache{Min: 100, Max: 200},
@@ -782,7 +553,7 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 		},
 		{
 			name:          "cache with zero max - no protection needed",
-			scanType:      ScanTypeIncremental,
+			scanType:      tasks.ScanTypeIncremental,
 			queryMin:      150,
 			queryMax:      0,
 			existingCache: &admin.BoundsCache{Min: 0, Max: 0}, // Cache has no data
@@ -804,31 +575,31 @@ func TestModelExecutor_ComputeFinalBounds(t *testing.T) {
 func TestModelExecutor_UpdateBounds_InitialScanComplete(t *testing.T) {
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel)
-	mockCH := &mockExecutorClickhouseClient{
-		boundsMin: 100,
-		boundsMax: 200,
+	mockCH := &testutil.FakeClickHouseClient{
+		BoundsMin: 100,
+		BoundsMax: 200,
 	}
 
 	var savedCache *admin.BoundsCache
-	mockAdmin := &mockExecutorAdminService{
-		externalBounds: nil, // No existing cache - first scan
-		onSetBounds: func(cache *admin.BoundsCache) {
+	mockAdmin := &adminfake.FakeAdminService{
+		ExternalBoundsDefault: nil, // No existing cache - first scan
+		OnSetExternalBounds: func(cache *admin.BoundsCache) {
 			savedCache = cache
 		},
 	}
 
-	mockModels := &mockExecutorModelsService{
-		dagReader: &mockDAGReader{
-			externalNode: &mockExternal{
-				id:   "test.external",
-				conf: external.Config{Database: "test", Table: "external"},
+	mockModels := &testutil.FakeModelsService{
+		DAG: &testutil.FakeDAGReader{
+			ExternalNode: &testutil.FakeExternal{
+				ID:     "test.external",
+				Config: external.Config{Database: "test", Table: "external"},
 			},
 		},
-		renderedSQL: "SELECT min(id), max(id) FROM test.external",
+		RenderedSQL: "SELECT min(id), max(id) FROM test.external",
 	}
 
 	executor := NewModelExecutor(log, mockCH, mockModels, mockAdmin)
-	err := executor.UpdateBounds(context.Background(), "test.external", ScanTypeFull)
+	err := executor.UpdateBounds(context.Background(), "test.external", tasks.ScanTypeFull)
 	require.NoError(t, err)
 
 	// Verify InitialScanComplete is true after first full scan
@@ -841,11 +612,11 @@ func TestModelExecutor_UpdateBounds_InitialScanComplete(t *testing.T) {
 func TestModelExecutor_UpdateBounds_SkipsIncrementalBeforeInitialComplete(t *testing.T) {
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel)
-	mockCH := &mockExecutorClickhouseClient{}
+	mockCH := &testutil.FakeClickHouseClient{}
 
 	now := time.Now().UTC()
-	mockAdmin := &mockExecutorAdminService{
-		externalBounds: &admin.BoundsCache{
+	mockAdmin := &adminfake.FakeAdminService{
+		ExternalBoundsDefault: &admin.BoundsCache{
 			ModelID:             "test.external",
 			Min:                 100,
 			Max:                 200,
@@ -854,137 +625,22 @@ func TestModelExecutor_UpdateBounds_SkipsIncrementalBeforeInitialComplete(t *tes
 		},
 	}
 
-	mockModels := &mockExecutorModelsService{
-		dagReader: &mockDAGReader{
-			externalNode: &mockExternal{
-				id:   "test.external",
-				conf: external.Config{Database: "test", Table: "external"},
+	mockModels := &testutil.FakeModelsService{
+		DAG: &testutil.FakeDAGReader{
+			ExternalNode: &testutil.FakeExternal{
+				ID:     "test.external",
+				Config: external.Config{Database: "test", Table: "external"},
 			},
 		},
 	}
 
 	executor := NewModelExecutor(log, mockCH, mockModels, mockAdmin)
-	err := executor.UpdateBounds(context.Background(), "test.external", ScanTypeIncremental)
+	err := executor.UpdateBounds(context.Background(), "test.external", tasks.ScanTypeIncremental)
 	require.NoError(t, err)
 
 	// Should skip without error and not query ClickHouse
 	// (mockCH would error if QueryOne was called without setup)
 }
-
-type mockExecutorTransformation struct {
-	id    string
-	typ   string
-	value string
-	sql   string
-	conf  transformation.Config
-}
-
-func (m *mockExecutorTransformation) GetID() string                      { return m.id }
-func (m *mockExecutorTransformation) GetConfig() *transformation.Config  { return &m.conf }
-func (m *mockExecutorTransformation) GetHandler() transformation.Handler { return nil }
-func (m *mockExecutorTransformation) GetValue() string                   { return m.value }
-func (m *mockExecutorTransformation) GetDependencies() []string          { return []string{} }
-func (m *mockExecutorTransformation) GetSQL() string                     { return m.sql }
-func (m *mockExecutorTransformation) GetType() string                    { return m.typ }
-func (m *mockExecutorTransformation) GetEnvironmentVariables() []string  { return []string{} }
-func (m *mockExecutorTransformation) SetDefaultDatabase(defaultDB string) {
-	if m.conf.Database == "" {
-		m.conf.Database = defaultDB
-	}
-}
-
-var _ models.Transformation = (*mockExecutorTransformation)(nil)
-
-// Mock types for external models and DAG
-
-type mockExternal struct {
-	id   string
-	conf external.Config
-	val  string
-	typ  string
-}
-
-func (m *mockExternal) GetID() string                      { return m.id }
-func (m *mockExternal) GetConfig() external.Config         { return m.conf }
-func (m *mockExternal) GetConfigMutable() *external.Config { return &m.conf }
-func (m *mockExternal) GetValue() string                   { return m.val }
-func (m *mockExternal) GetType() string                    { return m.typ }
-func (m *mockExternal) SetDefaultDatabase(defaultDB string) {
-	if m.conf.Database == "" {
-		m.conf.Database = defaultDB
-	}
-}
-
-func (m *mockExternal) SetDefaults(_, defaultDB string) {
-	if m.conf.Database == "" && defaultDB != "" {
-		m.conf.Database = defaultDB
-	}
-}
-
-var _ models.External = (*mockExternal)(nil)
-
-type mockDAGReader struct {
-	transformations []models.Transformation
-	externalNode    models.External
-	externalNodeErr error
-}
-
-func (m *mockDAGReader) GetNode(_ string) (models.Node, error) {
-	return models.Node{}, nil
-}
-
-func (m *mockDAGReader) GetTransformationNode(id string) (models.Transformation, error) {
-	for _, t := range m.transformations {
-		if t.GetID() == id {
-			return t, nil
-		}
-	}
-	return &mockExecutorTransformation{id: id}, nil
-}
-
-func (m *mockDAGReader) GetExternalNode(_ string) (models.External, error) {
-	if m.externalNodeErr != nil {
-		return nil, m.externalNodeErr
-	}
-	if m.externalNode != nil {
-		return m.externalNode, nil
-	}
-	return &mockExternal{}, nil
-}
-
-func (m *mockDAGReader) GetDependencies(_ string) []string {
-	return []string{}
-}
-
-func (m *mockDAGReader) GetDependents(_ string) []string {
-	return []string{}
-}
-
-func (m *mockDAGReader) GetStructuredDependencies(_ string) []transformation.Dependency {
-	return nil
-}
-
-func (m *mockDAGReader) GetAllDependencies(_ string) []string {
-	return []string{}
-}
-
-func (m *mockDAGReader) GetAllDependents(_ string) []string {
-	return []string{}
-}
-
-func (m *mockDAGReader) GetTransformationNodes() []models.Transformation {
-	return m.transformations
-}
-
-func (m *mockDAGReader) GetExternalNodes() []models.Node {
-	return []models.Node{}
-}
-
-func (m *mockDAGReader) IsPathBetween(_, _ string) bool {
-	return false
-}
-
-var _ models.DAGReader = (*mockDAGReader)(nil)
 
 // TestExecuteCommand_CustomEnvironmentVariables verifies custom env vars are passed to scripts
 func TestExecuteCommand_CustomEnvironmentVariables(t *testing.T) {
@@ -1005,8 +661,8 @@ echo "SELF_DATABASE=${SELF_DATABASE}"
 	log := logrus.New()
 	log.SetLevel(logrus.DebugLevel)
 
-	mockModels := &mockExecutorModelsService{
-		envVars: &[]string{
+	mockModels := &testutil.FakeModelsService{
+		EnvVars: &[]string{
 			"CLICKHOUSE_URL=http://localhost:8123",
 			"SELF_DATABASE=test_db",
 			"SELF_TABLE=test_table",
@@ -1023,9 +679,9 @@ echo "SELF_DATABASE=${SELF_DATABASE}"
 		},
 	}
 
-	mockAdmin := &mockExecutorAdminService{}
+	mockAdmin := &adminfake.FakeAdminService{}
 
-	executor := NewModelExecutor(log, &mockClickhouseClient{}, mockModels, mockAdmin)
+	executor := NewModelExecutor(log, &testutil.FakeClickHouseClient{}, mockModels, mockAdmin)
 
 	// Create a transformation with exec command
 	model := &transformation.Exec{
@@ -1041,7 +697,7 @@ echo "SELF_DATABASE=${SELF_DATABASE}"
 		Exec: scriptPath,
 	}
 
-	taskCtx := &tasks.TaskContext{
+	taskCtx := &tasks.ExecutionContext{
 		Transformation: model,
 		Position:       1000,
 		Interval:       100,
@@ -1089,8 +745,8 @@ exit 0
 	log.SetLevel(logrus.DebugLevel)
 
 	// Mock returns env vars with global and transformation-specific vars
-	mockModels := &mockExecutorModelsService{
-		envVars: &[]string{
+	mockModels := &testutil.FakeModelsService{
+		EnvVars: &[]string{
 			"CLICKHOUSE_URL=http://localhost:8123",
 			"SELF_DATABASE=test_db",
 			"SELF_TABLE=test_table",
@@ -1105,7 +761,7 @@ exit 0
 		},
 	}
 
-	executor := NewModelExecutor(log, &mockClickhouseClient{}, mockModels, &mockExecutorAdminService{})
+	executor := NewModelExecutor(log, &testutil.FakeClickHouseClient{}, mockModels, &adminfake.FakeAdminService{})
 
 	model := &transformation.Exec{
 		Config: transformation.Config{
@@ -1120,7 +776,7 @@ exit 0
 		Exec: scriptPath,
 	}
 
-	taskCtx := &tasks.TaskContext{
+	taskCtx := &tasks.ExecutionContext{
 		Transformation: model,
 		Position:       1000,
 		Interval:       100,

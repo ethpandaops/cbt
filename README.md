@@ -808,14 +808,14 @@ The example deployment demonstrates CBT's capabilities with sample models includ
 - **Python Model**: `entity_changes` - Demonstrates external script execution with ClickHouse HTTP API
 - **Data Generator**: Continuously inserts sample blockchain data
 - **Chaos Generator**: Simulates data gaps and out-of-order arrivals for resilience testing
-- **REST API**: Enabled on port 8888 for querying model metadata and dependencies
+- **Web UI + REST API**: Served on ports 8080/8081 (two replicas for HA) for querying model metadata and dependencies
 
 #### Running the Example
 
 ```bash
 cd example
 
-docker-compose up -d
+docker compose up -d
 ```
 
 #### Verify It's Working
@@ -829,12 +829,16 @@ docker exec cbt-clickhouse clickhouse-client -q "
   GROUP BY table"
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
-# Check admin table for completed tasks
+# Check admin tables for completed tasks
 docker exec cbt-clickhouse clickhouse-client -q "
   SELECT database, table, COUNT(*) as runs
-  FROM admin.cbt
+  FROM admin.cbt_incremental
+  GROUP BY database, table
+  UNION ALL
+  SELECT database, table, COUNT(*) as runs
+  FROM admin.cbt_scheduled
   GROUP BY database, table"
 
 # Access the web UIs
@@ -843,20 +847,20 @@ open http://localhost:8081  # CBT Frontend UI (replica 2)
 open http://localhost:8082  # Asynqmon task queue dashboard
 open http://localhost:8084  # Redis Commander
 
-# Query the API to list all models (replica 1 on port 8888, replica 2 on port 8889)
-curl http://localhost:8888/api/v1/models
+# Query the API to list all models (replica 1 on port 8080, replica 2 on port 8081)
+curl http://localhost:8080/api/v1/models
 
 # Get details for a specific model
-curl http://localhost:8888/api/v1/models/analytics.block_propagation
+curl http://localhost:8080/api/v1/models/analytics.block_propagation
 
 # Filter models by type
-curl "http://localhost:8888/api/v1/models?type=transformation"
+curl "http://localhost:8080/api/v1/models?type=transformation"
 
 # Filter models by database
-curl "http://localhost:8888/api/v1/models?database=analytics"
+curl "http://localhost:8080/api/v1/models?database=analytics"
 
 # Pretty print JSON response
-curl -s http://localhost:8888/api/v1/models | jq
+curl -s http://localhost:8080/api/v1/models | jq
 ```
 
 ## Usage
@@ -1263,21 +1267,9 @@ The frontend provides:
 - Transformation status monitoring
 - Interactive exploration of your data models
 
-## API Server
+### REST API
 
-CBT includes an optional REST API for querying model metadata and transformation state.
-
-### Configuration
-
-Enable the API server in your `config.yaml`:
-
-```yaml
-api:
-  enabled: true
-  addr: ":8888"  # Listen address (default: :8080)
-```
-
-### Endpoints
+The frontend service also serves a REST API for querying model metadata and transformation state. There is no separate `api:` configuration block — the API is enabled with the `frontend:` block above and shares its listen address, with endpoints available under `/api/v1/*`.
 
 #### List Models
 ```bash
@@ -1337,16 +1329,47 @@ Response:
 }
 ```
 
-### API Documentation
+#### API Documentation
 
 The full OpenAPI specification is available at `/api/openapi.yaml`.
 
-### Development
+#### Development
 
 Regenerate API code after modifying the OpenAPI spec:
 ```bash
 make generate-api
 ```
+
+## Management API
+
+CBT includes optional management endpoints for administrative operations (e.g. deleting or consolidating admin-table records), served under `/api/v1/admin`. Enable them with the `management:` block in your `config.yaml`:
+
+```yaml
+management:
+  enabled: true
+
+  # Authentication is optional. If not configured, management endpoints are open.
+  auth:
+    # Bearer token auth: Authorization: Bearer <password>
+    password: "change-me"
+
+    # GitHub OAuth auth:
+    github:
+      client_id: "your-github-oauth-client-id"
+      client_secret: "your-github-oauth-client-secret"
+      callback_url: "http://localhost:8080/api/v1/auth/github/callback"
+      # Require users from this org (or set allowed_users below).
+      org: "your-github-org"
+      # allowed_users:
+      #   - "octocat"
+      # Session duration for Redis-backed login sessions (default: 24h)
+      session_ttl: 24h
+```
+
+Two authentication modes are supported (and can be enabled together):
+
+- **Bearer password**: clients send `Authorization: Bearer <password>` with each request.
+- **GitHub OAuth**: users log in via GitHub; access requires membership of the configured `org` or being listed in `allowed_users`. Login sessions are stored in Redis with the configured `session_ttl`.
 
 ## License
 

@@ -1,7 +1,6 @@
 package models
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -13,72 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Mock handler for template tests
-type mockTemplateHandler struct {
-	dependencies []string
-}
-
-func (h *mockTemplateHandler) GetFlattenedDependencies() []string {
-	return h.dependencies
-}
-
-func (h *mockTemplateHandler) Type() transformation.Type { return "incremental" }
-func (h *mockTemplateHandler) Config() any               { return nil }
-func (h *mockTemplateHandler) Validate() error           { return nil }
-func (h *mockTemplateHandler) ShouldTrackPosition() bool { return true }
-func (h *mockTemplateHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
-	return nil
-}
-func (h *mockTemplateHandler) GetAdminTable() transformation.AdminTable {
-	return transformation.AdminTable{}
-}
-func (h *mockTemplateHandler) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
-	return nil
-}
-
-// Mock transformation with template value
-type mockTransformationWithTemplate struct {
-	id      string
-	config  transformation.Config
-	handler transformation.Handler
-	value   string
-}
-
-func (m *mockTransformationWithTemplate) GetID() string                      { return m.id }
-func (m *mockTransformationWithTemplate) GetConfig() *transformation.Config  { return &m.config }
-func (m *mockTransformationWithTemplate) GetSQL() string                     { return "" }
-func (m *mockTransformationWithTemplate) GetType() string                    { return "transformation" }
-func (m *mockTransformationWithTemplate) GetValue() string                   { return m.value }
-func (m *mockTransformationWithTemplate) GetHandler() transformation.Handler { return m.handler }
-func (m *mockTransformationWithTemplate) SetDefaultDatabase(defaultDB string) {
-	m.config.SetDefaults(defaultDB)
-}
-
-// Mock external with template value
-type mockExternalWithTemplate struct {
-	id     string
-	config external.Config
-	typ    string
-	value  string
-}
-
-func (m *mockExternalWithTemplate) GetID() string                      { return m.id }
-func (m *mockExternalWithTemplate) GetConfig() external.Config         { return m.config }
-func (m *mockExternalWithTemplate) GetConfigMutable() *external.Config { return &m.config }
-func (m *mockExternalWithTemplate) GetType() string                    { return m.typ }
-func (m *mockExternalWithTemplate) GetSQL() string                     { return "" }
-func (m *mockExternalWithTemplate) GetValue() string                   { return m.value }
-func (m *mockExternalWithTemplate) GetEnvironmentVariables() []string  { return []string{} }
-func (m *mockExternalWithTemplate) SetDefaults(defaultCluster, defaultDB string) {
-	m.config.SetDefaults(defaultCluster, defaultDB)
-}
-
 func TestTemplateEngineWithRealSQL(t *testing.T) {
 	// Create a dependency graph
 	dag := NewDependencyGraph()
 
 	// Create external model
-	externalModel := &mockExternalWithTemplate{
+	externalModel := &mockExternal{
 		id:    "raw_data.blocks",
 		typ:   "external",
 		value: "SELECT * FROM blocks",
@@ -89,13 +28,13 @@ func TestTemplateEngineWithRealSQL(t *testing.T) {
 	}
 
 	// Create transformation with SQL
-	transformModel := &mockTransformationWithTemplate{
+	transformModel := &mockTransformation{
 		id: "processed.block_summary",
 		config: transformation.Config{
 			Database: "processed",
 			Table:    "block_summary",
 		},
-		handler: &mockTemplateHandler{
+		handler: &mockHandler{
 			dependencies: []string{"raw_data.blocks"},
 		},
 		value: `INSERT INTO {{ .self.database }}.{{ .self.table }}
@@ -136,7 +75,7 @@ func TestTemplateEngineDependencyAccess(t *testing.T) {
 	dag := NewDependencyGraph()
 
 	// Create external model that will be referenced
-	externalModel := &mockExternalWithTemplate{
+	externalModel := &mockExternal{
 		id:    "ethereum.beacon_blocks",
 		typ:   "external",
 		value: "SELECT * FROM blocks",
@@ -147,26 +86,26 @@ func TestTemplateEngineDependencyAccess(t *testing.T) {
 	}
 
 	// Create transformation model that will be referenced
-	refTransformModel := &mockTransformationWithTemplate{
+	refTransformModel := &mockTransformation{
 		id: "analytics.hourly_stats",
 		config: transformation.Config{
 			Database: "analytics",
 			Table:    "hourly_stats",
 		},
-		handler: &mockTemplateHandler{
+		handler: &mockHandler{
 			dependencies: []string{},
 		},
 		value: "SELECT * FROM stats",
 	}
 
 	// Main transformation with resolved dependencies
-	mainTransformModel := &mockTransformationWithTemplate{
+	mainTransformModel := &mockTransformation{
 		id: "analytics.test_transform",
 		config: transformation.Config{
 			Database: "analytics",
 			Table:    "test_transform",
 		},
-		handler: &mockTemplateHandler{
+		handler: &mockHandler{
 			dependencies: []string{"ethereum.beacon_blocks", "analytics.hourly_stats"},
 		},
 		value: `Resolved access: {{ index .dep "ethereum" "beacon_blocks" "database" }}.{{ index .dep "ethereum" "beacon_blocks" "table" }}
@@ -222,13 +161,13 @@ func TestRenderTransformation(t *testing.T) {
 	dag := NewDependencyGraph()
 
 	// Setup dependencies
-	dep1 := &mockTransformationWithTemplate{
+	dep1 := &mockTransformation{
 		id: "dep_db.model1",
 		config: transformation.Config{
 			Database: "dep_db",
 			Table:    "model1",
 		},
-		handler: &mockTemplateHandler{
+		handler: &mockHandler{
 			dependencies: []string{},
 		},
 	}
@@ -249,13 +188,13 @@ func TestRenderTransformation(t *testing.T) {
 	}{
 		{
 			name: "simple template rendering",
-			model: &mockTransformationWithTemplate{
+			model: &mockTransformation{
 				id: "test_db.test_table",
 				config: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table",
 				},
-				handler: &mockTemplateHandler{
+				handler: &mockHandler{
 					dependencies: []string{},
 				},
 				value: "SELECT * FROM {{ .self.database }}.{{ .self.table }} WHERE position >= {{ .bounds.start }} AND position < {{ .bounds.end }}",
@@ -267,13 +206,13 @@ func TestRenderTransformation(t *testing.T) {
 		},
 		{
 			name: "template with dependencies",
-			model: &mockTransformationWithTemplate{
+			model: &mockTransformation{
 				id: "test_db.test_table2",
 				config: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table2",
 				},
-				handler: &mockTemplateHandler{
+				handler: &mockHandler{
 					dependencies: []string{"dep_db.model1"},
 				},
 				value: "SELECT * FROM {{ .dep.dep_db.model1.database }}.{{ .dep.dep_db.model1.table }}",
@@ -285,13 +224,13 @@ func TestRenderTransformation(t *testing.T) {
 		},
 		{
 			name: "template with sprig functions",
-			model: &mockTransformationWithTemplate{
+			model: &mockTransformation{
 				id: "test_db.test_table3",
 				config: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table3",
 				},
-				handler: &mockTemplateHandler{
+				handler: &mockHandler{
 					dependencies: []string{},
 				},
 				value: "SELECT '{{ .self.table | upper }}' as table_name",
@@ -303,13 +242,13 @@ func TestRenderTransformation(t *testing.T) {
 		},
 		{
 			name: "invalid template syntax",
-			model: &mockTransformationWithTemplate{
+			model: &mockTransformation{
 				id: "test_db.test_table4",
 				config: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table4",
 				},
-				handler: &mockTemplateHandler{
+				handler: &mockHandler{
 					dependencies: []string{},
 				},
 				value: "SELECT * FROM {{ .invalid.syntax",
@@ -355,13 +294,13 @@ func TestRenderExternal(t *testing.T) {
 	}{
 		{
 			name: "simple external template",
-			model: &mockExternalWithTemplate{
+			model: &mockExternal{
 				id: "ext.model1",
 				config: external.Config{
 					Database: "ext_db",
 					Table:    "ext_table",
 				},
-				typ:   external.ExternalTypeSQL,
+				typ:   external.TypeSQL,
 				value: "SELECT min(position) as min, max(position) as max FROM {{ .self.database }}.{{ .self.table }}",
 			},
 			expectedErr: false,
@@ -369,13 +308,13 @@ func TestRenderExternal(t *testing.T) {
 		},
 		{
 			name: "external with clickhouse config",
-			model: &mockExternalWithTemplate{
+			model: &mockExternal{
 				id: "ext.model2",
 				config: external.Config{
 					Database: "ext_db2",
 					Table:    "ext_table2",
 				},
-				typ:   external.ExternalTypeSQL,
+				typ:   external.TypeSQL,
 				value: "SELECT * FROM {{ .self.database }}.{{ .self.table }}{{ .clickhouse.local_suffix }}",
 			},
 			expectedErr: false,
@@ -383,13 +322,13 @@ func TestRenderExternal(t *testing.T) {
 		},
 		{
 			name: "invalid external template",
-			model: &mockExternalWithTemplate{
+			model: &mockExternal{
 				id: "ext.model3",
 				config: external.Config{
 					Database: "ext_db3",
 					Table:    "ext_table3",
 				},
-				typ:   external.ExternalTypeSQL,
+				typ:   external.TypeSQL,
 				value: "SELECT * FROM {{ .invalid",
 			},
 			expectedErr: true,
@@ -422,24 +361,24 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 	dag := NewDependencyGraph()
 
 	// Setup dependencies
-	dep1 := &mockTransformationWithTemplate{
+	dep1 := &mockTransformation{
 		id: "dep_db.model1",
 		config: transformation.Config{
 			Database: "dep_db",
 			Table:    "model1",
 		},
-		handler: &mockTemplateHandler{
+		handler: &mockHandler{
 			dependencies: []string{},
 		},
 	}
 
-	ext1 := &mockExternalWithTemplate{
+	ext1 := &mockExternal{
 		id: "ext_db.source1",
 		config: external.Config{
 			Database: "ext_db",
 			Table:    "source1",
 		},
-		typ: external.ExternalTypeSQL,
+		typ: external.TypeSQL,
 	}
 
 	// Build DAG
@@ -448,13 +387,13 @@ func TestGetTransformationEnvironmentVariables(t *testing.T) {
 
 	engine := NewTemplateEngine(chConfig, dag, nil)
 
-	model := &mockTransformationWithTemplate{
+	model := &mockTransformation{
 		id: "test_db.test_table",
 		config: transformation.Config{
 			Database: "test_db",
 			Table:    "test_table",
 		},
-		handler: &mockTemplateHandler{
+		handler: &mockHandler{
 			dependencies: []string{"dep_db.model1", "ext_db.source1"},
 		},
 		value: "SELECT * FROM test",
@@ -505,7 +444,7 @@ func TestGetTransformationEnvironmentVariables_CustomEnv(t *testing.T) {
 	engine := NewTemplateEngine(chConfig, dag, nil)
 
 	// Create model with transformation-specific env vars
-	model := &mockTransformationWithTemplate{
+	model := &mockTransformation{
 		id: "test_db.test_table",
 		config: transformation.Config{
 			Database: "test_db",
@@ -552,13 +491,13 @@ func TestBuildTransformationVariables_MissingDependency(t *testing.T) {
 	dag := NewDependencyGraph()
 	engine := NewTemplateEngine(chConfig, dag, nil)
 
-	model := &mockTransformationWithTemplate{
+	model := &mockTransformation{
 		id: "test_db.test_table",
 		config: transformation.Config{
 			Database: "test_db",
 			Table:    "test_table",
 		},
-		handler: &mockTemplateHandler{
+		handler: &mockHandler{
 			dependencies: []string{"missing.dep"},
 		},
 		value: "SELECT * FROM test",
@@ -580,13 +519,13 @@ func BenchmarkRenderTransformation(b *testing.B) {
 	dag := NewDependencyGraph()
 	engine := NewTemplateEngine(chConfig, dag, nil)
 
-	model := &mockTransformationWithTemplate{
+	model := &mockTransformation{
 		id: "test_db.test_table",
 		config: transformation.Config{
 			Database: "test_db",
 			Table:    "test_table",
 		},
-		handler: &mockTemplateHandler{
+		handler: &mockHandler{
 			dependencies: []string{},
 		},
 		value: "SELECT * FROM {{ .self.database }}.{{ .self.table }} WHERE position >= {{ .bounds.start }} AND position < {{ .bounds.end }}",
@@ -595,7 +534,7 @@ func BenchmarkRenderTransformation(b *testing.B) {
 	startTime := time.Now()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_, _ = engine.RenderTransformation(model, 1000, 100, startTime)
 	}
 }
@@ -609,18 +548,18 @@ func BenchmarkRenderExternal(b *testing.B) {
 	dag := NewDependencyGraph()
 	engine := NewTemplateEngine(chConfig, dag, nil)
 
-	model := &mockExternalWithTemplate{
+	model := &mockExternal{
 		id: "ext.model",
 		config: external.Config{
 			Database: "ext_db",
 			Table:    "ext_table",
 		},
-		typ:   external.ExternalTypeSQL,
+		typ:   external.TypeSQL,
 		value: "SELECT min(position) as min, max(position) as max FROM {{ .self.database }}.{{ .self.table }}",
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_, _ = engine.RenderExternal(model, nil)
 	}
 }
@@ -636,12 +575,12 @@ func TestTemplateRenderingWithHyphenatedDatabases(t *testing.T) {
 	engine := NewTemplateEngine(clickhouseCfg, dag, nil)
 
 	// Create a mock transformation with hyphenated database
-	mockTransform := &mockTransformationWithTemplate{
+	mockTransform := &mockTransformation{
 		config: transformation.Config{
 			Database: "analytics-db",
 			Table:    "hourly_stats",
 		},
-		handler: &mockTemplateHandler{
+		handler: &mockHandler{
 			dependencies: []string{},
 		},
 		value: "INSERT INTO `{{ .self.database }}`.`{{ .self.table }}` SELECT * FROM source",
@@ -664,9 +603,9 @@ func TestFromFieldWithCluster(t *testing.T) {
 	dag := NewDependencyGraph()
 
 	// Create external model with cluster
-	externalModel := &mockExternalWithTemplate{
+	externalModel := &mockExternal{
 		id:    "ethereum.beacon_blocks",
-		typ:   external.ExternalTypeSQL,
+		typ:   external.TypeSQL,
 		value: "SELECT * FROM {{ .self.helpers.from }}",
 		config: external.Config{
 			Cluster:  "my_cluster",
@@ -676,13 +615,13 @@ func TestFromFieldWithCluster(t *testing.T) {
 	}
 
 	// Create transformation that depends on the external model
-	transformModel := &mockTransformationWithTemplate{
+	transformModel := &mockTransformation{
 		id: "analytics.block_summary",
 		config: transformation.Config{
 			Database: "analytics",
 			Table:    "block_summary",
 		},
-		handler: &mockTemplateHandler{
+		handler: &mockHandler{
 			dependencies: []string{"ethereum.beacon_blocks"},
 		},
 		value: "SELECT * FROM {{ index .dep \"ethereum\" \"beacon_blocks\" \"helpers\" \"from\" }}",
@@ -715,9 +654,9 @@ func TestFromFieldWithoutCluster(t *testing.T) {
 	dag := NewDependencyGraph()
 
 	// Create external model without cluster
-	externalModel := &mockExternalWithTemplate{
+	externalModel := &mockExternal{
 		id:    "ethereum.transactions",
-		typ:   external.ExternalTypeSQL,
+		typ:   external.TypeSQL,
 		value: "SELECT * FROM {{ .self.helpers.from }}",
 		config: external.Config{
 			Database: "ethereum",
@@ -726,25 +665,25 @@ func TestFromFieldWithoutCluster(t *testing.T) {
 	}
 
 	// Create transformation without cluster that references another transformation
-	refTransformModel := &mockTransformationWithTemplate{
+	refTransformModel := &mockTransformation{
 		id: "analytics.hourly_stats",
 		config: transformation.Config{
 			Database: "analytics",
 			Table:    "hourly_stats",
 		},
-		handler: &mockTemplateHandler{
+		handler: &mockHandler{
 			dependencies: []string{},
 		},
 		value: "SELECT * FROM stats",
 	}
 
-	transformModel := &mockTransformationWithTemplate{
+	transformModel := &mockTransformation{
 		id: "analytics.daily_summary",
 		config: transformation.Config{
 			Database: "analytics",
 			Table:    "daily_summary",
 		},
-		handler: &mockTemplateHandler{
+		handler: &mockHandler{
 			dependencies: []string{"ethereum.transactions", "analytics.hourly_stats"},
 		},
 		value: `External: {{ index .dep "ethereum" "transactions" "helpers" "from" }}
@@ -797,12 +736,12 @@ func TestEnvironmentVariablesInSQLTemplates(t *testing.T) {
 	engine := NewTemplateEngine(clickhouseCfg, dag, globalEnv)
 
 	t.Run("transformation with global env vars", func(t *testing.T) {
-		mockTransform := &mockTransformationWithTemplate{
+		mockTransform := &mockTransformation{
 			config: transformation.Config{
 				Database: "analytics",
 				Table:    "api_calls",
 			},
-			handler: &mockTemplateHandler{
+			handler: &mockHandler{
 				dependencies: []string{},
 			},
 			value: `INSERT INTO {{ .self.database }}.{{ .self.table }}
@@ -819,7 +758,7 @@ SELECT '{{ .env.API_KEY }}' as api_key,
 	})
 
 	t.Run("transformation with model-specific env override", func(t *testing.T) {
-		mockTransform := &mockTransformationWithTemplate{
+		mockTransform := &mockTransformation{
 			config: transformation.Config{
 				Database: "analytics",
 				Table:    "api_calls",
@@ -828,7 +767,7 @@ SELECT '{{ .env.API_KEY }}' as api_key,
 					"MODEL_VAR": "model_specific_value",
 				},
 			},
-			handler: &mockTemplateHandler{
+			handler: &mockHandler{
 				dependencies: []string{},
 			},
 			value: `SELECT '{{ .env.API_KEY }}' as api_key,
@@ -848,14 +787,14 @@ SELECT '{{ .env.API_KEY }}' as api_key,
 	})
 
 	t.Run("external model with env vars", func(t *testing.T) {
-		mockExternal := &mockExternalWithTemplate{
+		mockExternal := &mockExternal{
 			id: "ext.api_data",
 			config: external.Config{
 				Cluster:  "test_cluster",
 				Database: "external",
 				Table:    "api_data",
 			},
-			typ: external.ExternalTypeSQL,
+			typ: external.TypeSQL,
 			value: `SELECT * FROM {{ .self.database }}.{{ .self.table }}
 WHERE api_key = '{{ .env.API_KEY }}'
   AND environment = '{{ .env.ENVIRONMENT }}'`,
@@ -870,12 +809,12 @@ WHERE api_key = '{{ .env.API_KEY }}'
 	t.Run("no env vars configured", func(t *testing.T) {
 		emptyEngine := NewTemplateEngine(clickhouseCfg, dag, nil)
 
-		mockTransform := &mockTransformationWithTemplate{
+		mockTransform := &mockTransformation{
 			config: transformation.Config{
 				Database: "analytics",
 				Table:    "test_table",
 			},
-			handler: &mockTemplateHandler{
+			handler: &mockHandler{
 				dependencies: []string{},
 			},
 			value: `SELECT '{{ .env.API_KEY }}' as api_key`,

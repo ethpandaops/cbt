@@ -87,6 +87,79 @@ func TestGitHubConfigValidate(t *testing.T) {
 	}
 }
 
+func TestConfigValidate(t *testing.T) {
+	t.Parallel()
+
+	validGitHub := func() *GitHubConfig {
+		return &GitHubConfig{
+			ClientID:     "client-id",
+			ClientSecret: "secret",
+			CallbackURL:  "http://localhost:8080/cb",
+			Org:          "ethpandaops",
+		}
+	}
+
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr bool
+	}{
+		{
+			name: "disabled skips validation",
+			cfg:  Config{Enabled: false, Auth: AuthConfig{GitHub: &GitHubConfig{}}},
+		},
+		{
+			name: "enabled no auth",
+			cfg:  Config{Enabled: true},
+		},
+		{
+			name: "enabled valid github",
+			cfg:  Config{Enabled: true, Auth: AuthConfig{GitHub: validGitHub()}},
+		},
+		{
+			name:    "enabled invalid github",
+			cfg:     Config{Enabled: true, Auth: AuthConfig{GitHub: &GitHubConfig{}}},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tc.cfg.Validate()
+			if tc.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestAuthConfigValidate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil github", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := AuthConfig{Password: "pw"}
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("invalid github wrapped", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := AuthConfig{GitHub: &GitHubConfig{}}
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrGitHubClientIDRequired)
+		require.Contains(t, err.Error(), "github auth")
+	})
+}
+
 func TestGitHubConfigValidateSessionTTLDefault(t *testing.T) {
 	t.Parallel()
 

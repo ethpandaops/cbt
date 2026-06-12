@@ -139,53 +139,12 @@ func GetRowCount(t *testing.T, client clickhouse.ClientInterface, database, tabl
 	return result.Count
 }
 
-// GetMaxPosition returns the maximum position value in a table.
-func GetMaxPosition(t *testing.T, client clickhouse.ClientInterface, database, table string) uint64 {
-	t.Helper()
-	ctx := context.Background()
-
-	var result struct {
-		MaxPos uint64 `ch:"max_pos"`
-	}
-
-	query := "SELECT max(position) as max_pos FROM " + database + "." + table
-	err := client.QueryOne(ctx, query, &result)
-	require.NoError(t, err)
-
-	return result.MaxPos
-}
-
-// GetMinPosition returns the minimum position value in a table.
-func GetMinPosition(t *testing.T, client clickhouse.ClientInterface, database, table string) uint64 {
-	t.Helper()
-	ctx := context.Background()
-
-	var result struct {
-		MinPos uint64 `ch:"min_pos"`
-	}
-
-	query := "SELECT min(position) as min_pos FROM " + database + "." + table
-	err := client.QueryOne(ctx, query, &result)
-	require.NoError(t, err)
-
-	return result.MinPos
-}
-
 // TruncateTable removes all data from a table.
 func TruncateTable(t *testing.T, client clickhouse.ClientInterface, database, table string) {
 	t.Helper()
 	ctx := context.Background()
 
 	err := client.Execute(ctx, "TRUNCATE TABLE "+database+"."+table)
-	require.NoError(t, err)
-}
-
-// DropTable drops a table if it exists.
-func DropTable(t *testing.T, client clickhouse.ClientInterface, database, table string) {
-	t.Helper()
-	ctx := context.Background()
-
-	err := client.Execute(ctx, "DROP TABLE IF EXISTS "+database+"."+table)
 	require.NoError(t, err)
 }
 
@@ -538,48 +497,6 @@ func GetNetworkRowCount(
 	require.NoError(t, err)
 
 	return result.Count
-}
-
-// GetNetworkMaxPosition returns the max position for a specific network.
-func GetNetworkMaxPosition(
-	t *testing.T,
-	client clickhouse.ClientInterface,
-	database, table, network string,
-) uint64 {
-	t.Helper()
-	ctx := context.Background()
-
-	var result struct {
-		MaxPos uint64 `ch:"max_pos"`
-	}
-
-	query := "SELECT max(position) as max_pos FROM " + database + "." + table +
-		" WHERE network = '" + network + "'"
-	err := client.QueryOne(ctx, query, &result)
-	require.NoError(t, err)
-
-	return result.MaxPos
-}
-
-// GetNetworkMinPosition returns the min position for a specific network.
-func GetNetworkMinPosition(
-	t *testing.T,
-	client clickhouse.ClientInterface,
-	database, table, network string,
-) uint64 {
-	t.Helper()
-	ctx := context.Background()
-
-	var result struct {
-		MinPos uint64 `ch:"min_pos"`
-	}
-
-	query := "SELECT min(position) as min_pos FROM " + database + "." + table +
-		" WHERE network = '" + network + "'"
-	err := client.QueryOne(ctx, query, &result)
-	require.NoError(t, err)
-
-	return result.MinPos
 }
 
 // CreateSlowSourceTable creates a source table with many rows for slow scan testing.

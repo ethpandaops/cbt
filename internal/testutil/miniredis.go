@@ -7,15 +7,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// NewMiniredis creates an in-memory Redis for unit tests (no Docker needed).
-// The server is automatically closed when the test completes.
-func NewMiniredis(t *testing.T) *miniredis.Miniredis {
-	t.Helper()
-
-	return miniredis.RunT(t)
-}
-
 // NewMiniredisClient returns both a miniredis server and a connected client.
+// Miniredis provides an in-memory Redis for unit tests (no Docker needed).
 // Both are automatically closed when the test completes.
 func NewMiniredisClient(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
 	t.Helper()

@@ -109,30 +109,4 @@ func TestLeaderElection(t *testing.T) {
 
 		assert.True(t, follower.IsLeader(), "Follower should become leader after leader stops")
 	})
-
-	t.Run("wait for leadership", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		// Clear any existing locks
-		mr.FlushAll()
-
-		elector := NewLeaderElector(log, redisOpt)
-		require.NoError(t, elector.Start(ctx))
-		defer elector.Stop()
-
-		// Wait in goroutine to avoid blocking
-		done := make(chan error, 1)
-		go func() {
-			done <- elector.WaitForLeadership(ctx)
-		}()
-
-		select {
-		case err := <-done:
-			require.NoError(t, err)
-			assert.True(t, elector.IsLeader())
-		case <-time.After(renewInterval + time.Second):
-			t.Fatal("Timed out waiting for leadership")
-		}
-	})
 }

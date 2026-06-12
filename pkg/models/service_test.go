@@ -97,7 +97,7 @@ func TestServiceWithDefaultDatabases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Validate config sets defaults properly
 			err := tt.config.Validate()
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			// Check that default databases are correctly set
 			assert.Equal(t, tt.expectedExternalDB, tt.config.External.DefaultDatabase)
@@ -368,7 +368,7 @@ exec: "echo test"`
 
 			err = svc.Start()
 			if tt.shouldError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errorMsg)
 			} else {
 				assert.NoError(t, err)

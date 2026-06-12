@@ -241,9 +241,9 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 
 	// Start with built-in environment variables
 	env := []string{
-		fmt.Sprintf("CLICKHOUSE_URL=%s", t.clickhouseCfg.URL),
-		fmt.Sprintf("SELF_DATABASE=%s", config.Database),
-		fmt.Sprintf("SELF_TABLE=%s", config.Table),
+		"CLICKHOUSE_URL=" + t.clickhouseCfg.URL,
+		"SELF_DATABASE=" + config.Database,
+		"SELF_TABLE=" + config.Table,
 		fmt.Sprintf("TASK_START=%d", startTime.Unix()),
 		fmt.Sprintf("TASK_MODEL=%s.%s", config.Database, config.Table),
 		fmt.Sprintf("TASK_INTERVAL=%d", interval),
@@ -253,8 +253,8 @@ func (t *TemplateEngine) GetTransformationEnvironmentVariables(model Transformat
 
 	if t.clickhouseCfg.Cluster != "" {
 		env = append(env,
-			fmt.Sprintf("CLICKHOUSE_CLUSTER=%s", t.clickhouseCfg.Cluster),
-			fmt.Sprintf("CLICKHOUSE_LOCAL_SUFFIX=%s", t.clickhouseCfg.LocalSuffix))
+			"CLICKHOUSE_CLUSTER="+t.clickhouseCfg.Cluster,
+			"CLICKHOUSE_LOCAL_SUFFIX="+t.clickhouseCfg.LocalSuffix)
 	}
 
 	// Add global custom environment variables

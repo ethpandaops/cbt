@@ -1,6 +1,6 @@
 package transformation
 
-//go:generate mockgen -package mock -destination mock/handler.mock.go github.com/ethpandaops/cbt/pkg/models/transformation Handler,IntervalHandler,ScheduleHandler,LimitsHandler,DependencyHandler,FillHandler
+//go:generate go tool mockgen -package mock -destination mock/handler.mock.go github.com/ethpandaops/cbt/pkg/models/transformation Handler,IntervalHandler,ScheduleHandler,LimitsHandler,DependencyHandler,FillHandler
 
 import (
 	"context"
