@@ -67,7 +67,14 @@ func newServiceConfig(redisURL string) *Config {
 }
 
 func TestNewService(t *testing.T) {
-	t.Parallel()
+	// Not parallel: stubs the frontend handler seam so the frontend-enabled
+	// case does not depend on a built frontend (build/frontend is gitignored
+	// and absent in CI).
+	origFrontend := newFrontendHandler
+	newFrontendHandler = func(*frontend.InjectedConfig) (http.Handler, error) {
+		return http.NotFoundHandler(), nil
+	}
+	t.Cleanup(func() { newFrontendHandler = origFrontend })
 
 	mr := miniredis.RunT(t)
 	redisURL := "redis://" + mr.Addr()
@@ -116,8 +123,6 @@ func TestNewService(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			cfg := newServiceConfig(redisURL)
 			tt.mutate(cfg)
 

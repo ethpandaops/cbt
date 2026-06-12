@@ -14,7 +14,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// useFakeStaticFS swaps the embedded frontend filesystem for an in-memory one
+// so tests do not depend on a built frontend (build/frontend is gitignored and
+// absent in CI).
+func useFakeStaticFS(t *testing.T) {
+	t.Helper()
+
+	orig := staticFS
+	staticFS = fstest.MapFS{
+		"build/frontend/index.html": &fstest.MapFile{
+			Data: []byte("<html><head><title>cbt</title></head><body>app</body></html>"),
+		},
+		"build/frontend/logo.png":      &fstest.MapFile{Data: []byte("png-bytes")},
+		"build/frontend/assets/app.js": &fstest.MapFile{Data: []byte("console.log(1)")},
+	}
+	t.Cleanup(func() { staticFS = orig })
+}
+
 func TestNewHandler(t *testing.T) {
+	useFakeStaticFS(t)
+
 	tests := []struct {
 		name        string
 		cfg         *InjectedConfig
@@ -57,6 +76,8 @@ func TestNewHandler(t *testing.T) {
 }
 
 func TestServeHTTP_Routing(t *testing.T) {
+	useFakeStaticFS(t)
+
 	h, err := NewHandler(nil)
 	require.NoError(t, err)
 
@@ -224,6 +245,8 @@ func TestNewHandler_SubError(t *testing.T) {
 }
 
 func TestNewHandler_MarshalError(t *testing.T) {
+	useFakeStaticFS(t)
+
 	orig := marshalConfig
 	marshalConfig = func(any) ([]byte, error) { return nil, fs.ErrInvalid }
 	t.Cleanup(func() { marshalConfig = orig })
