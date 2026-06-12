@@ -1,0 +1,105 @@
+package clickhouse
+
+import (
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+// ErrInvalidUint64 is returned when a value cannot be unmarshaled or scanned as uint64.
+var ErrInvalidUint64 = errors.New("failed to unmarshal value as uint64")
+
+// FlexUint64 is a custom type that can unmarshal from both string and number JSON values
+// and scan from string or numeric database columns.
+type FlexUint64 uint64
+
+// UnmarshalJSON implements json.Unmarshaler for FlexUint64.
+func (f *FlexUint64) UnmarshalJSON(data []byte) error {
+	s := string(data)
+
+	// Check for null value first
+	if s == "null" {
+		return fmt.Errorf("%w: received null value, which likely indicates missing data", ErrInvalidUint64)
+	}
+
+	// Remove quotes if present (handles both "123" and 123)
+	s = strings.Trim(s, `"`)
+
+	// Parse as uint64
+	parsed, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return fmt.Errorf("%w: failed to parse %q as uint64: %w", ErrInvalidUint64, s, err)
+	}
+
+	*f = FlexUint64(parsed)
+
+	return nil
+}
+
+// Scan implements sql.Scanner for FlexUint64 to handle database values.
+// Supports string columns (e.g., '123') and numeric columns.
+//
+//nolint:gosec // bounds checked by caller context
+func (f *FlexUint64) Scan(src any) error {
+	if src == nil {
+		return fmt.Errorf("%w: received nil value", ErrInvalidUint64)
+	}
+
+	parsed, err := scanFlexUint64(src)
+	if err != nil {
+		return err
+	}
+
+	*f = FlexUint64(parsed)
+
+	return nil
+}
+
+func scanFlexUint64(src any) (uint64, error) {
+	switch v := src.(type) {
+	case string:
+		return parseFlexUint64String(v)
+	case []byte:
+		return parseFlexUint64String(string(v))
+	case int64:
+		return signedToUint64(v)
+	case uint64:
+		return v, nil
+	case int:
+		return signedToUint64(v)
+	case int8:
+		return signedToUint64(v)
+	case int16:
+		return signedToUint64(v)
+	case int32:
+		return signedToUint64(v)
+	case uint8:
+		return uint64(v), nil
+	case uint16:
+		return uint64(v), nil
+	case uint32:
+		return uint64(v), nil
+	case float64:
+		return uint64(v), nil
+	default:
+		return 0, fmt.Errorf("%w: unsupported type %T", ErrInvalidUint64, src)
+	}
+}
+
+func signedToUint64[T ~int | ~int8 | ~int16 | ~int32 | ~int64](v T) (uint64, error) {
+	if v < 0 {
+		return 0, fmt.Errorf("%w: negative value %d", ErrInvalidUint64, v)
+	}
+
+	return uint64(v), nil
+}
+
+func parseFlexUint64String(s string) (uint64, error) {
+	parsed, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%w: failed to parse %q: %w", ErrInvalidUint64, s, err)
+	}
+
+	return parsed, nil
+}

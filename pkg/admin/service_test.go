@@ -68,7 +68,7 @@ func TestRecordCompletion(t *testing.T) {
 			position: 1000,
 			interval: 100,
 			wantErr:  true,
-			errMatch: modelid.ErrInvalidModelID,
+			errMatch: modelid.ErrInvalid,
 		},
 		{
 			name:     "invalid model ID - multiple dots",
@@ -76,7 +76,7 @@ func TestRecordCompletion(t *testing.T) {
 			position: 1000,
 			interval: 100,
 			wantErr:  true,
-			errMatch: modelid.ErrInvalidModelID,
+			errMatch: modelid.ErrInvalid,
 		},
 	}
 
@@ -99,7 +99,7 @@ func TestRecordCompletion(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errMatch != nil {
-					assert.ErrorIs(t, err, tt.errMatch)
+					require.ErrorIs(t, err, tt.errMatch)
 				}
 			} else {
 				require.NoError(t, err)
@@ -515,7 +515,7 @@ func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, result any)
 	v := reflect.ValueOf(result).Elem()
 	t := v.Type()
 
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		field := t.Field(i)
 		fieldValue := v.Field(i)
 
@@ -627,7 +627,7 @@ func TestConsolidateHistoricalData(t *testing.T) {
 			modelID:             "invalid",
 			expectedRowsDeleted: 0,
 			wantErr:             true,
-			errMatch:            modelid.ErrInvalidModelID,
+			errMatch:            modelid.ErrInvalid,
 		},
 	}
 
@@ -655,7 +655,7 @@ func TestConsolidateHistoricalData(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errMatch != nil {
-					assert.ErrorIs(t, err, tt.errMatch)
+					require.ErrorIs(t, err, tt.errMatch)
 				}
 			} else {
 				require.NoError(t, err)
@@ -861,7 +861,7 @@ func TestConsolidateHistoricalDataChunksLargeDelete(t *testing.T) {
 	n := consolidationDeleteBatchSize + 1 // one past a single batch -> forces 2 batches
 
 	members := make([]ProcessedRange, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		members = append(members, ProcessedRange{Position: uint64(i) * 10, Interval: 10})
 	}
 
@@ -946,7 +946,7 @@ func (m *consolidationMockClient) QueryMany(_ context.Context, query string, res
 	step := span / m.rangeRowCount
 
 	members := make([]ProcessedRange, 0, m.rangeRowCount)
-	for i := uint64(0); i < m.rangeRowCount; i++ {
+	for i := range m.rangeRowCount {
 		members = append(members, ProcessedRange{
 			Position: m.rangeStartPos + i*step,
 			Interval: step,
@@ -1402,7 +1402,7 @@ func TestDeletePeriod(t *testing.T) {
 			endPos:          200,
 			expectedDeleted: 0,
 			wantErr:         true,
-			errMatch:        modelid.ErrInvalidModelID,
+			errMatch:        modelid.ErrInvalid,
 		},
 	}
 
@@ -1427,7 +1427,7 @@ func TestDeletePeriod(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.errMatch != nil {
-					assert.ErrorIs(t, err, tt.errMatch)
+					require.ErrorIs(t, err, tt.errMatch)
 				}
 
 				return
@@ -1605,10 +1605,10 @@ func TestParseModelID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			database, table, err := modelid.Parse(tt.modelID)
 			if tt.expectError {
-				assert.Error(t, err)
-				assert.ErrorIs(t, err, modelid.ErrInvalidModelID)
+				require.Error(t, err)
+				assert.ErrorIs(t, err, modelid.ErrInvalid)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, tt.expectedDatabase, database)
 				assert.Equal(t, tt.expectedTable, table)
 			}

@@ -32,17 +32,22 @@ var (
 	ErrUnexpectedExternalType = errors.New("unexpected external task type in transformation payload")
 )
 
+// hostnameFn resolves the local hostname.
+//
+//nolint:gochecknoglobals // injectable seam for testing the hostname error path
+var hostnameFn = os.Hostname
+
 // getWorkerID returns the worker ID based on hostname
 func getWorkerID() string {
-	hostname, err := os.Hostname()
+	hostname, err := hostnameFn()
 	if err != nil {
 		return "worker-unknown"
 	}
 	return hostname
 }
 
-// TaskHandler handles task execution
-type TaskHandler struct {
+// Handler handles task execution
+type Handler struct {
 	log             logrus.FieldLogger
 	chClient        clickhouse.ClientInterface
 	admin           admin.Service
@@ -51,8 +56,8 @@ type TaskHandler struct {
 	transformations map[string]models.Transformation
 }
 
-// TaskContext contains all context needed for task execution
-type TaskContext struct {
+// ExecutionContext contains all context needed for task execution
+type ExecutionContext struct {
 	Transformation models.Transformation
 	Position       uint64
 	Interval       uint64
@@ -63,26 +68,26 @@ type TaskContext struct {
 
 // Executor defines the interface for task executors
 type Executor interface {
-	Execute(ctx context.Context, taskCtx any) error
-	Validate(ctx context.Context, taskCtx any) error
+	Execute(ctx context.Context, taskCtx *ExecutionContext) error
+	Validate(ctx context.Context, taskCtx *ExecutionContext) error
 	UpdateBounds(ctx context.Context, modelID, scanType string) error
 }
 
-// NewTaskHandler creates a new task handler
-func NewTaskHandler(
+// NewHandler creates a new task handler
+func NewHandler(
 	logger logrus.FieldLogger,
 	chClient clickhouse.ClientInterface,
 	adminService admin.Service,
 	validator validation.Validator,
 	modelExecutor Executor,
 	transformations []models.Transformation,
-) *TaskHandler {
+) *Handler {
 	transformationsMap := make(map[string]models.Transformation, len(transformations)) // Add capacity hint
 	for _, transformation := range transformations {
 		transformationsMap[transformation.GetID()] = transformation
 	}
 
-	return &TaskHandler{
+	return &Handler{
 		log:             logger,
 		chClient:        chClient,
 		admin:           adminService,
@@ -93,7 +98,7 @@ func NewTaskHandler(
 }
 
 // HandleTransformation handles transformation tasks
-func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) error {
+func (h *Handler) HandleTransformation(ctx context.Context, t *asynq.Task) error {
 	payload, err := h.parseTaskPayload(t.Payload())
 	if err != nil {
 		return err
@@ -115,10 +120,10 @@ func (h *TaskHandler) HandleTransformation(ctx context.Context, t *asynq.Task) e
 // parseTaskPayload attempts to unmarshal the task payload using the Type discriminator.
 // For backwards compatibility with payloads that don't have a Type field, it falls back
 // to heuristic-based detection.
-func (h *TaskHandler) parseTaskPayload(data []byte) (TaskPayload, error) {
+func (h *Handler) parseTaskPayload(data []byte) (Payload, error) {
 	// First, peek at the Type field to determine the payload type
 	var typeCheck struct {
-		Type TaskType `json:"type"`
+		Type Type `json:"type"`
 	}
 
 	if err := json.Unmarshal(data, &typeCheck); err != nil {
@@ -128,8 +133,8 @@ func (h *TaskHandler) parseTaskPayload(data []byte) (TaskPayload, error) {
 
 	// Use explicit Type field if present
 	switch typeCheck.Type {
-	case TaskTypeIncremental:
-		var incPayload IncrementalTaskPayload
+	case TypeIncremental:
+		var incPayload IncrementalPayload
 		if err := json.Unmarshal(data, &incPayload); err != nil {
 			observability.RecordError("task-handler", "unmarshal_error")
 
@@ -138,8 +143,8 @@ func (h *TaskHandler) parseTaskPayload(data []byte) (TaskPayload, error) {
 
 		return incPayload, nil
 
-	case TaskTypeScheduled:
-		var schPayload ScheduledTaskPayload
+	case TypeScheduled:
+		var schPayload ScheduledPayload
 		if err := json.Unmarshal(data, &schPayload); err != nil {
 			observability.RecordError("task-handler", "unmarshal_error")
 
@@ -148,7 +153,7 @@ func (h *TaskHandler) parseTaskPayload(data []byte) (TaskPayload, error) {
 
 		return schPayload, nil
 
-	case TaskTypeExternal:
+	case TypeExternal:
 		// External tasks are handled by HandleExternalScan, not this parser
 		// This case is here for exhaustiveness; external payloads use a different format
 		observability.RecordError("task-handler", "unexpected_external_type")
@@ -157,7 +162,7 @@ func (h *TaskHandler) parseTaskPayload(data []byte) (TaskPayload, error) {
 	default:
 		// Backwards compatibility: Type field not set, use heuristic detection
 		// This handles payloads created before the Type field was added
-		var incPayload IncrementalTaskPayload
+		var incPayload IncrementalPayload
 		if err := json.Unmarshal(data, &incPayload); err == nil {
 			// Check for incremental-specific fields (Direction is most reliable)
 			if incPayload.Direction != "" || incPayload.Position > 0 || incPayload.Interval > 0 {
@@ -166,7 +171,7 @@ func (h *TaskHandler) parseTaskPayload(data []byte) (TaskPayload, error) {
 		}
 
 		// Default to scheduled payload
-		var schPayload ScheduledTaskPayload
+		var schPayload ScheduledPayload
 		if err := json.Unmarshal(data, &schPayload); err != nil {
 			observability.RecordError("task-handler", "unmarshal_error")
 			return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
@@ -176,16 +181,16 @@ func (h *TaskHandler) parseTaskPayload(data []byte) (TaskPayload, error) {
 }
 
 // setupTaskContext prepares the task execution context
-func (h *TaskHandler) setupTaskContext(payload TaskPayload) (*TaskContext, error) {
+func (h *Handler) setupTaskContext(payload Payload) (*ExecutionContext, error) {
 	// Log task start
 	switch p := payload.(type) {
-	case IncrementalTaskPayload:
+	case IncrementalPayload:
 		h.log.WithFields(logrus.Fields{
 			"model_id": p.ModelID,
 			"position": p.Position,
 			"interval": p.Interval,
 		}).Info("Starting incremental transformation task")
-	case ScheduledTaskPayload:
+	case ScheduledPayload:
 		h.log.WithFields(logrus.Fields{
 			"model_id":       p.ModelID,
 			"execution_time": p.ExecutionTime,
@@ -208,17 +213,17 @@ func (h *TaskHandler) setupTaskContext(payload TaskPayload) (*TaskContext, error
 	var position, interval uint64
 	var executionTime time.Time
 	switch p := payload.(type) {
-	case IncrementalTaskPayload:
+	case IncrementalPayload:
 		position = p.Position
 		interval = p.Interval
 		executionTime = startTime
-	case ScheduledTaskPayload:
+	case ScheduledPayload:
 		executionTime = p.ExecutionTime
 	default:
 		executionTime = startTime
 	}
 
-	return &TaskContext{
+	return &ExecutionContext{
 		Transformation: transformationModel,
 		Position:       position,
 		Interval:       interval,
@@ -229,10 +234,10 @@ func (h *TaskHandler) setupTaskContext(payload TaskPayload) (*TaskContext, error
 }
 
 // validateAndExecute handles dependency validation and task execution
-func (h *TaskHandler) validateAndExecute(ctx context.Context, payload TaskPayload, taskCtx *TaskContext) error {
+func (h *Handler) validateAndExecute(ctx context.Context, payload Payload, taskCtx *ExecutionContext) error {
 	// Skip dependency validation for scheduled transformations
 	// Scheduled transformations have metadata-only dependencies and run on time-based schedules
-	if payload.GetType() != TaskTypeScheduled {
+	if payload.GetType() != TypeScheduled {
 		// Validate dependencies for incremental transformations only
 		h.log.WithField("model_id", payload.GetModelID()).Info("Validating dependencies")
 		depStartTime := time.Now()
@@ -273,13 +278,13 @@ func (h *TaskHandler) validateAndExecute(ctx context.Context, payload TaskPayloa
 }
 
 // recordTaskSuccess records metrics for successful task completion
-func (h *TaskHandler) recordTaskSuccess(ctx context.Context, payload TaskPayload, taskCtx *TaskContext) {
+func (h *Handler) recordTaskSuccess(ctx context.Context, payload Payload, taskCtx *ExecutionContext) {
 	// Record completion in admin table using the transformation handler
 	handler := taskCtx.Transformation.GetHandler()
 	if handler != nil {
 		// Build task info from the payload
 		var direction string
-		if incPayload, ok := payload.(IncrementalTaskPayload); ok {
+		if incPayload, ok := payload.(IncrementalPayload); ok {
 			direction = incPayload.Direction
 		}
 
@@ -317,7 +322,7 @@ func (h *TaskHandler) recordTaskSuccess(ctx context.Context, payload TaskPayload
 }
 
 // HandleExternalScan handles external model scan tasks (both incremental and full)
-func (h *TaskHandler) HandleExternalScan(ctx context.Context, t *asynq.Task) error {
+func (h *Handler) HandleExternalScan(ctx context.Context, t *asynq.Task) error {
 	var payload map[string]string
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		observability.RecordError("external-scan-handler", "unmarshal_error")
@@ -374,7 +379,7 @@ func (h *TaskHandler) HandleExternalScan(ctx context.Context, t *asynq.Task) err
 }
 
 // Routes returns the task handler routes for Asynq
-func (h *TaskHandler) Routes() map[string]asynq.HandlerFunc {
+func (h *Handler) Routes() map[string]asynq.HandlerFunc {
 	return map[string]asynq.HandlerFunc{
 		TypeModelTransformation: h.HandleTransformation,
 		"external:incremental":  h.HandleExternalScan,

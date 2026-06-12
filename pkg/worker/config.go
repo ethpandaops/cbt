@@ -7,8 +7,8 @@ import (
 var (
 	// ErrInvalidConcurrency is returned when concurrency is not positive
 	ErrInvalidConcurrency = errors.New("concurrency must be positive")
-	// ErrWorkerShutdownTimeout is returned when worker shutdown times out
-	ErrWorkerShutdownTimeout = errors.New("worker shutdown timed out")
+	// ErrShutdownTimeout is returned when worker shutdown times out
+	ErrShutdownTimeout = errors.New("worker shutdown timed out")
 )
 
 // Config contains worker-specific settings

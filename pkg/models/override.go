@@ -6,40 +6,36 @@ import (
 	"time"
 
 	"github.com/ethpandaops/cbt/pkg/models/external"
+	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"gopkg.in/yaml.v3"
 )
 
 var (
-	// ErrUnknownModelType is returned when an unknown model type is encountered
-	ErrUnknownModelType = errors.New("unknown model type")
+	// ErrUnknownType is returned when an unknown model type is encountered
+	ErrUnknownType = errors.New("unknown model type")
 )
 
-// ModelType identifies whether a model is external or transformation
-type ModelType string
+// Type identifies whether a model is external or transformation
+type Type string
 
 const (
-	// ModelTypeExternal identifies external models
-	ModelTypeExternal ModelType = "external"
-	// ModelTypeTransformation identifies transformation models
-	ModelTypeTransformation ModelType = "transformation"
+	// TypeExternal identifies external models
+	TypeExternal Type = "external"
+	// TypeTransformation identifies transformation models
+	TypeTransformation Type = "transformation"
 )
 
-// OverrideConfig defines the interface for override configurations
-type OverrideConfig interface {
-	applyToTransformation(model Transformation)
-	applyToExternal(config *external.Config)
-}
-
-// ModelOverride represents configuration overrides for a specific model
-// The actual config is stored as raw YAML and unmarshaled based on model type
-type ModelOverride struct {
+// Override represents configuration overrides for a specific model
+// The actual config is stored as raw YAML and unmarshaled based on model type.
+// Config holds either a *TransformationOverride or a *ExternalOverride once resolved.
+type Override struct {
 	Enabled   *bool
 	rawConfig *yaml.Node
-	Config    OverrideConfig
+	Config    any
 }
 
-// UnmarshalYAML implements custom unmarshaling for ModelOverride
-func (m *ModelOverride) UnmarshalYAML(node *yaml.Node) error {
+// UnmarshalYAML implements custom unmarshaling for Override
+func (m *Override) UnmarshalYAML(node *yaml.Node) error {
 	// First unmarshal enabled field
 	var temp struct {
 		Enabled *bool `yaml:"enabled,omitempty"`
@@ -67,20 +63,20 @@ func (m *ModelOverride) UnmarshalYAML(node *yaml.Node) error {
 }
 
 // ResolveConfig unmarshals the raw config based on the actual model type
-func (m *ModelOverride) ResolveConfig(actualType ModelType) error {
+func (m *Override) ResolveConfig(actualType Type) error {
 	if m.rawConfig == nil {
 		return nil
 	}
 
 	switch actualType {
-	case ModelTypeTransformation:
+	case TypeTransformation:
 		var config TransformationOverride
 		if err := m.rawConfig.Decode(&config); err != nil {
 			return fmt.Errorf("failed to unmarshal transformation config: %w", err)
 		}
 		m.Config = &config
 
-	case ModelTypeExternal:
+	case TypeExternal:
 		var config ExternalOverride
 		if err := m.rawConfig.Decode(&config); err != nil {
 			return fmt.Errorf("failed to unmarshal external config: %w", err)
@@ -88,83 +84,56 @@ func (m *ModelOverride) ResolveConfig(actualType ModelType) error {
 		m.Config = &config
 
 	default:
-		return fmt.Errorf("%w: %s", ErrUnknownModelType, actualType)
+		return fmt.Errorf("%w: %s", ErrUnknownType, actualType)
 	}
 
 	return nil
 }
 
-// TransformationOverride contains override values for transformation model configurations
-// All fields are optional - nil means keep existing value
-// The structure is type-agnostic - fields are applied based on the actual transformation type:
-// - Incremental transformations: interval, schedules (forwardfill/backfill), limits, tags
-// - Scheduled transformations: schedule, tags
-type TransformationOverride struct {
-	// Incremental transformation fields
-	Interval  *IntervalOverride  `yaml:"interval,omitempty"`
-	Schedules *SchedulesOverride `yaml:"schedules,omitempty"`
-	Limits    *LimitsOverride    `yaml:"limits,omitempty"`
+// TransformationOverride is an alias for the canonical transformation override
+// type, which lives in the leaf transformation package so handlers can apply it
+// directly without reflection or an import cycle.
+type TransformationOverride = transformation.Override
 
-	// Scheduled transformation fields
-	Schedule *string `yaml:"schedule,omitempty"`
+// IntervalOverride is an alias for transformation.IntervalOverride.
+type IntervalOverride = transformation.IntervalOverride
 
-	// Common fields (both types)
-	Tags []string `yaml:"tags,omitempty"`
-}
+// SchedulesOverride is an alias for transformation.SchedulesOverride.
+type SchedulesOverride = transformation.SchedulesOverride
 
-// IntervalOverride allows overriding interval configuration
-type IntervalOverride struct {
-	Max *uint64 `yaml:"max,omitempty"`
-	Min *uint64 `yaml:"min,omitempty"`
-}
+// LimitsOverride is an alias for transformation.LimitsOverride.
+type LimitsOverride = transformation.LimitsOverride
 
-// SchedulesOverride allows overriding schedule configuration
-// nil = keep existing, empty string = disable, non-empty = new schedule
-type SchedulesOverride struct {
-	ForwardFill *string `yaml:"forwardfill"`
-	Backfill    *string `yaml:"backfill"`
-}
-
-// LimitsOverride allows overriding position limits
-type LimitsOverride struct {
-	Min *uint64 `yaml:"min,omitempty"`
-	Max *uint64 `yaml:"max,omitempty"`
+// transformationOverrideApplier is implemented by transformation handlers that
+// accept a typed transformation override.
+type transformationOverrideApplier interface {
+	ApplyOverrides(override *TransformationOverride)
 }
 
 // ApplyToTransformation applies override configuration to a transformation model
-func (m *ModelOverride) ApplyToTransformation(model Transformation) {
+func (m *Override) ApplyToTransformation(model Transformation) {
 	if m == nil || m.Config == nil {
 		return
 	}
 
-	m.Config.applyToTransformation(model)
-}
+	tOv, ok := m.Config.(*TransformationOverride)
+	if !ok {
+		return
+	}
 
-// IsDisabled returns true if the model is explicitly disabled
-func (m *ModelOverride) IsDisabled() bool {
-	return m != nil && m.Enabled != nil && !*m.Enabled
-}
-
-// applyToTransformation applies override configuration to a transformation model's handler
-func (t *TransformationOverride) applyToTransformation(model Transformation) {
 	handler := model.GetHandler()
 	if handler == nil {
 		return
 	}
 
-	// Apply overrides through handler-specific interface
-	// Uses interface{} to allow handlers to use reflection and avoid circular dependencies
-	type overrideApplier interface {
-		ApplyOverrides(override any)
-	}
-
-	if applier, ok := handler.(overrideApplier); ok {
-		applier.ApplyOverrides(t)
+	if applier, ok := handler.(transformationOverrideApplier); ok {
+		applier.ApplyOverrides(tOv)
 	}
 }
 
-func (t *TransformationOverride) applyToExternal(_ *external.Config) {
-	// No-op: transformation overrides don't apply to external models
+// IsDisabled returns true if the model is explicitly disabled
+func (m *Override) IsDisabled() bool {
+	return m != nil && m.Enabled != nil && !*m.Enabled
 }
 
 // ExternalOverride contains override values for external model configurations
@@ -180,19 +149,10 @@ type CacheOverride struct {
 	FullScanInterval        *time.Duration `yaml:"full_scan_interval,omitempty"`
 }
 
-// ExternalOverride implements OverrideConfig for external models
-func (e *ExternalOverride) applyToTransformation(_ Transformation) {
-	// No-op: external overrides don't apply to transformation models
-}
-
 // ApplyToExternalConfig applies override configuration to an external model config.
 func (e *ExternalOverride) ApplyToExternalConfig(config *external.Config) {
 	e.applyLagOverride(config)
 	e.applyCacheOverride(config)
-}
-
-func (e *ExternalOverride) applyToExternal(config *external.Config) {
-	e.ApplyToExternalConfig(config)
 }
 
 func (e *ExternalOverride) applyLagOverride(config *external.Config) {
@@ -216,10 +176,12 @@ func (e *ExternalOverride) applyCacheOverride(config *external.Config) {
 }
 
 // ApplyToExternal applies override configuration to an external model
-func (m *ModelOverride) ApplyToExternal(config *external.Config) {
+func (m *Override) ApplyToExternal(config *external.Config) {
 	if m == nil || m.Config == nil {
 		return
 	}
 
-	m.Config.applyToExternal(config)
+	if eOv, ok := m.Config.(*ExternalOverride); ok {
+		eOv.ApplyToExternalConfig(config)
+	}
 }

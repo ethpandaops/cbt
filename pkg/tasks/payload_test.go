@@ -9,16 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Test TaskPayload UniqueID
+// Test Payload UniqueID
 func TestTaskPayload_UniqueID(t *testing.T) {
 	tests := []struct {
 		name     string
-		payload  TaskPayload
+		payload  Payload
 		expected string
 	}{
 		{
 			name: "incremental task unique ID without direction",
-			payload: IncrementalTaskPayload{
+			payload: IncrementalPayload{
 				ModelID:  "model.test",
 				Position: 100,
 				Interval: 50,
@@ -27,14 +27,14 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 		},
 		{
 			name: "scheduled task unique ID",
-			payload: ScheduledTaskPayload{
+			payload: ScheduledPayload{
 				ModelID: "model.scheduled",
 			},
 			expected: "model.scheduled",
 		},
 		{
 			name: "incremental with direction forward",
-			payload: IncrementalTaskPayload{
+			payload: IncrementalPayload{
 				ModelID:   "model.test",
 				Position:  100,
 				Interval:  50,
@@ -44,7 +44,7 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 		},
 		{
 			name: "incremental with direction back",
-			payload: IncrementalTaskPayload{
+			payload: IncrementalPayload{
 				ModelID:   "model.test",
 				Position:  200,
 				Interval:  50,
@@ -54,7 +54,7 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 		},
 		{
 			name: "with special characters in model ID",
-			payload: IncrementalTaskPayload{
+			payload: IncrementalPayload{
 				ModelID:   "model.test-123_v2",
 				Position:  500,
 				Interval:  100,
@@ -72,16 +72,16 @@ func TestTaskPayload_UniqueID(t *testing.T) {
 	}
 }
 
-// Test TaskPayload QueueName
+// Test Payload QueueName
 func TestTaskPayload_QueueName(t *testing.T) {
 	tests := []struct {
 		name     string
-		payload  TaskPayload
+		payload  Payload
 		expected string
 	}{
 		{
 			name: "incremental queue name",
-			payload: IncrementalTaskPayload{
+			payload: IncrementalPayload{
 				ModelID:  "model.test",
 				Position: 100,
 				Interval: 50,
@@ -90,7 +90,7 @@ func TestTaskPayload_QueueName(t *testing.T) {
 		},
 		{
 			name: "scheduled queue name",
-			payload: ScheduledTaskPayload{
+			payload: ScheduledPayload{
 				ModelID:       "model.scheduled",
 				ExecutionTime: time.Now(),
 			},
@@ -98,7 +98,7 @@ func TestTaskPayload_QueueName(t *testing.T) {
 		},
 		{
 			name: "queue name with special characters",
-			payload: IncrementalTaskPayload{
+			payload: IncrementalPayload{
 				ModelID:  "model.test-123_v2",
 				Position: 100,
 				Interval: 50,
@@ -107,7 +107,7 @@ func TestTaskPayload_QueueName(t *testing.T) {
 		},
 		{
 			name: "empty model ID",
-			payload: IncrementalTaskPayload{
+			payload: IncrementalPayload{
 				ModelID:  "",
 				Position: 100,
 				Interval: 50,
@@ -124,11 +124,11 @@ func TestTaskPayload_QueueName(t *testing.T) {
 	}
 }
 
-// Test IncrementalTaskPayload fields
+// Test IncrementalPayload fields
 func TestIncrementalTaskPayload_Fields(t *testing.T) {
 	now := time.Now()
 
-	payload := IncrementalTaskPayload{
+	payload := IncrementalPayload{
 		ModelID:    "test.model",
 		Position:   12345,
 		Interval:   100,
@@ -139,15 +139,15 @@ func TestIncrementalTaskPayload_Fields(t *testing.T) {
 	assert.Equal(t, uint64(12345), payload.Position)
 	assert.Equal(t, uint64(100), payload.Interval)
 	assert.Equal(t, now, payload.EnqueuedAt)
-	assert.Equal(t, TaskTypeIncremental, payload.GetType())
+	assert.Equal(t, TypeIncremental, payload.GetType())
 }
 
-// Test ScheduledTaskPayload fields
+// Test ScheduledPayload fields
 func TestScheduledTaskPayload_Fields(t *testing.T) {
 	now := time.Now()
 	execTime := now.Add(time.Hour)
 
-	payload := ScheduledTaskPayload{
+	payload := ScheduledPayload{
 		ModelID:       "test.model",
 		ExecutionTime: execTime,
 		EnqueuedAt:    now,
@@ -156,19 +156,19 @@ func TestScheduledTaskPayload_Fields(t *testing.T) {
 	assert.Equal(t, "test.model", payload.ModelID)
 	assert.Equal(t, execTime, payload.ExecutionTime)
 	assert.Equal(t, now, payload.EnqueuedAt)
-	assert.Equal(t, TaskTypeScheduled, payload.GetType())
+	assert.Equal(t, TypeScheduled, payload.GetType())
 }
 
-// Test TaskPayload UniqueID consistency
+// Test Payload UniqueID consistency
 func TestTaskPayload_UniqueID_Consistency(t *testing.T) {
-	payload1 := IncrementalTaskPayload{
+	payload1 := IncrementalPayload{
 		ModelID:   "model.test",
 		Position:  100,
 		Interval:  50,
 		Direction: DirectionForward,
 	}
 
-	payload2 := IncrementalTaskPayload{
+	payload2 := IncrementalPayload{
 		ModelID:   "model.test",
 		Position:  100,
 		Interval:  50,
@@ -192,13 +192,13 @@ func TestTaskPayload_UniqueID_Consistency(t *testing.T) {
 	assert.NotEqual(t, payload1.UniqueID(), payload2.UniqueID())
 
 	// Direction DOES affect uniqueness - only model.id and direction matter
-	payload3 := IncrementalTaskPayload{
+	payload3 := IncrementalPayload{
 		ModelID:   "model.test",
 		Position:  100,
 		Interval:  50,
 		Direction: DirectionForward,
 	}
-	payload4 := IncrementalTaskPayload{
+	payload4 := IncrementalPayload{
 		ModelID:   "model.test",
 		Position:  100,
 		Interval:  50,
@@ -213,13 +213,13 @@ func TestTaskPayload_UniqueID_Consistency(t *testing.T) {
 	assert.Equal(t, payload3.UniqueID(), payload4.UniqueID())
 
 	// This prevents duplicate work when intervals expand (e.g., model:100:25 -> model:100:50)
-	expandingInterval1 := IncrementalTaskPayload{
+	expandingInterval1 := IncrementalPayload{
 		ModelID:   "model.test",
 		Position:  100,
 		Interval:  25,
 		Direction: DirectionForward,
 	}
-	expandingInterval2 := IncrementalTaskPayload{
+	expandingInterval2 := IncrementalPayload{
 		ModelID:   "model.test",
 		Position:  100,
 		Interval:  50,
@@ -231,51 +231,51 @@ func TestTaskPayload_UniqueID_Consistency(t *testing.T) {
 
 // Benchmark UniqueID generation for incremental
 func BenchmarkIncrementalTaskPayload_UniqueID(b *testing.B) {
-	payload := IncrementalTaskPayload{
+	payload := IncrementalPayload{
 		ModelID:  "model.benchmark",
 		Position: 1000000,
 		Interval: 100,
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = payload.UniqueID()
 	}
 }
 
 // Benchmark UniqueID generation for scheduled
 func BenchmarkScheduledTaskPayload_UniqueID(b *testing.B) {
-	payload := ScheduledTaskPayload{
+	payload := ScheduledPayload{
 		ModelID:       "model.benchmark",
 		ExecutionTime: time.Now(),
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = payload.UniqueID()
 	}
 }
 
 // Benchmark QueueName
 func BenchmarkTaskPayload_QueueName(b *testing.B) {
-	payload := IncrementalTaskPayload{
+	payload := IncrementalPayload{
 		ModelID:  "model.benchmark",
 		Position: 1000000,
 		Interval: 100,
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = payload.QueueName()
 	}
 }
 
-// Test TaskPayload JSON serialization with Type field
+// Test Payload JSON serialization with Type field
 func TestIncrementalTaskPayload_JSONSerialization(t *testing.T) {
 	now := time.Now().Truncate(time.Second) // Truncate for JSON round-trip
 
-	payload := IncrementalTaskPayload{
-		Type:       TaskTypeIncremental,
+	payload := IncrementalPayload{
+		Type:       TypeIncremental,
 		ModelID:    "test.model",
 		Position:   12345,
 		Interval:   100,
@@ -295,12 +295,12 @@ func TestIncrementalTaskPayload_JSONSerialization(t *testing.T) {
 	assert.Equal(t, "incremental", jsonMap["type"])
 
 	// Unmarshal back
-	var decoded IncrementalTaskPayload
+	var decoded IncrementalPayload
 
 	err = json.Unmarshal(data, &decoded)
 	require.NoError(t, err)
 
-	assert.Equal(t, TaskTypeIncremental, decoded.Type)
+	assert.Equal(t, TypeIncremental, decoded.Type)
 	assert.Equal(t, payload.ModelID, decoded.ModelID)
 	assert.Equal(t, payload.Position, decoded.Position)
 	assert.Equal(t, payload.Interval, decoded.Interval)
@@ -311,8 +311,8 @@ func TestScheduledTaskPayload_JSONSerialization(t *testing.T) {
 	now := time.Now().Truncate(time.Second) // Truncate for JSON round-trip
 	execTime := now.Add(time.Hour)
 
-	payload := ScheduledTaskPayload{
-		Type:          TaskTypeScheduled,
+	payload := ScheduledPayload{
+		Type:          TypeScheduled,
 		ModelID:       "test.model",
 		ExecutionTime: execTime,
 		EnqueuedAt:    now,
@@ -330,37 +330,37 @@ func TestScheduledTaskPayload_JSONSerialization(t *testing.T) {
 	assert.Equal(t, "scheduled", jsonMap["type"])
 
 	// Unmarshal back
-	var decoded ScheduledTaskPayload
+	var decoded ScheduledPayload
 
 	err = json.Unmarshal(data, &decoded)
 	require.NoError(t, err)
 
-	assert.Equal(t, TaskTypeScheduled, decoded.Type)
+	assert.Equal(t, TypeScheduled, decoded.Type)
 	assert.Equal(t, payload.ModelID, decoded.ModelID)
 }
 
 // Test that Type field doesn't break existing GetType() behavior
 func TestTaskPayload_GetType_WithTypeField(t *testing.T) {
-	incPayload := IncrementalTaskPayload{
-		Type:      TaskTypeIncremental,
+	incPayload := IncrementalPayload{
+		Type:      TypeIncremental,
 		ModelID:   "test.model",
 		Position:  100,
 		Interval:  50,
 		Direction: DirectionForward,
 	}
 
-	schPayload := ScheduledTaskPayload{
-		Type:          TaskTypeScheduled,
+	schPayload := ScheduledPayload{
+		Type:          TypeScheduled,
 		ModelID:       "test.model",
 		ExecutionTime: time.Now(),
 	}
 
 	// GetType() should still return the correct constant regardless of Type field
-	assert.Equal(t, TaskTypeIncremental, incPayload.GetType())
-	assert.Equal(t, TaskTypeScheduled, schPayload.GetType())
+	assert.Equal(t, TypeIncremental, incPayload.GetType())
+	assert.Equal(t, TypeScheduled, schPayload.GetType())
 
 	// Even with wrong Type field value, GetType() returns the hardcoded type
 	// (This is intentional - GetType() is authoritative, Type field is for JSON discrimination)
-	incPayload.Type = TaskTypeScheduled
-	assert.Equal(t, TaskTypeIncremental, incPayload.GetType())
+	incPayload.Type = TypeScheduled
+	assert.Equal(t, TypeIncremental, incPayload.GetType())
 }

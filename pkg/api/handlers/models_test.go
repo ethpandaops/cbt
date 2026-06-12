@@ -8,9 +8,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/ethpandaops/cbt/internal/testutil"
+	"github.com/ethpandaops/cbt/internal/testutil/adminfake"
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/api/generated"
 	"github.com/ethpandaops/cbt/pkg/models"
+	"github.com/ethpandaops/cbt/pkg/models/external"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/gofiber/fiber/v3"
 	"github.com/sirupsen/logrus"
@@ -22,7 +25,7 @@ func TestListAllModels(t *testing.T) {
 	tests := []struct {
 		name           string
 		queryParams    string
-		setupMocks     func() *mockDAGReader
+		setupMocks     func() *testutil.FakeDAGReader
 		wantStatus     int
 		wantTotalCount int
 		wantModelIDs   []string
@@ -30,34 +33,40 @@ func TestListAllModels(t *testing.T) {
 		{
 			name:        "returns all models - transformations and externals",
 			queryParams: "",
-			setupMocks: func() *mockDAGReader {
-				return &mockDAGReader{
-					transformations: []models.Transformation{
-						&mockTransformation{
-							id:       "analytics.block_stats",
-							database: "analytics",
-							table:    "block_stats",
-							typ:      transformation.TypeIncremental,
-						},
-					},
-					externals: []models.Node{
-						{
-							Model: &mockExternal{
-								id:       "ethereum.blocks",
-								database: "ethereum",
-								table:    "blocks",
+			setupMocks: func() *testutil.FakeDAGReader {
+				return &testutil.FakeDAGReader{
+					Transformations: []models.Transformation{
+						&testutil.FakeTransformation{
+							ID: "analytics.block_stats",
+							Config: transformation.Config{
+								Database: "analytics",
+								Table:    "block_stats",
+								Type:     transformation.TypeIncremental,
 							},
 						},
 					},
-					externalByID: map[string]models.External{
-						"ethereum.blocks": &mockExternal{
-							id:       "ethereum.blocks",
-							database: "ethereum",
-							table:    "blocks",
+					Externals: []models.Node{
+						{
+							Model: &testutil.FakeExternal{
+								ID: "ethereum.blocks",
+								Config: external.Config{
+									Database: "ethereum",
+									Table:    "blocks",
+								},
+							},
 						},
 					},
-					dependencies: make(map[string][]string),
-					dependents:   make(map[string][]string),
+					ExternalByID: map[string]models.External{
+						"ethereum.blocks": &testutil.FakeExternal{
+							ID: "ethereum.blocks",
+							Config: external.Config{
+								Database: "ethereum",
+								Table:    "blocks",
+							},
+						},
+					},
+					Dependencies: make(map[string][]string),
+					Dependents:   make(map[string][]string),
 				}
 			},
 			wantStatus:     200,
@@ -67,19 +76,21 @@ func TestListAllModels(t *testing.T) {
 		{
 			name:        "filters by type=transformation",
 			queryParams: "?type=transformation",
-			setupMocks: func() *mockDAGReader {
-				return &mockDAGReader{
-					transformations: []models.Transformation{
-						&mockTransformation{
-							id:       "analytics.block_stats",
-							database: "analytics",
-							table:    "block_stats",
-							typ:      transformation.TypeIncremental,
+			setupMocks: func() *testutil.FakeDAGReader {
+				return &testutil.FakeDAGReader{
+					Transformations: []models.Transformation{
+						&testutil.FakeTransformation{
+							ID: "analytics.block_stats",
+							Config: transformation.Config{
+								Database: "analytics",
+								Table:    "block_stats",
+								Type:     transformation.TypeIncremental,
+							},
 						},
 					},
-					externals:    []models.Node{},
-					dependencies: make(map[string][]string),
-					dependents:   make(map[string][]string),
+					Externals:    []models.Node{},
+					Dependencies: make(map[string][]string),
+					Dependents:   make(map[string][]string),
 				}
 			},
 			wantStatus:     200,
@@ -89,27 +100,31 @@ func TestListAllModels(t *testing.T) {
 		{
 			name:        "filters by type=external",
 			queryParams: "?type=external",
-			setupMocks: func() *mockDAGReader {
-				return &mockDAGReader{
-					transformations: []models.Transformation{},
-					externals: []models.Node{
+			setupMocks: func() *testutil.FakeDAGReader {
+				return &testutil.FakeDAGReader{
+					Transformations: []models.Transformation{},
+					Externals: []models.Node{
 						{
-							Model: &mockExternal{
-								id:       "ethereum.blocks",
-								database: "ethereum",
-								table:    "blocks",
+							Model: &testutil.FakeExternal{
+								ID: "ethereum.blocks",
+								Config: external.Config{
+									Database: "ethereum",
+									Table:    "blocks",
+								},
 							},
 						},
 					},
-					externalByID: map[string]models.External{
-						"ethereum.blocks": &mockExternal{
-							id:       "ethereum.blocks",
-							database: "ethereum",
-							table:    "blocks",
+					ExternalByID: map[string]models.External{
+						"ethereum.blocks": &testutil.FakeExternal{
+							ID: "ethereum.blocks",
+							Config: external.Config{
+								Database: "ethereum",
+								Table:    "blocks",
+							},
 						},
 					},
-					dependencies: make(map[string][]string),
-					dependents:   make(map[string][]string),
+					Dependencies: make(map[string][]string),
+					Dependents:   make(map[string][]string),
 				}
 			},
 			wantStatus:     200,
@@ -119,25 +134,29 @@ func TestListAllModels(t *testing.T) {
 		{
 			name:        "filters by database",
 			queryParams: "?database=analytics",
-			setupMocks: func() *mockDAGReader {
-				return &mockDAGReader{
-					transformations: []models.Transformation{
-						&mockTransformation{
-							id:       "analytics.block_stats",
-							database: "analytics",
-							table:    "block_stats",
-							typ:      transformation.TypeIncremental,
+			setupMocks: func() *testutil.FakeDAGReader {
+				return &testutil.FakeDAGReader{
+					Transformations: []models.Transformation{
+						&testutil.FakeTransformation{
+							ID: "analytics.block_stats",
+							Config: transformation.Config{
+								Database: "analytics",
+								Table:    "block_stats",
+								Type:     transformation.TypeIncremental,
+							},
 						},
-						&mockTransformation{
-							id:       "ethereum.processed",
-							database: "ethereum",
-							table:    "processed",
-							typ:      transformation.TypeScheduled,
+						&testutil.FakeTransformation{
+							ID: "ethereum.processed",
+							Config: transformation.Config{
+								Database: "ethereum",
+								Table:    "processed",
+								Type:     transformation.TypeScheduled,
+							},
 						},
 					},
-					externals:    []models.Node{},
-					dependencies: make(map[string][]string),
-					dependents:   make(map[string][]string),
+					Externals:    []models.Node{},
+					Dependencies: make(map[string][]string),
+					Dependents:   make(map[string][]string),
 				}
 			},
 			wantStatus:     200,
@@ -147,12 +166,12 @@ func TestListAllModels(t *testing.T) {
 		{
 			name:        "returns empty list when no models match",
 			queryParams: "?database=nonexistent",
-			setupMocks: func() *mockDAGReader {
-				return &mockDAGReader{
-					transformations: []models.Transformation{},
-					externals:       []models.Node{},
-					dependencies:    make(map[string][]string),
-					dependents:      make(map[string][]string),
+			setupMocks: func() *testutil.FakeDAGReader {
+				return &testutil.FakeDAGReader{
+					Transformations: []models.Transformation{},
+					Externals:       []models.Node{},
+					Dependencies:    make(map[string][]string),
+					Dependents:      make(map[string][]string),
 				}
 			},
 			wantStatus:     200,
@@ -168,8 +187,8 @@ func TestListAllModels(t *testing.T) {
 			log.SetLevel(logrus.WarnLevel)
 
 			mockDAG := tt.setupMocks()
-			mockService := &mockModelsService{dag: mockDAG}
-			mockAdmin := &mockAdminService{}
+			mockService := &testutil.FakeModelsService{DAG: mockDAG}
+			mockAdmin := &adminfake.FakeAdminService{}
 			server := NewServer(mockService, mockAdmin, IntervalTypesConfig{}, log)
 
 			app := fiber.New()
@@ -220,27 +239,31 @@ func TestListTransformationsIncludesOverrideStatus(t *testing.T) {
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel)
 
-	mockDAG := &mockDAGReader{
-		transformations: []models.Transformation{
-			&mockTransformation{
-				id:       "analytics.block_stats",
-				database: "analytics",
-				table:    "block_stats",
-				typ:      transformation.TypeIncremental,
+	mockDAG := &testutil.FakeDAGReader{
+		Transformations: []models.Transformation{
+			&testutil.FakeTransformation{
+				ID: "analytics.block_stats",
+				Config: transformation.Config{
+					Database: "analytics",
+					Table:    "block_stats",
+					Type:     transformation.TypeIncremental,
+				},
 			},
-			&mockTransformation{
-				id:       "analytics.daily_report",
-				database: "analytics",
-				table:    "daily_report",
-				typ:      transformation.TypeScheduled,
+			&testutil.FakeTransformation{
+				ID: "analytics.daily_report",
+				Config: transformation.Config{
+					Database: "analytics",
+					Table:    "daily_report",
+					Type:     transformation.TypeScheduled,
+				},
 			},
 		},
-		dependencies: make(map[string][]string),
-		dependents:   make(map[string][]string),
+		Dependencies: make(map[string][]string),
+		Dependents:   make(map[string][]string),
 	}
-	mockService := &mockModelsService{dag: mockDAG}
-	mockAdmin := &mockAdminService{
-		configOverrides: []admin.ConfigOverride{
+	mockService := &testutil.FakeModelsService{DAG: mockDAG}
+	mockAdmin := &adminfake.FakeAdminService{
+		ConfigOverrides: []admin.ConfigOverride{
 			{ModelID: "analytics.block_stats"},
 			{ModelID: "analytics.daily_report", Enabled: &disabled},
 		},
@@ -289,29 +312,33 @@ func TestListExternalModelsIncludesOverrideStatus(t *testing.T) {
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel)
 
-	mockDAG := &mockDAGReader{
-		externals: []models.Node{
+	mockDAG := &testutil.FakeDAGReader{
+		Externals: []models.Node{
 			{
-				Model: &mockExternal{
-					id:       "ethereum.blocks",
-					database: "ethereum",
-					table:    "blocks",
+				Model: &testutil.FakeExternal{
+					ID: "ethereum.blocks",
+					Config: external.Config{
+						Database: "ethereum",
+						Table:    "blocks",
+					},
 				},
 			},
 			{
-				Model: &mockExternal{
-					id:       "ethereum.transactions",
-					database: "ethereum",
-					table:    "transactions",
+				Model: &testutil.FakeExternal{
+					ID: "ethereum.transactions",
+					Config: external.Config{
+						Database: "ethereum",
+						Table:    "transactions",
+					},
 				},
 			},
 		},
-		dependencies: make(map[string][]string),
-		dependents:   make(map[string][]string),
+		Dependencies: make(map[string][]string),
+		Dependents:   make(map[string][]string),
 	}
-	mockService := &mockModelsService{dag: mockDAG}
-	mockAdmin := &mockAdminService{
-		configOverrides: []admin.ConfigOverride{
+	mockService := &testutil.FakeModelsService{DAG: mockDAG}
+	mockAdmin := &adminfake.FakeAdminService{
+		ConfigOverrides: []admin.ConfigOverride{
 			{ModelID: "ethereum.blocks"},
 		},
 	}
@@ -359,25 +386,27 @@ func TestGetTransformation(t *testing.T) {
 	tests := []struct {
 		name       string
 		modelID    string
-		setupMocks func() *mockDAGReader
+		setupMocks func() *testutil.FakeDAGReader
 		wantStatus int
 		wantError  bool
 	}{
 		{
 			name:    "returns transformation model",
 			modelID: "analytics.block_stats",
-			setupMocks: func() *mockDAGReader {
-				return &mockDAGReader{
-					transformationByID: map[string]models.Transformation{
-						"analytics.block_stats": &mockTransformation{
-							id:       "analytics.block_stats",
-							database: "analytics",
-							table:    "block_stats",
-							typ:      transformation.TypeIncremental,
+			setupMocks: func() *testutil.FakeDAGReader {
+				return &testutil.FakeDAGReader{
+					TransformationByID: map[string]models.Transformation{
+						"analytics.block_stats": &testutil.FakeTransformation{
+							ID: "analytics.block_stats",
+							Config: transformation.Config{
+								Database: "analytics",
+								Table:    "block_stats",
+								Type:     transformation.TypeIncremental,
+							},
 						},
 					},
-					dependencies: make(map[string][]string),
-					dependents:   make(map[string][]string),
+					Dependencies: make(map[string][]string),
+					Dependents:   make(map[string][]string),
 				}
 			},
 			wantStatus: 200,
@@ -385,8 +414,8 @@ func TestGetTransformation(t *testing.T) {
 		{
 			name:    "returns 400 for invalid model ID format",
 			modelID: "invalid",
-			setupMocks: func() *mockDAGReader {
-				return &mockDAGReader{}
+			setupMocks: func() *testutil.FakeDAGReader {
+				return &testutil.FakeDAGReader{}
 			},
 			wantStatus: 400,
 			wantError:  true,
@@ -394,9 +423,9 @@ func TestGetTransformation(t *testing.T) {
 		{
 			name:    "returns 404 for non-existent model",
 			modelID: "nonexistent.model",
-			setupMocks: func() *mockDAGReader {
-				return &mockDAGReader{
-					getTransformationErr: errNodeNotFound,
+			setupMocks: func() *testutil.FakeDAGReader {
+				return &testutil.FakeDAGReader{
+					GetTransformationErr: errNodeNotFound,
 				}
 			},
 			wantStatus: 404,
@@ -411,8 +440,8 @@ func TestGetTransformation(t *testing.T) {
 			log.SetLevel(logrus.WarnLevel)
 
 			mockDAG := tt.setupMocks()
-			mockService := &mockModelsService{dag: mockDAG}
-			mockAdmin := &mockAdminService{}
+			mockService := &testutil.FakeModelsService{DAG: mockDAG}
+			mockAdmin := &adminfake.FakeAdminService{}
 			server := NewServer(mockService, mockAdmin, IntervalTypesConfig{}, log)
 
 			app := fiber.New(fiber.Config{
@@ -462,24 +491,26 @@ func TestGetExternalModel(t *testing.T) {
 	tests := []struct {
 		name       string
 		modelID    string
-		setupMocks func() *mockDAGReader
+		setupMocks func() *testutil.FakeDAGReader
 		wantStatus int
 		wantError  bool
 	}{
 		{
 			name:    "returns external model",
 			modelID: "ethereum.blocks",
-			setupMocks: func() *mockDAGReader {
-				return &mockDAGReader{
-					externalByID: map[string]models.External{
-						"ethereum.blocks": &mockExternal{
-							id:       "ethereum.blocks",
-							database: "ethereum",
-							table:    "blocks",
+			setupMocks: func() *testutil.FakeDAGReader {
+				return &testutil.FakeDAGReader{
+					ExternalByID: map[string]models.External{
+						"ethereum.blocks": &testutil.FakeExternal{
+							ID: "ethereum.blocks",
+							Config: external.Config{
+								Database: "ethereum",
+								Table:    "blocks",
+							},
 						},
 					},
-					dependencies: make(map[string][]string),
-					dependents:   make(map[string][]string),
+					Dependencies: make(map[string][]string),
+					Dependents:   make(map[string][]string),
 				}
 			},
 			wantStatus: 200,
@@ -487,8 +518,8 @@ func TestGetExternalModel(t *testing.T) {
 		{
 			name:    "returns 400 for invalid model ID format",
 			modelID: "invalid",
-			setupMocks: func() *mockDAGReader {
-				return &mockDAGReader{}
+			setupMocks: func() *testutil.FakeDAGReader {
+				return &testutil.FakeDAGReader{}
 			},
 			wantStatus: 400,
 			wantError:  true,
@@ -496,9 +527,9 @@ func TestGetExternalModel(t *testing.T) {
 		{
 			name:    "returns 404 for non-existent model",
 			modelID: "nonexistent.model",
-			setupMocks: func() *mockDAGReader {
-				return &mockDAGReader{
-					getExternalErr: errNodeNotFound,
+			setupMocks: func() *testutil.FakeDAGReader {
+				return &testutil.FakeDAGReader{
+					GetExternalErr: errNodeNotFound,
 				}
 			},
 			wantStatus: 404,
@@ -513,8 +544,8 @@ func TestGetExternalModel(t *testing.T) {
 			log.SetLevel(logrus.WarnLevel)
 
 			mockDAG := tt.setupMocks()
-			mockService := &mockModelsService{dag: mockDAG}
-			mockAdmin := &mockAdminService{}
+			mockService := &testutil.FakeModelsService{DAG: mockDAG}
+			mockAdmin := &adminfake.FakeAdminService{}
 			server := NewServer(mockService, mockAdmin, IntervalTypesConfig{}, log)
 
 			app := fiber.New(fiber.Config{

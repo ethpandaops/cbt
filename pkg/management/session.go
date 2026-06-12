@@ -2,7 +2,6 @@ package management
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -48,7 +47,7 @@ func (s *SessionStore) Create(
 
 	data.CreatedAt = time.Now().Unix()
 
-	raw, err := json.Marshal(data)
+	raw, err := jsonMarshal(data)
 	if err != nil {
 		return "", fmt.Errorf("marshal session data: %w", err)
 	}
@@ -99,7 +98,7 @@ func (s *SessionStore) Delete(ctx context.Context, id string) error {
 
 func generateSessionID() (string, error) {
 	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := randRead(b); err != nil {
 		return "", fmt.Errorf("read random bytes: %w", err)
 	}
 

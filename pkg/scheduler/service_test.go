@@ -2,12 +2,11 @@ package scheduler
 
 import (
 	"context"
-	"errors"
 	"testing"
-	"time"
 
-	"github.com/ethpandaops/cbt/pkg/admin"
-	"github.com/ethpandaops/cbt/pkg/coordinator"
+	"github.com/ethpandaops/cbt/internal/testutil"
+	"github.com/ethpandaops/cbt/internal/testutil/adminfake"
+	"github.com/ethpandaops/cbt/internal/testutil/coordinatorfake"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/models/transformation/incremental"
@@ -16,11 +15,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-)
-
-// Test errors
-var (
-	errMockNode = errors.New("node not found")
 )
 
 // Test NewService
@@ -70,9 +64,9 @@ func TestNewService(t *testing.T) {
 				Addr: "localhost:6379",
 				DB:   0,
 			}
-			mockDAG := &mockDAGReader{}
-			mockCoord := &mockCoordinator{}
-			mockAdmin := newMockAdminService()
+			mockDAG := &testutil.FakeDAGReader{}
+			mockCoord := &coordinatorfake.FakeCoordinator{}
+			mockAdmin := &adminfake.FakeAdminService{}
 
 			svc, err := NewService(log, tt.cfg, redisOpt, mockDAG, mockCoord, mockAdmin)
 
@@ -176,7 +170,7 @@ func TestExtractModelID(t *testing.T) {
 		{
 			name:     "no prefix",
 			taskType: "test.model:forward",
-			expected: "test.model",
+			expected: "",
 		},
 		{
 			name:     "empty string",
@@ -208,18 +202,18 @@ func TestHandleScheduledForward(t *testing.T) {
 	tests := []struct {
 		name          string
 		taskType      string
-		setupMocks    func(*mockDAGReader, *mockCoordinator)
+		setupMocks    func(*testutil.FakeDAGReader, *coordinatorfake.FakeCoordinator)
 		wantErr       bool
 		expectedCalls int
 	}{
 		{
 			name:     "successful forward processing",
 			taskType: "transformation:test.model:forward",
-			setupMocks: func(dag *mockDAGReader, _ *mockCoordinator) {
-				dag.transformations = []models.Transformation{
-					&mockTransformation{
-						id:   "test.model",
-						conf: transformation.Config{},
+			setupMocks: func(dag *testutil.FakeDAGReader, _ *coordinatorfake.FakeCoordinator) {
+				dag.Transformations = []models.Transformation{
+					&testutil.FakeTransformation{
+						ID:     "test.model",
+						Config: transformation.Config{},
 					},
 				}
 			},
@@ -229,8 +223,8 @@ func TestHandleScheduledForward(t *testing.T) {
 		{
 			name:     "node not found",
 			taskType: "transformation:unknown.model:forward",
-			setupMocks: func(dag *mockDAGReader, _ *mockCoordinator) {
-				dag.nodeNotFound = true
+			setupMocks: func(dag *testutil.FakeDAGReader, _ *coordinatorfake.FakeCoordinator) {
+				dag.NodeNotFound = true
 			},
 			wantErr:       true,
 			expectedCalls: 0,
@@ -241,8 +235,8 @@ func TestHandleScheduledForward(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			log := logrus.New()
 			log.SetLevel(logrus.WarnLevel)
-			mockDAG := &mockDAGReader{}
-			mockCoord := &mockCoordinator{}
+			mockDAG := &testutil.FakeDAGReader{}
+			mockCoord := &coordinatorfake.FakeCoordinator{}
 
 			tt.setupMocks(mockDAG, mockCoord)
 
@@ -266,7 +260,7 @@ func TestHandleScheduledForward(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			assert.Equal(t, tt.expectedCalls, mockCoord.processCalls)
+			assert.Equal(t, tt.expectedCalls, mockCoord.ProcessCalls)
 		})
 	}
 }
@@ -276,25 +270,25 @@ func TestHandleScheduledBackfill(t *testing.T) {
 	tests := []struct {
 		name          string
 		taskType      string
-		setupMocks    func(*mockDAGReader, *mockCoordinator)
+		setupMocks    func(*testutil.FakeDAGReader, *coordinatorfake.FakeCoordinator)
 		wantErr       bool
 		expectedCalls int
 	}{
 		{
 			name:     "successful backfill processing",
 			taskType: "transformation:test.model:back",
-			setupMocks: func(dag *mockDAGReader, _ *mockCoordinator) {
-				dag.transformations = []models.Transformation{
-					&mockTransformation{
-						id: "test.model",
-						conf: transformation.Config{
+			setupMocks: func(dag *testutil.FakeDAGReader, _ *coordinatorfake.FakeCoordinator) {
+				dag.Transformations = []models.Transformation{
+					&testutil.FakeTransformation{
+						ID: "test.model",
+						Config: transformation.Config{
 							Type:     transformation.TypeIncremental,
 							Database: "test_db",
 							Table:    "model",
 						},
-						handler: &mockHandler{
-							backfillEnabled:  true,
-							backfillSchedule: "*/5 * * * *",
+						Handler: &testutil.FakeHandler{
+							BackfillEnabled:  true,
+							BackfillSchedule: "*/5 * * * *",
 						},
 					},
 				}
@@ -305,8 +299,8 @@ func TestHandleScheduledBackfill(t *testing.T) {
 		{
 			name:     "node not found",
 			taskType: "transformation:unknown.model:back",
-			setupMocks: func(dag *mockDAGReader, _ *mockCoordinator) {
-				dag.nodeNotFound = true
+			setupMocks: func(dag *testutil.FakeDAGReader, _ *coordinatorfake.FakeCoordinator) {
+				dag.NodeNotFound = true
 			},
 			wantErr:       true,
 			expectedCalls: 0,
@@ -317,8 +311,8 @@ func TestHandleScheduledBackfill(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			log := logrus.New()
 			log.SetLevel(logrus.WarnLevel)
-			mockDAG := &mockDAGReader{}
-			mockCoord := &mockCoordinator{}
+			mockDAG := &testutil.FakeDAGReader{}
+			mockCoord := &coordinatorfake.FakeCoordinator{}
 
 			tt.setupMocks(mockDAG, mockCoord)
 
@@ -342,7 +336,7 @@ func TestHandleScheduledBackfill(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			assert.Equal(t, tt.expectedCalls, mockCoord.processCalls)
+			assert.Equal(t, tt.expectedCalls, mockCoord.ProcessCalls)
 		})
 	}
 }
@@ -356,9 +350,9 @@ func TestServiceStopWithoutStart(t *testing.T) {
 		Addr: "localhost:6379",
 		DB:   0,
 	}
-	mockDAG := &mockDAGReader{}
-	mockCoord := &mockCoordinator{}
-	mockAdmin := newMockAdminService()
+	mockDAG := &testutil.FakeDAGReader{}
+	mockCoord := &coordinatorfake.FakeCoordinator{}
+	mockAdmin := &adminfake.FakeAdminService{}
 
 	svc, err := NewService(log, cfg, redisOpt, mockDAG, mockCoord, mockAdmin)
 	require.NoError(t, err)
@@ -372,8 +366,8 @@ func TestServiceStopWithoutStart(t *testing.T) {
 func TestHandleConsolidation(t *testing.T) {
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel)
-	mockDAG := &mockDAGReader{}
-	mockCoord := &mockCoordinator{}
+	mockDAG := &testutil.FakeDAGReader{}
+	mockCoord := &coordinatorfake.FakeCoordinator{}
 
 	// Create service manually to avoid Redis dependency
 	svc := &service{
@@ -391,7 +385,7 @@ func TestHandleConsolidation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should have called RunConsolidation once
-	assert.Equal(t, 1, mockCoord.consolidationCalls)
+	assert.Equal(t, 1, mockCoord.ConsolidationCalls)
 }
 
 // Benchmark tests
@@ -399,7 +393,7 @@ func BenchmarkExtractModelID(b *testing.B) {
 	taskType := "transformation:analytics.block_propagation:forward"
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = extractModelID(taskType)
 	}
 }
@@ -412,348 +406,15 @@ func BenchmarkNewService(b *testing.B) {
 		Addr: "localhost:6379",
 		DB:   0,
 	}
-	mockDAG := &mockDAGReader{}
-	mockCoord := &mockCoordinator{}
-	mockAdmin := newMockAdminService()
+	mockDAG := &testutil.FakeDAGReader{}
+	mockCoord := &coordinatorfake.FakeCoordinator{}
+	mockAdmin := &adminfake.FakeAdminService{}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_, _ = NewService(log, cfg, redisOpt, mockDAG, mockCoord, mockAdmin)
 	}
 }
-
-// Mock implementations
-
-type mockDAGReader struct {
-	transformations []models.Transformation
-	nodeNotFound    bool
-}
-
-func (m *mockDAGReader) GetNode(_ string) (models.Node, error) {
-	return models.Node{}, nil
-}
-
-func (m *mockDAGReader) GetTransformationNode(id string) (models.Transformation, error) {
-	if m.nodeNotFound {
-		return nil, errMockNode
-	}
-	for _, t := range m.transformations {
-		if t.GetID() == id {
-			return t, nil
-		}
-	}
-	// Return a default transformation if not found
-	return &mockTransformation{id: id}, nil
-}
-
-func (m *mockDAGReader) GetExternalNode(_ string) (models.External, error) {
-	return nil, nil
-}
-
-func (m *mockDAGReader) GetDependencies(_ string) []string {
-	return []string{}
-}
-
-func (m *mockDAGReader) GetDependents(_ string) []string {
-	return []string{}
-}
-
-func (m *mockDAGReader) GetStructuredDependencies(_ string) []transformation.Dependency {
-	return nil
-}
-
-func (m *mockDAGReader) GetAllDependencies(_ string) []string {
-	return []string{}
-}
-
-func (m *mockDAGReader) GetAllDependents(_ string) []string {
-	return []string{}
-}
-
-func (m *mockDAGReader) GetTransformationNodes() []models.Transformation {
-	return m.transformations
-}
-
-func (m *mockDAGReader) GetExternalNodes() []models.Node {
-	return []models.Node{}
-}
-
-func (m *mockDAGReader) IsPathBetween(_, _ string) bool {
-	return false
-}
-
-var _ models.DAGReader = (*mockDAGReader)(nil)
-
-type mockCoordinator struct {
-	processCalls       int
-	processErr         error
-	consolidationCalls int
-}
-
-func (m *mockCoordinator) Start(_ context.Context) error {
-	return m.processErr
-}
-
-func (m *mockCoordinator) Stop() error {
-	return m.processErr
-}
-
-func (m *mockCoordinator) Process(_ models.Transformation, _ coordinator.Direction) {
-	m.processCalls++
-}
-
-func (m *mockCoordinator) RunConsolidation(_ context.Context) {
-	m.consolidationCalls++
-}
-
-func (m *mockCoordinator) ProcessExternalScan(_, _ string) {
-	// Mock implementation - does nothing
-}
-
-func (m *mockCoordinator) TriggerBoundsRefresh(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockCoordinator) TriggerScheduledRun(_ context.Context, _ string) error {
-	return nil
-}
-
-var _ coordinator.Service = (*mockCoordinator)(nil)
-
-// Mock handler for testing
-type mockHandler struct {
-	schedule           string
-	forwardFillEnabled bool
-	forwardSchedule    string
-	backfillEnabled    bool
-	backfillSchedule   string
-}
-
-func (m *mockHandler) Type() transformation.Type {
-	return transformation.TypeIncremental
-}
-
-func (m *mockHandler) Config() any {
-	return &incremental.Config{
-		Type:     transformation.TypeIncremental,
-		Database: "test",
-		Table:    "test",
-		Schedules: &incremental.SchedulesConfig{
-			ForwardFill: m.forwardSchedule,
-			Backfill:    m.backfillSchedule,
-		},
-	}
-}
-
-func (m *mockHandler) Validate() error {
-	return nil
-}
-
-func (m *mockHandler) ShouldTrackPosition() bool {
-	return true
-}
-
-func (m *mockHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
-	return map[string]any{}
-}
-
-func (m *mockHandler) GetAdminTable() transformation.AdminTable {
-	return transformation.AdminTable{
-		Database: "admin",
-		Table:    "cbt",
-	}
-}
-
-func (m *mockHandler) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
-	return nil
-}
-
-func (m *mockHandler) GetSchedule() string {
-	return m.schedule
-}
-
-func (m *mockHandler) IsForwardFillEnabled() bool {
-	return m.forwardFillEnabled
-}
-
-func (m *mockHandler) GetForwardSchedule() string {
-	return m.forwardSchedule
-}
-
-func (m *mockHandler) IsBackfillEnabled() bool {
-	return m.backfillEnabled
-}
-
-func (m *mockHandler) GetBackfillSchedule() string {
-	return m.backfillSchedule
-}
-
-// mockAdminService implements admin.Service interface for testing
-type mockAdminService struct {
-	externalBounds map[string]*admin.BoundsCache
-}
-
-func newMockAdminService() *mockAdminService {
-	return &mockAdminService{
-		externalBounds: make(map[string]*admin.BoundsCache),
-	}
-}
-
-func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetLastProcessedPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetFirstPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) RecordCompletion(_ context.Context, _ string, _, _ uint64) error {
-	return nil
-}
-
-func (m *mockAdminService) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
-	return nil
-}
-
-func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
-	return nil, nil
-}
-
-func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64) (bool, error) {
-	return false, nil
-}
-
-func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
-	return nil, nil
-}
-
-func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetExternalBounds(_ context.Context, modelID string) (*admin.BoundsCache, error) {
-	if bounds, ok := m.externalBounds[modelID]; ok {
-		return bounds, nil
-	}
-	return nil, nil
-}
-
-func (m *mockAdminService) SetExternalBounds(_ context.Context, bounds *admin.BoundsCache) error {
-	if m.externalBounds == nil {
-		m.externalBounds = make(map[string]*admin.BoundsCache)
-	}
-	m.externalBounds[bounds.ModelID] = bounds
-	return nil
-}
-
-func (m *mockAdminService) DeleteExternalBounds(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockAdminService) GetIncrementalAdminDatabase() string {
-	return "admin"
-}
-
-func (m *mockAdminService) GetIncrementalAdminTable() string {
-	return "cbt_incremental"
-}
-
-func (m *mockAdminService) GetScheduledAdminDatabase() string {
-	return "admin"
-}
-
-func (m *mockAdminService) GetScheduledAdminTable() string {
-	return "cbt_scheduled"
-}
-
-func (m *mockAdminService) GetAllProcessedRanges(_ context.Context, _ []string) (map[string][]admin.ProcessedRange, error) {
-	return make(map[string][]admin.ProcessedRange), nil
-}
-
-func (m *mockAdminService) GetAllLastScheduledExecutions(_ context.Context, _ []string) (map[string]*time.Time, error) {
-	return make(map[string]*time.Time), nil
-}
-
-func (m *mockAdminService) DeletePeriod(_ context.Context, _ string, _, _ uint64) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
-	return []admin.ProcessedRange{}, nil
-}
-func (m *mockAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
-	return &mockSchedulerBoundsLock{}, nil
-}
-
-func (m *mockAdminService) GetConfigOverride(_ context.Context, _ string) (*admin.ConfigOverride, error) {
-	return nil, nil
-}
-
-func (m *mockAdminService) GetAllConfigOverrides(_ context.Context) ([]admin.ConfigOverride, error) {
-	return nil, nil
-}
-
-func (m *mockAdminService) SetConfigOverride(_ context.Context, _ *admin.ConfigOverride) error {
-	return nil
-}
-
-func (m *mockAdminService) DeleteConfigOverride(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockAdminService) DeleteAllConfigOverrides(_ context.Context) error {
-	return nil
-}
-
-func (m *mockAdminService) GetConfigOverrideVersion(_ context.Context) (int64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetCacheManager() *admin.CacheManager {
-	return nil
-}
-
-type mockSchedulerBoundsLock struct{}
-
-func (m *mockSchedulerBoundsLock) Unlock(_ context.Context) error { return nil }
-
-var _ admin.BoundsLock = (*mockSchedulerBoundsLock)(nil)
-var _ admin.Service = (*mockAdminService)(nil)
-
-type mockTransformation struct {
-	id      string
-	conf    transformation.Config
-	handler transformation.Handler
-	deps    []string
-	sql     string
-	typ     string
-}
-
-func (m *mockTransformation) GetID() string                     { return m.id }
-func (m *mockTransformation) GetConfig() *transformation.Config { return &m.conf }
-func (m *mockTransformation) GetHandler() transformation.Handler {
-	if m.handler != nil {
-		return m.handler
-	}
-	// Return a default mock handler for backward compatibility
-	return &mockHandler{}
-}
-func (m *mockTransformation) GetValue() string                  { return "" }
-func (m *mockTransformation) GetDependencies() []string         { return m.deps }
-func (m *mockTransformation) GetSQL() string                    { return m.sql }
-func (m *mockTransformation) GetType() string                   { return m.typ }
-func (m *mockTransformation) GetEnvironmentVariables() []string { return []string{} }
-func (m *mockTransformation) SetDefaultDatabase(defaultDB string) {
-	if m.conf.Database == "" {
-		m.conf.Database = defaultDB
-	}
-}
-
-var _ models.Transformation = (*mockTransformation)(nil)
 
 // TestRegisterAllHandlers tests that handlers are registered on all instances
 func TestRegisterAllHandlers(t *testing.T) {
@@ -764,27 +425,27 @@ func TestRegisterAllHandlers(t *testing.T) {
 		Addr: "localhost:6379",
 	}
 
-	mockTransformation := &mockTransformation{
-		id: "test.model",
-		conf: transformation.Config{
+	mockTrans := &testutil.FakeTransformation{
+		ID: "test.model",
+		Config: transformation.Config{
 			Database: "test_db",
 			Table:    "test_table",
 		},
 	}
 
-	mockDAG := &mockDAGReader{
-		transformations: []models.Transformation{mockTransformation},
+	mockDAG := &testutil.FakeDAGReader{
+		Transformations: []models.Transformation{mockTrans},
 	}
 
-	mockCoordinator := &mockCoordinator{}
+	mockCoord := &coordinatorfake.FakeCoordinator{}
 
 	cfg := &Config{
 		Concurrency:   10,
 		Consolidation: "@hourly",
 	}
 
-	mockAdmin := newMockAdminService()
-	svc, err := NewService(logger, cfg, redisOpt, mockDAG, mockCoordinator, mockAdmin)
+	mockAdmin := &adminfake.FakeAdminService{}
+	svc, err := NewService(logger, cfg, redisOpt, mockDAG, mockCoord, mockAdmin)
 	require.NoError(t, err)
 
 	s := svc.(*service)
@@ -805,24 +466,28 @@ func TestRegisterAllHandlers(t *testing.T) {
 func TestRegisterHandlersWithEmptySchedules(t *testing.T) {
 	tests := []struct {
 		name             string
-		handler          *mockHandler
+		handler          *testutil.FakeHandler
 		forwardTaskType  string
 		backfillTaskType string
 	}{
 		{
 			name: "empty schedules still registers handlers",
-			handler: &mockHandler{
-				forwardSchedule:  "",
-				backfillSchedule: "",
+			handler: &testutil.FakeHandler{
+				HandlerConfig: &incremental.Config{
+					Type:      transformation.TypeIncremental,
+					Schedules: &incremental.SchedulesConfig{ForwardFill: "", Backfill: ""},
+				},
 			},
 			forwardTaskType:  "transformation:test.model:forward",
 			backfillTaskType: "transformation:test.model:back",
 		},
 		{
 			name: "populated schedules also registers handlers",
-			handler: &mockHandler{
-				forwardSchedule:  "@every 30s",
-				backfillSchedule: "@every 1m",
+			handler: &testutil.FakeHandler{
+				HandlerConfig: &incremental.Config{
+					Type:      transformation.TypeIncremental,
+					Schedules: &incremental.SchedulesConfig{ForwardFill: "@every 30s", Backfill: "@every 1m"},
+				},
 			},
 			forwardTaskType:  "transformation:test.model:forward",
 			backfillTaskType: "transformation:test.model:back",
@@ -835,21 +500,27 @@ func TestRegisterHandlersWithEmptySchedules(t *testing.T) {
 			log.SetLevel(logrus.WarnLevel)
 
 			svc := &service{
-				log:         log.WithField("service", "scheduler"),
-				cfg:         &Config{Concurrency: 1},
-				done:        make(chan struct{}),
-				dag:         &mockDAGReader{},
+				log:  log.WithField("service", "scheduler"),
+				cfg:  &Config{Concurrency: 1},
+				done: make(chan struct{}),
+				dag: &testutil.FakeDAGReader{
+					// Mirror the legacy mock: unknown IDs resolve to a default node so
+					// dispatching a task through the mux exercises the handler.
+					TransformationFallbackFn: func(id string) models.Transformation {
+						return &testutil.FakeTransformation{ID: id}
+					},
+				},
 				mux:         asynq.NewServeMux(),
-				coordinator: &mockCoordinator{},
+				coordinator: &coordinatorfake.FakeCoordinator{},
 			}
 
-			trans := &mockTransformation{
-				id: "test.model",
-				conf: transformation.Config{
+			trans := &testutil.FakeTransformation{
+				ID: "test.model",
+				Config: transformation.Config{
 					Database: "test_db",
 					Table:    "test_table",
 				},
-				handler: tt.handler,
+				Handler: tt.handler,
 			}
 
 			svc.registerTransformationHandlers(trans)
@@ -858,7 +529,7 @@ func TestRegisterHandlersWithEmptySchedules(t *testing.T) {
 			// If no handler is registered, ProcessTask returns "handler not found".
 			forwardTask := asynq.NewTask(tt.forwardTaskType, nil)
 			err := svc.mux.ProcessTask(context.Background(), forwardTask)
-			assert.NoError(t, err, "forward handler should be registered regardless of schedule config")
+			require.NoError(t, err, "forward handler should be registered regardless of schedule config")
 
 			backfillTask := asynq.NewTask(tt.backfillTaskType, nil)
 			err = svc.mux.ProcessTask(context.Background(), backfillTask)
@@ -916,10 +587,10 @@ func TestExtractExternalTaskComponents(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			modelID, err := extractExternalTaskComponents(tt.taskType)
 			if tt.expectedError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.ErrorIs(t, err, ErrInvalidExternalTaskType)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, tt.expectedID, modelID)
 			}
 		})

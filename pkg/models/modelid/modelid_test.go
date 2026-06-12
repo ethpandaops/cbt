@@ -99,7 +99,7 @@ func TestParse(t *testing.T) {
 			database, table, err := Parse(tt.modelID)
 			if tt.expectError {
 				require.Error(t, err)
-				assert.ErrorIs(t, err, ErrInvalidModelID)
+				assert.ErrorIs(t, err, ErrInvalid)
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expectedDatabase, database)

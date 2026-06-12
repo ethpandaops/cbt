@@ -26,7 +26,8 @@ export default defineConfig({
       open: false,
       gzipSize: true,
       brotliSize: true,
-      filename: 'build/stats.html',
+      // Keep stats output outside build/ — frontend/static.go embeds all:build/* into the release binary
+      filename: 'stats.html',
     }),
   ],
   server: {
@@ -51,21 +52,10 @@ export default defineConfig({
     },
     rollupOptions: {
       output: {
-        chunkFileNames: () => {
-          const randomHash = Math.random().toString(36).substring(2, 10);
-          return `assets/[name]-${randomHash}.js`;
-        },
-        entryFileNames: () => {
-          const randomHash = Math.random().toString(36).substring(2, 10);
-          return `assets/[name]-${randomHash}.js`;
-        },
-        assetFileNames: assetInfo => {
-          if (assetInfo.name?.match(/\.(woff2?|ttf|eot|otf)$/)) {
-            return 'assets/[name]-[hash].[ext]';
-          }
-          const randomHash = Math.random().toString(36).substring(2, 10);
-          return `assets/[name]-${randomHash}.[ext]`;
-        },
+        // Content-hashed file names for cacheability and reproducible builds
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]',
       },
     },
   },

@@ -1,5 +1,4 @@
 # golangci-lint configuration
-# version: >= 1.57.0
 version: "2"
 
 run:
@@ -10,18 +9,24 @@ run:
 linters:
   enable:
     - bodyclose
+    - copyloopvar
     - dogsled
     - errcheck
     - exhaustive
+    - fatcontext
     - gocritic
     - gocyclo
     - gosec
     - govet
     - ineffassign
+    - intrange
     - misspell
     - nakedret
+    - nilnesserr
+    - perfsprint
     - prealloc
     - staticcheck
+    - testifylint
     - unconvert
     - unparam
     - unused
@@ -42,9 +47,6 @@ linters:
     - wsl # too opinionated
 
   settings:
-    dupl:
-      threshold: 150
-    
     errcheck:
       check-type-assertions: true
       check-blank: false
@@ -108,22 +110,11 @@ linters:
     
     nestif:
       min-complexity: 4
-    
-    godot:
-      scope: all
-      exclude:
-        - "^TODO:"
-        - "^FIXME:"
-        - "^NOTE:"
 
   exclusions:
     paths:
-      - vendor
-      - third_party
       - testdata
       - examples
-      - validation-specs
-      - ".*\\.pb\\.go$"
       - ".*\\.gen\\.go$"
     
     rules:

@@ -29,16 +29,16 @@ const (
 
 // testExecutor implements the Executor interface for testing.
 type testExecutor struct {
-	executeFunc      func(ctx context.Context, taskCtx interface{}) error
-	validateFunc     func(ctx context.Context, taskCtx interface{}) error
+	executeFunc      func(ctx context.Context, taskCtx *ExecutionContext) error
+	validateFunc     func(ctx context.Context, taskCtx *ExecutionContext) error
 	updateBoundsFunc func(ctx context.Context, modelID, scanType string) error
 	executeCalled    bool
 	validateCalled   bool
 	updateCalled     bool
-	lastTaskCtx      interface{}
+	lastTaskCtx      *ExecutionContext
 }
 
-func (e *testExecutor) Execute(ctx context.Context, taskCtx interface{}) error {
+func (e *testExecutor) Execute(ctx context.Context, taskCtx *ExecutionContext) error {
 	e.executeCalled = true
 	e.lastTaskCtx = taskCtx
 	if e.executeFunc != nil {
@@ -47,7 +47,7 @@ func (e *testExecutor) Execute(ctx context.Context, taskCtx interface{}) error {
 	return nil
 }
 
-func (e *testExecutor) Validate(ctx context.Context, taskCtx interface{}) error {
+func (e *testExecutor) Validate(ctx context.Context, taskCtx *ExecutionContext) error {
 	e.validateCalled = true
 	if e.validateFunc != nil {
 		return e.validateFunc(ctx, taskCtx)
@@ -92,8 +92,8 @@ func (v *testValidator) GetStartPosition(ctx context.Context, modelID string) (u
 	return v.startPosition, v.startPositionErr
 }
 
-// setupIntegrationTaskHandler creates a TaskHandler with real ClickHouse and Redis.
-func setupIntegrationTaskHandler(t *testing.T) (*TaskHandler, clickhouse.ClientInterface, admin.Service, *testutil.RedisConnection, *testExecutor) {
+// setupIntegrationTaskHandler creates a Handler with real ClickHouse and Redis.
+func setupIntegrationTaskHandler(t *testing.T) (*Handler, clickhouse.ClientInterface, admin.Service, *testutil.RedisConnection, *testExecutor) {
 	t.Helper()
 
 	chConn := testutil.NewClickHouseContainer(t)
@@ -145,7 +145,7 @@ func setupIntegrationTaskHandler(t *testing.T) (*TaskHandler, clickhouse.ClientI
 
 	// Create test transformation
 	transformSQL := testutil.DefaultTransformationSQL(testSourceDB, testSourceTable)
-	transformModel, err := testutil.NewTestTransformationSQL(
+	transformModel, err := testutil.NewTransformationSQL(
 		testTargetDB, testTargetTable, transformSQL,
 		testutil.WithDependencies(testSourceDB+"."+testSourceTable),
 		testutil.WithInterval(0, 100),
@@ -163,7 +163,7 @@ func setupIntegrationTaskHandler(t *testing.T) (*TaskHandler, clickhouse.ClientI
 	executor := &testExecutor{}
 
 	// Create task handler
-	handler := NewTaskHandler(
+	handler := NewHandler(
 		logger.WithField("test", "handler"),
 		client,
 		adminSvc,
@@ -180,8 +180,8 @@ func TestIntegration_HandleTransformation_Incremental(t *testing.T) {
 	ctx := context.Background()
 
 	// Create incremental payload
-	payload := IncrementalTaskPayload{
-		Type:       TaskTypeIncremental,
+	payload := IncrementalPayload{
+		Type:       TypeIncremental,
 		ModelID:    testTargetDB + "." + testTargetTable,
 		Position:   0,
 		Interval:   100,
@@ -202,8 +202,8 @@ func TestIntegration_HandleTransformation_Incremental(t *testing.T) {
 	assert.True(t, executor.executeCalled)
 
 	// Verify task context was passed correctly
-	taskCtx, ok := executor.lastTaskCtx.(*TaskContext)
-	require.True(t, ok)
+	taskCtx := executor.lastTaskCtx
+	require.NotNil(t, taskCtx)
 	assert.Equal(t, uint64(0), taskCtx.Position)
 	assert.Equal(t, uint64(100), taskCtx.Interval)
 
@@ -276,7 +276,7 @@ INSERT INTO {{ .database }}.{{ .table }} (position, value) VALUES (1, 'scheduled
 	}
 	executor := &testExecutor{}
 
-	handler := NewTaskHandler(
+	handler := NewHandler(
 		logger.WithField("test", "handler"),
 		client,
 		adminSvc,
@@ -288,8 +288,8 @@ INSERT INTO {{ .database }}.{{ .table }} (position, value) VALUES (1, 'scheduled
 	ctx := context.Background()
 
 	execTime := time.Now().UTC().Truncate(time.Millisecond)
-	payload := ScheduledTaskPayload{
-		Type:          TaskTypeScheduled,
+	payload := ScheduledPayload{
+		Type:          TypeScheduled,
 		ModelID:       testTargetDB + "." + testTargetTable,
 		ExecutionTime: execTime,
 		EnqueuedAt:    time.Now(),
@@ -323,8 +323,8 @@ func TestIntegration_HandleTransformation_DependencyValidation(t *testing.T) {
 
 	ctx := context.Background()
 
-	payload := IncrementalTaskPayload{
-		Type:       TaskTypeIncremental,
+	payload := IncrementalPayload{
+		Type:       TypeIncremental,
 		ModelID:    testTargetDB + "." + testTargetTable,
 		Position:   0,
 		Interval:   100,
@@ -349,8 +349,8 @@ func TestIntegration_HandleTransformation_ModelNotFound(t *testing.T) {
 	handler, _, _, _, _ := setupIntegrationTaskHandler(t)
 	ctx := context.Background()
 
-	payload := IncrementalTaskPayload{
-		Type:       TaskTypeIncremental,
+	payload := IncrementalPayload{
+		Type:       TypeIncremental,
 		ModelID:    "nonexistent.table",
 		Position:   0,
 		Interval:   100,
@@ -486,22 +486,21 @@ const (
 
 // testChainExecutor implements the Executor interface for chain testing.
 type testChainExecutor struct {
-	executeFunc       func(ctx context.Context, taskCtx interface{}) error
-	validateFunc      func(ctx context.Context, taskCtx interface{}) error
+	executeFunc       func(ctx context.Context, taskCtx *ExecutionContext) error
+	validateFunc      func(ctx context.Context, taskCtx *ExecutionContext) error
 	updateBoundsFunc  func(ctx context.Context, modelID, scanType string) error
 	executedModels    []string
 	executedPositions []uint64
 	mu                sync.Mutex
 }
 
-func (e *testChainExecutor) Execute(ctx context.Context, taskCtx interface{}) error {
+func (e *testChainExecutor) Execute(ctx context.Context, taskCtx *ExecutionContext) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	tc, ok := taskCtx.(*TaskContext)
-	if ok {
-		e.executedModels = append(e.executedModels, tc.Transformation.GetID())
-		e.executedPositions = append(e.executedPositions, tc.Position)
+	if taskCtx != nil {
+		e.executedModels = append(e.executedModels, taskCtx.Transformation.GetID())
+		e.executedPositions = append(e.executedPositions, taskCtx.Position)
 	}
 
 	if e.executeFunc != nil {
@@ -510,7 +509,7 @@ func (e *testChainExecutor) Execute(ctx context.Context, taskCtx interface{}) er
 	return nil
 }
 
-func (e *testChainExecutor) Validate(ctx context.Context, taskCtx interface{}) error {
+func (e *testChainExecutor) Validate(ctx context.Context, taskCtx *ExecutionContext) error {
 	if e.validateFunc != nil {
 		return e.validateFunc(ctx, taskCtx)
 	}
@@ -540,8 +539,8 @@ func (e *testChainExecutor) GetExecutedPositions() []uint64 {
 	return result
 }
 
-// setupChainTaskHandler creates a TaskHandler configured for chain testing.
-func setupChainTaskHandler(t *testing.T) (*TaskHandler, admin.Service, *testChainExecutor, []models.Transformation) {
+// setupChainTaskHandler creates a Handler configured for chain testing.
+func setupChainTaskHandler(t *testing.T) (*Handler, admin.Service, *testChainExecutor, []models.Transformation) {
 	t.Helper()
 
 	chConn := testutil.NewClickHouseContainer(t)
@@ -593,14 +592,14 @@ func setupChainTaskHandler(t *testing.T) (*TaskHandler, admin.Service, *testChai
 	)
 
 	// Create transformation chain
-	chainCfg := testutil.DefaultTestChainConfig()
-	external, level1, level2, _, err := testutil.NewTestTransformationChain(chainCfg)
+	chainCfg := testutil.DefaultChainConfig()
+	external, level1, level2, _, err := testutil.NewTransformationChain(chainCfg)
 	require.NoError(t, err)
 
 	transformations := []models.Transformation{level1, level2}
 
 	// Build DAG with chain
-	dag := testutil.TestDAG(transformations, []models.External{external})
+	dag := testutil.DAG(transformations, []models.External{external})
 
 	// Create validator that accepts all
 	validator := &testValidator{
@@ -612,7 +611,7 @@ func setupChainTaskHandler(t *testing.T) (*TaskHandler, admin.Service, *testChai
 	// Create chain executor
 	chainExecutor := &testChainExecutor{}
 
-	handler := NewTaskHandler(
+	handler := NewHandler(
 		logger.WithField("test", "handler"),
 		client,
 		adminSvc,
@@ -644,8 +643,8 @@ func TestIntegration_HandleTransformation_NestedChain(t *testing.T) {
 
 	// Execute level 1 transformation (events_aggregated)
 	level1ID := transformations[0].GetID()
-	level1Payload := IncrementalTaskPayload{
-		Type:       TaskTypeIncremental,
+	level1Payload := IncrementalPayload{
+		Type:       TypeIncremental,
 		ModelID:    level1ID,
 		Position:   0,
 		Interval:   100,
@@ -671,8 +670,8 @@ func TestIntegration_HandleTransformation_NestedChain(t *testing.T) {
 
 	// Execute level 2 transformation (events_by_account)
 	level2ID := transformations[1].GetID()
-	level2Payload := IncrementalTaskPayload{
-		Type:       TaskTypeIncremental,
+	level2Payload := IncrementalPayload{
+		Type:       TypeIncremental,
 		ModelID:    level2ID,
 		Position:   0,
 		Interval:   100,
@@ -724,8 +723,8 @@ func TestIntegration_HandleTransformation_ChainDependencyValidation(t *testing.T
 
 	// Try to execute level 2 without level 1 completion
 	level2ID := transformations[1].GetID()
-	level2Payload := IncrementalTaskPayload{
-		Type:       TaskTypeIncremental,
+	level2Payload := IncrementalPayload{
+		Type:       TypeIncremental,
 		ModelID:    level2ID,
 		Position:   0,
 		Interval:   100,
@@ -793,7 +792,7 @@ func TestIntegration_HandleTransformation_MultipleDependencies(t *testing.T) {
 	)
 
 	// Create multi-dependency transformation (UNION pattern)
-	multiDepModel, err := testutil.NewTestMultiDependencyTransformation(
+	multiDepModel, err := testutil.NewMultiDependencyTransformation(
 		"target", "merged_events",
 		"source1", "events_a",
 		"source2", "events_b",
@@ -801,16 +800,16 @@ func TestIntegration_HandleTransformation_MultipleDependencies(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create externals for both sources
-	external1, err := testutil.NewTestExternalSQL("source1", "events_a",
+	external1, err := testutil.NewExternalSQL("source1", "events_a",
 		testutil.DefaultExternalBoundsSQL("source1", "events_a"))
 	require.NoError(t, err)
 
-	external2, err := testutil.NewTestExternalSQL("source2", "events_b",
+	external2, err := testutil.NewExternalSQL("source2", "events_b",
 		testutil.DefaultExternalBoundsSQL("source2", "events_b"))
 	require.NoError(t, err)
 
 	// Build DAG with multi-dependency
-	dag := testutil.TestDAG(
+	dag := testutil.DAG(
 		[]models.Transformation{multiDepModel},
 		[]models.External{external1, external2},
 	)
@@ -824,7 +823,7 @@ func TestIntegration_HandleTransformation_MultipleDependencies(t *testing.T) {
 
 	executor := &testChainExecutor{}
 
-	handler := NewTaskHandler(
+	handler := NewHandler(
 		logger.WithField("test", "handler"),
 		client,
 		adminSvc,
@@ -839,8 +838,8 @@ func TestIntegration_HandleTransformation_MultipleDependencies(t *testing.T) {
 	ctx := context.Background()
 
 	// Execute the multi-dependency transformation
-	payload := IncrementalTaskPayload{
-		Type:       TaskTypeIncremental,
+	payload := IncrementalPayload{
+		Type:       TypeIncremental,
 		ModelID:    multiDepModel.GetID(),
 		Position:   0,
 		Interval:   100,
@@ -880,8 +879,8 @@ func TestIntegration_HandleTransformation_ChainProgressTracking(t *testing.T) {
 
 	// Execute level 1 for multiple intervals
 	for position := uint64(0); position < 300; position += 100 {
-		payload := IncrementalTaskPayload{
-			Type:       TaskTypeIncremental,
+		payload := IncrementalPayload{
+			Type:       TypeIncremental,
 			ModelID:    level1ID,
 			Position:   position,
 			Interval:   100,

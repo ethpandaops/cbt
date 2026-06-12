@@ -17,11 +17,11 @@ import (
 
 // Protocol constants for URL parsing.
 const (
-	SchemeClickHouse        = "clickhouse"
-	SchemeHTTPS             = "https"
-	SchemeHTTP              = "http"
-	PortClickHouseNative    = "9000"
-	PortClickHouseNativeTLS = "9440"
+	Scheme        = "clickhouse"
+	SchemeHTTPS   = "https"
+	SchemeHTTP    = "http"
+	PortNative    = "9000"
+	PortNativeTLS = "9440"
 )
 
 // Define static errors.
@@ -29,7 +29,7 @@ var (
 	ErrDestMustBePointerToSlice = errors.New("dest must be a pointer to a slice")
 	ErrDestMustBePointer        = errors.New("dest must be a pointer")
 	ErrDataMustBeSlice          = errors.New("data must be a slice")
-	ErrClickHouseResponse       = errors.New("clickhouse error")
+	ErrResponse                 = errors.New("clickhouse error")
 )
 
 // ClientInterface defines the methods for interacting with ClickHouse.
@@ -57,6 +57,12 @@ type client struct {
 	insertTimeout time.Duration
 }
 
+// openConn opens a ClickHouse connection from the given options. It is a package
+// variable so tests can inject failures from the otherwise lazy clickhouse.Open.
+//
+//nolint:gochecknoglobals // injectable seam for testing the connection-open error path
+var openConn = clickhouse.Open
+
 // NewClient creates a new ClickHouse client using the official Go driver.
 func NewClient(logger *logrus.Logger, cfg *Config) (ClientInterface, error) {
 	if err := cfg.Validate(); err != nil {
@@ -70,7 +76,7 @@ func NewClient(logger *logrus.Logger, cfg *Config) (ClientInterface, error) {
 		return nil, fmt.Errorf("failed to create options: %w", err)
 	}
 
-	conn, err := clickhouse.Open(options)
+	conn, err := openConn(options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
@@ -198,12 +204,12 @@ func (c *client) BulkInsert(ctx context.Context, table string, data any) error {
 		}).Debug("Executing bulk insert")
 	}
 
-	batch, err := c.conn.PrepareBatch(ctx, fmt.Sprintf("INSERT INTO %s", table))
+	batch, err := c.conn.PrepareBatch(ctx, "INSERT INTO "+table)
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
 
-	for i := 0; i < dataVal.Len(); i++ {
+	for i := range dataVal.Len() {
 		item := dataVal.Index(i).Interface()
 		if err := batch.AppendStruct(item); err != nil {
 			return fmt.Errorf("failed to append row %d: %w", i, err)
@@ -267,7 +273,7 @@ func createClickHouseOptions(cfg *Config) (*clickhouse.Options, error) {
 	}
 
 	// TLS for HTTPS or native TLS port (9440)
-	if parsedURL.Scheme == SchemeHTTPS || parsedURL.Port() == PortClickHouseNativeTLS {
+	if parsedURL.Scheme == SchemeHTTPS || parsedURL.Port() == PortNativeTLS {
 		options.TLS = &tls.Config{
 			InsecureSkipVerify: cfg.InsecureSkipVerify, //nolint:gosec // configurable for dev environments
 		}

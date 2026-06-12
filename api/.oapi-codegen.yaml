@@ -1,6 +1,7 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/HEAD/configuration-schema.json
 package: generated
-output: ../pkg/api/generated/server.gen.go
+# Path is resolved relative to the working directory; run via `make generate-api` from the repo root
+output: pkg/api/generated/server.gen.go
 generate:
   fiber-server: true
   models: true

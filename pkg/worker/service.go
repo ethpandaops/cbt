@@ -21,6 +21,13 @@ import (
 // defaultQueuePriority is the priority assigned to model queues in asynq.
 const defaultQueuePriority = 10
 
+// runServer runs the asynq server until it returns.
+//
+//nolint:gochecknoglobals // injectable seam for testing the server-run error path
+var runServer = func(srv *asynq.Server, mux *asynq.ServeMux) error {
+	return srv.Run(mux)
+}
+
 // Ensure service implements the interface
 var _ Service = (*service)(nil)
 
@@ -74,7 +81,7 @@ func (s *service) Start(_ context.Context) error {
 	modelExecutor := NewModelExecutor(s.log, s.chClient, s.models, s.admin)
 
 	// Create handler with filtered models (for processing)
-	handler := tasks.NewTaskHandler(s.log, s.chClient, s.admin, s.validator, modelExecutor, transformations)
+	handler := tasks.NewHandler(s.log, s.chClient, s.admin, s.validator, modelExecutor, transformations)
 
 	// Configure queues with capacity hint
 	queues := make(map[string]int, len(transformations))
@@ -97,7 +104,7 @@ func (s *service) Start(_ context.Context) error {
 	}).Warn("Starting worker service")
 
 	// Create server
-	srv := asynq.NewServer(r.NewAsynqRedisOptions(s.redisOpt), asynq.Config{
+	srv := asynq.NewServer(r.NewAsynqOptions(s.redisOpt), asynq.Config{
 		Concurrency: s.config.Concurrency,
 		Queues:      queues,
 	})
@@ -110,7 +117,7 @@ func (s *service) Start(_ context.Context) error {
 
 	// Start server in background with proper lifecycle management
 	s.wg.Go(func() {
-		if runErr := srv.Run(mux); runErr != nil {
+		if runErr := runServer(srv, mux); runErr != nil {
 			s.log.WithError(runErr).Error("Worker server stopped with error")
 		}
 	})
@@ -141,7 +148,7 @@ func (s *service) Stop() error {
 		s.log.Info("Worker service stopped successfully")
 	case <-time.After(timeout):
 		s.log.Warnf("Worker service shutdown timed out after %v, forcing shutdown", timeout)
-		return fmt.Errorf("%w after %v", ErrWorkerShutdownTimeout, timeout)
+		return fmt.Errorf("%w after %v", ErrShutdownTimeout, timeout)
 	}
 
 	return nil

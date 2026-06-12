@@ -1,14 +1,12 @@
 package handlers
 
 import (
-	"context"
 	"errors"
 	"testing"
-	"time"
 
-	"github.com/ethpandaops/cbt/pkg/admin"
+	"github.com/ethpandaops/cbt/internal/testutil"
+	"github.com/ethpandaops/cbt/internal/testutil/adminfake"
 	"github.com/ethpandaops/cbt/pkg/api/generated"
-	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/external"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/sirupsen/logrus"
@@ -17,377 +15,14 @@ import (
 
 var errNodeNotFound = errors.New("node not found")
 
-// mockDAGReader implements models.DAGReader for testing
-type mockDAGReader struct {
-	transformations      []models.Transformation
-	externals            []models.Node
-	transformationByID   map[string]models.Transformation
-	externalByID         map[string]models.External
-	nodeByID             map[string]models.Node
-	dependencies         map[string][]string
-	dependents           map[string][]string
-	allDependencies      map[string][]string
-	allDependents        map[string][]string
-	pathBetween          map[string]map[string]bool
-	getTransformationErr error
-	getExternalErr       error
-	getNodeErr           error
-}
-
-func (m *mockDAGReader) GetTransformationNodes() []models.Transformation {
-	return m.transformations
-}
-
-func (m *mockDAGReader) GetExternalNodes() []models.Node {
-	return m.externals
-}
-
-func (m *mockDAGReader) GetTransformationNode(id string) (models.Transformation, error) {
-	if m.getTransformationErr != nil {
-		return nil, m.getTransformationErr
-	}
-	if node, ok := m.transformationByID[id]; ok {
-		return node, nil
-	}
-	return nil, errNodeNotFound
-}
-
-func (m *mockDAGReader) GetExternalNode(id string) (models.External, error) {
-	if m.getExternalErr != nil {
-		return nil, m.getExternalErr
-	}
-	if node, ok := m.externalByID[id]; ok {
-		return node, nil
-	}
-	return nil, errNodeNotFound
-}
-
-func (m *mockDAGReader) GetNode(id string) (models.Node, error) {
-	if m.getNodeErr != nil {
-		return models.Node{}, m.getNodeErr
-	}
-	if node, ok := m.nodeByID[id]; ok {
-		return node, nil
-	}
-	return models.Node{}, errNodeNotFound
-}
-
-func (m *mockDAGReader) GetDependencies(id string) []string {
-	if deps, ok := m.dependencies[id]; ok {
-		return deps
-	}
-	return []string{}
-}
-
-func (m *mockDAGReader) GetStructuredDependencies(_ string) []transformation.Dependency {
-	// For tests, return nil (structured dependencies not needed in most tests)
-	return nil
-}
-
-func (m *mockDAGReader) GetDependents(id string) []string {
-	if deps, ok := m.dependents[id]; ok {
-		return deps
-	}
-	return []string{}
-}
-
-func (m *mockDAGReader) GetAllDependencies(id string) []string {
-	if deps, ok := m.allDependencies[id]; ok {
-		return deps
-	}
-	return []string{}
-}
-
-func (m *mockDAGReader) GetAllDependents(id string) []string {
-	if deps, ok := m.allDependents[id]; ok {
-		return deps
-	}
-	return []string{}
-}
-
-func (m *mockDAGReader) IsPathBetween(from, to string) bool {
-	if paths, ok := m.pathBetween[from]; ok {
-		return paths[to]
-	}
-	return false
-}
-
-// mockModelsService implements models.Service for testing
-type mockModelsService struct {
-	dag models.DAGReader
-}
-
-func (m *mockModelsService) Start() error {
-	return nil
-}
-
-func (m *mockModelsService) Stop() error {
-	return nil
-}
-
-func (m *mockModelsService) GetDAG() models.DAGReader {
-	return m.dag
-}
-
-func (m *mockModelsService) RenderTransformation(_ models.Transformation, _, _ uint64, _ time.Time) (string, error) {
-	return "", nil
-}
-
-func (m *mockModelsService) RenderExternal(_ models.External, _ map[string]any) (string, error) {
-	return "", nil
-}
-
-func (m *mockModelsService) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time) (*[]string, error) {
-	return nil, nil
-}
-
-// mockAdminService implements admin.Service for testing
-type mockAdminService struct {
-	configOverrides       []admin.ConfigOverride
-	configOverrideByID    map[string]*admin.ConfigOverride
-	configOverrideErr     error
-	configOverridesErr    error
-	configOverrideByIDErr map[string]error
-}
-
-func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetLastProcessedPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetFirstPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) RecordCompletion(_ context.Context, _ string, _, _ uint64) error {
-	return nil
-}
-
-func (m *mockAdminService) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
-	return nil
-}
-
-func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
-	return nil, nil
-}
-
-func (m *mockAdminService) GetAllLastScheduledExecutions(_ context.Context, _ []string) (map[string]*time.Time, error) {
-	return make(map[string]*time.Time), nil
-}
-
-func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64) (bool, error) {
-	return false, nil
-}
-
-func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
-	return []admin.ProcessedRange{}, nil
-}
-
-func (m *mockAdminService) GetAllProcessedRanges(_ context.Context, _ []string) (map[string][]admin.ProcessedRange, error) {
-	return make(map[string][]admin.ProcessedRange), nil
-}
-func (m *mockAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
-	return &mockHandlersBoundsLock{}, nil
-}
-
-type mockHandlersBoundsLock struct{}
-
-func (m *mockHandlersBoundsLock) Unlock(_ context.Context) error { return nil }
-
-func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
-	return nil, nil
-}
-
-func (m *mockAdminService) DeletePeriod(_ context.Context, _ string, _, _ uint64) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetExternalBounds(_ context.Context, _ string) (*admin.BoundsCache, error) {
-	return nil, nil
-}
-
-func (m *mockAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
-	return nil
-}
-
-func (m *mockAdminService) DeleteExternalBounds(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockAdminService) GetIncrementalAdminDatabase() string {
-	return "admin"
-}
-
-func (m *mockAdminService) GetIncrementalAdminTable() string {
-	return "cbt_incremental"
-}
-
-func (m *mockAdminService) GetScheduledAdminDatabase() string {
-	return "admin"
-}
-
-func (m *mockAdminService) GetScheduledAdminTable() string {
-	return "cbt_scheduled"
-}
-
-func (m *mockAdminService) GetConfigOverride(_ context.Context, modelID string) (*admin.ConfigOverride, error) {
-	if m.configOverrideErr != nil {
-		return nil, m.configOverrideErr
-	}
-
-	if m.configOverrideByIDErr != nil {
-		if err, ok := m.configOverrideByIDErr[modelID]; ok {
-			return nil, err
-		}
-	}
-
-	if m.configOverrideByID == nil {
-		return nil, nil
-	}
-
-	override, ok := m.configOverrideByID[modelID]
-	if !ok {
-		return nil, nil
-	}
-
-	return override, nil
-}
-
-func (m *mockAdminService) GetAllConfigOverrides(_ context.Context) ([]admin.ConfigOverride, error) {
-	if m.configOverridesErr != nil {
-		return nil, m.configOverridesErr
-	}
-
-	return m.configOverrides, nil
-}
-
-func (m *mockAdminService) SetConfigOverride(_ context.Context, _ *admin.ConfigOverride) error {
-	return nil
-}
-
-func (m *mockAdminService) DeleteConfigOverride(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockAdminService) DeleteAllConfigOverrides(_ context.Context) error {
-	return nil
-}
-
-func (m *mockAdminService) GetConfigOverrideVersion(_ context.Context) (int64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetCacheManager() *admin.CacheManager {
-	return nil
-}
-
-// mockTransformation implements models.Transformation for testing
-type mockTransformation struct {
-	id       string
-	database string
-	table    string
-	typ      transformation.Type
-	env      map[string]string
-	query    string
-}
-
-func (m *mockTransformation) GetID() string {
-	return m.id
-}
-
-func (m *mockTransformation) GetType() string {
-	return string(m.typ)
-}
-
-func (m *mockTransformation) GetConfig() *transformation.Config {
-	return &transformation.Config{
-		Database: m.database,
-		Table:    m.table,
-		Type:     m.typ,
-		Env:      m.env,
-	}
-}
-
-func (m *mockTransformation) GetHandler() transformation.Handler {
-	return nil
-}
-
-func (m *mockTransformation) GetValue() string {
-	if m.query != "" {
-		return m.query
-	}
-	return "SELECT 1"
-}
-
-func (m *mockTransformation) SetDefaultDatabase(defaultDB string) {
-	if m.database == "" {
-		m.database = defaultDB
-	}
-}
-
-// mockExternal implements models.External for testing
-type mockExternal struct {
-	id       string
-	database string
-	table    string
-}
-
-func (m *mockExternal) GetID() string {
-	return m.id
-}
-
-func (m *mockExternal) GetType() string {
-	return "sql"
-}
-
-func (m *mockExternal) GetConfig() external.Config {
-	return external.Config{
-		Database: m.database,
-		Table:    m.table,
-	}
-}
-
-func (m *mockExternal) GetConfigMutable() *external.Config {
-	return &external.Config{
-		Database: m.database,
-		Table:    m.table,
-	}
-}
-
-func (m *mockExternal) GetValue() string {
-	return ""
-}
-
-func (m *mockExternal) SetDefaultDatabase(defaultDB string) {
-	if m.database == "" {
-		m.database = defaultDB
-	}
-}
-
-func (m *mockExternal) SetDefaults(_, defaultDB string) {
-	cfg := m.GetConfigMutable()
-	if cfg.Database == "" && defaultDB != "" {
-		cfg.Database = defaultDB
-	}
-	m.database = cfg.Database
-	m.table = cfg.Table
-}
-
 func TestNewServer(t *testing.T) {
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel)
 
-	mockService := &mockModelsService{
-		dag: &mockDAGReader{},
+	mockService := &testutil.FakeModelsService{
+		DAG: &testutil.FakeDAGReader{},
 	}
-	mockAdmin := &mockAdminService{}
+	mockAdmin := &adminfake.FakeAdminService{}
 
 	server := NewServer(mockService, mockAdmin, IntervalTypesConfig{}, log)
 
@@ -401,21 +36,24 @@ func TestNewServer(t *testing.T) {
 }
 
 func TestBuildTransformationModel(t *testing.T) {
-	mockDAG := &mockDAGReader{
-		dependencies: map[string][]string{
+	mockDAG := &testutil.FakeDAGReader{
+		Dependencies: map[string][]string{
 			"test.model": {"dep1.table"},
 		},
-		dependents: map[string][]string{
+		Dependents: map[string][]string{
 			"test.model": {"dependent1.table"},
 		},
 	}
 
-	mockTrans := &mockTransformation{
-		id:       "test.model",
-		database: "test",
-		table:    "model",
-		typ:      transformation.TypeIncremental,
-		env:      map[string]string{"KEY": "value"},
+	mockTrans := &testutil.FakeTransformation{
+		ID:    "test.model",
+		Value: "SELECT 1",
+		Config: transformation.Config{
+			Database: "test",
+			Table:    "model",
+			Type:     transformation.TypeIncremental,
+			Env:      map[string]string{"KEY": "value"},
+		},
 	}
 
 	model := buildTransformationModel("test.model", mockTrans, mockDAG, configOverrideStatus{})
@@ -432,16 +70,18 @@ func TestBuildTransformationModel(t *testing.T) {
 }
 
 func TestBuildExternalModel(t *testing.T) {
-	mockDAG := &mockDAGReader{
-		dependents: map[string][]string{
+	mockDAG := &testutil.FakeDAGReader{
+		Dependents: map[string][]string{
 			"external.table": {"dependent1.table"},
 		},
 	}
 
-	mockExt := &mockExternal{
-		id:       "external.table",
-		database: "external",
-		table:    "table",
+	mockExt := &testutil.FakeExternal{
+		ID: "external.table",
+		Config: external.Config{
+			Database: "external",
+			Table:    "table",
+		},
 	}
 
 	model := buildExternalModel("external.table", mockExt, mockDAG, configOverrideStatus{})

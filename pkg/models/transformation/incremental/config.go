@@ -40,9 +40,11 @@ type Config struct {
 	Fill         *FillConfig                 `yaml:"fill,omitempty"`
 	Dependencies []transformation.Dependency `yaml:"dependencies"`
 	Tags         []string                    `yaml:"tags,omitempty"`
-	Exec         string                      `yaml:"exec,omitempty"`
-	Env          map[string]string           `yaml:"env,omitempty"`
-	SQL          string                      `yaml:"-"` // SQL content from separate file
+	// Exec and Env are never read from this struct; they exist only so the strict
+	// YAML decoder (KnownFields) accepts those keys. Consumption happens via
+	// transformation.Config and transformation.Exec.
+	Exec string            `yaml:"exec,omitempty"`
+	Env  map[string]string `yaml:"env,omitempty"`
 
 	// OriginalDependencies stores the dependencies before placeholder substitution
 	OriginalDependencies []transformation.Dependency `yaml:"-"`

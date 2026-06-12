@@ -13,6 +13,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// newHandlerWithConfig builds a fully wired Handler from a config for tests
+// that need the shared dependency base behavior without going through YAML.
+func newHandlerWithConfig(config *Config) *Handler {
+	return newHandler(config, transformation.AdminTable{})
+}
+
 func TestNewHandler(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -101,7 +107,7 @@ dependencies:
 
 			require.NoError(t, err)
 			require.NotNil(t, handler)
-			assert.Equal(t, tt.adminTable, handler.adminTable)
+			assert.Equal(t, tt.adminTable, handler.GetAdminTable())
 			assert.NotNil(t, handler.config)
 		})
 	}
@@ -224,9 +230,9 @@ func TestHandler_Validate(t *testing.T) {
 			err := handler.Validate()
 
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				if tt.errType != nil {
-					assert.ErrorIs(t, err, tt.errType)
+					require.ErrorIs(t, err, tt.errType)
 				}
 			} else {
 				assert.NoError(t, err)
@@ -333,11 +339,9 @@ func TestHandler_SubstituteDependencyPlaceholders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := &Handler{
-				config: &Config{
-					Dependencies: tt.dependencies,
-				},
-			}
+			handler := newHandlerWithConfig(&Config{
+				Dependencies: tt.dependencies,
+			})
 
 			handler.SubstituteDependencyPlaceholders(tt.externalDB, tt.transformDB)
 
@@ -396,11 +400,9 @@ func TestHandler_GetFlattenedDependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := &Handler{
-				config: &Config{
-					Dependencies: tt.dependencies,
-				},
-			}
+			handler := newHandlerWithConfig(&Config{
+				Dependencies: tt.dependencies,
+			})
 
 			result := handler.GetFlattenedDependencies()
 			assert.Equal(t, tt.expected, result)
@@ -453,9 +455,9 @@ func TestHandler_RecordCompletion(t *testing.T) {
 			err := handler.RecordCompletion(context.Background(), tt.adminService, tt.modelID, tt.taskInfo)
 
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				if tt.errType != nil {
-					assert.ErrorIs(t, err, tt.errType)
+					require.ErrorIs(t, err, tt.errType)
 				}
 			} else {
 				assert.NoError(t, err)
@@ -533,7 +535,7 @@ dependencies:
 			err := decoder.Decode(&config)
 
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				if tt.errMsg != "" {
 					assert.Contains(t, err.Error(), tt.errMsg)
 				}

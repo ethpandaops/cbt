@@ -93,8 +93,15 @@ func (t *tickerServiceImpl) Start(ctx context.Context) error {
 func (t *tickerServiceImpl) checkSchedules(ctx context.Context) {
 	now := time.Now().UTC()
 
-	for i := range t.tasks {
-		task := &t.tasks[i]
+	// Snapshot the slice header under the lock: UpdateTasks may replace the
+	// slice concurrently. Element pointers stay valid for the old backing
+	// array; a swap mid-tick means at most one stale iteration.
+	t.tasksMu.RLock()
+	currentTasks := t.tasks
+	t.tasksMu.RUnlock()
+
+	for i := range currentTasks {
+		task := &currentTasks[i]
 
 		// Fast path: skip if we already know the task isn't due yet.
 		// This avoids a Redis call for tasks that are clearly not ready.
@@ -188,7 +195,9 @@ func (t *tickerServiceImpl) enqueueTask(ctx context.Context, task scheduledTask,
 // This is used when live overrides change schedules and the task list
 // needs rebuilding.
 func (t *tickerServiceImpl) UpdateTasks(tasks []scheduledTask) {
-	// Unregister metrics for old tasks
+	// The whole swap happens under the lock: once t.tasks is installed,
+	// checkSchedules may write nextRun into the new elements, so even the
+	// metrics registration loop below must not read them unsynchronized.
 	t.tasksMu.Lock()
 	for _, task := range t.tasks {
 		modelID, operation := parseTaskIDForMetrics(task.ID)
@@ -196,13 +205,12 @@ func (t *tickerServiceImpl) UpdateTasks(tasks []scheduledTask) {
 	}
 
 	t.tasks = tasks
-	t.tasksMu.Unlock()
 
-	// Register metrics for new tasks
 	for _, task := range tasks {
 		modelID, operation := parseTaskIDForMetrics(task.ID)
 		observability.RecordScheduledTaskRegistered(modelID, operation)
 	}
+	t.tasksMu.Unlock()
 
 	t.log.WithField("task_count", len(tasks)).Info("Updated scheduled task list")
 }
@@ -233,15 +241,11 @@ func parseScheduleInterval(schedule string) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid schedule format: %w", err)
 	}
 
-	// For @every format, extract the duration
-	// Schedule string format: "@every 30s", "@every 5m", etc.
-	if len(schedule) > 7 && schedule[:6] == "@every" {
-		durationStr := schedule[7:] // Extract "30s", "5m", etc.
-		duration, err := time.ParseDuration(durationStr)
-		if err != nil {
-			return 0, fmt.Errorf("failed to parse @every duration: %w", err)
-		}
-		return duration, nil
+	// For @every format the cron parser yields a ConstantDelaySchedule whose
+	// Delay is the exact interval. cron already validated the duration, so no
+	// additional parsing (and no extra error path) is needed here.
+	if cds, ok := sched.(cron.ConstantDelaySchedule); ok {
+		return cds.Delay, nil
 	}
 
 	// For standard cron expressions, calculate next two runs and get interval

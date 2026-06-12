@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateScheduleFormat(t *testing.T) {
@@ -88,7 +89,7 @@ func TestValidateScheduleFormat(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateScheduleFormat(tt.schedule)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Contains(t, err.Error(), "invalid cron expression")
 			} else {
 				assert.NoError(t, err)

@@ -17,9 +17,20 @@ import (
 const (
 	// boundsLockTTL is the TTL for the distributed lock (short to recover from crashes)
 	boundsLockTTL = 10 * time.Second
-	// boundsLockMaxRetries is the maximum number of retries for lock acquisition (~30s with backoff)
-	boundsLockMaxRetries = 300
 )
+
+// boundsLockMaxRetries is the maximum number of retries for lock acquisition
+// (~30s with backoff). It is a var rather than a const so tests can lower it to
+// exercise the retry-exhaustion error paths without waiting out the full backoff.
+//
+//nolint:gochecknoglobals // Overridable seam for testing the lock retry-exhaustion paths.
+var boundsLockMaxRetries = 300
+
+// marshalBounds serializes a bounds cache entry for storage. It is a var so tests
+// can override it to exercise the (otherwise impossible) marshal-failure branch.
+//
+//nolint:gochecknoglobals // Injectable seam for testing the bounds-marshal error path.
+var marshalBounds = json.Marshal
 
 // ErrLockTimeout is returned when lock acquisition times out
 var ErrLockTimeout = errors.New("timeout acquiring bounds lock")
@@ -55,12 +66,9 @@ func exponentialBackoff(tries int) time.Duration {
 
 	shift := min(tries, maxShift)
 
-	delay := baseDelay << shift
-	if delay > maxDelay {
-		return maxDelay
-	}
-
-	return delay
+	// Clamp to maxDelay so the curve never exceeds the configured ceiling, even if
+	// the shift cap is later raised.
+	return min(baseDelay<<shift, maxDelay)
 }
 
 // BoundsCache represents cached external model bounds
@@ -129,7 +137,7 @@ func (c *CacheManager) GetBounds(ctx context.Context, modelID string) (*BoundsCa
 func (c *CacheManager) SetBounds(ctx context.Context, cache *BoundsCache) error {
 	key := c.keyPrefix + cache.ModelID
 
-	data, err := json.Marshal(cache)
+	data, err := marshalBounds(cache)
 	if err != nil {
 		return err
 	}
@@ -156,17 +164,24 @@ func (c *CacheManager) AcquireLock(ctx context.Context, modelID string) (BoundsL
 	)
 
 	if err := mutex.LockContext(ctx); err != nil {
-		// Check if context was canceled or timed out
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-
-		if errors.Is(err, redsync.ErrFailed) {
-			return nil, fmt.Errorf("%w for model %s", ErrLockTimeout, modelID)
-		}
-
-		return nil, fmt.Errorf("failed to acquire lock: %w", err)
+		return nil, classifyLockError(ctx, err, modelID)
 	}
 
 	return &boundsLock{mutex: mutex}, nil
+}
+
+// classifyLockError maps a redsync lock-acquisition failure to the appropriate
+// error for callers: a context error takes precedence, a redsync quorum failure
+// becomes ErrLockTimeout, and anything else is wrapped as a generic failure.
+func classifyLockError(ctx context.Context, err error, modelID string) error {
+	// Check if context was canceled or timed out
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	if errors.Is(err, redsync.ErrFailed) {
+		return fmt.Errorf("%w for model %s", ErrLockTimeout, modelID)
+	}
+
+	return fmt.Errorf("failed to acquire lock: %w", err)
 }

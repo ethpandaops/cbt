@@ -2,9 +2,6 @@ project_name: cbt
 
 before:
   hooks:
-    - go mod tidy
-    - go install go.uber.org/mock/mockgen@latest
-    - go generate ./...
     - make build-frontend
 
 builds:
@@ -19,12 +16,7 @@ builds:
     goarch:
       - amd64
       - arm64
-    goarm:
-      - 6
-      - 7
     ignore:
-      - goarch: 386
-      # broken with go-ethereum github.com/prometheus/tsdb module
       - goos: windows
         goarch: arm64
     ldflags:

@@ -47,6 +47,20 @@ type Service struct {
 	redisClient  *redis.Client
 }
 
+// Constructor seams. These indirections let tests inject failures from the
+// sub-service constructors, which otherwise only fail on already-validated
+// inputs. They default to the real constructors and are never reassigned in
+// production code (mirrors the var hostnameFn = os.Hostname pattern in tasks).
+//
+//nolint:gochecknoglobals // injectable seams for testing constructor error paths
+var (
+	newModelsService      = models.NewService
+	newCoordinatorService = coordinator.NewService
+	newSchedulerService   = scheduler.NewService
+	newWorkerService      = worker.NewService
+	newFrontendHandler    = frontend.NewHandler
+)
+
 // NewService creates a new worker application
 func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 	// Validate configuration
@@ -63,7 +77,7 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 
 	chClient, err := clickhouse.NewClient(log, &cfg.ClickHouse)
 	if err != nil {
-		log.WithError(err).Fatal("Failed to setup ClickHouse client")
+		return nil, fmt.Errorf("failed to setup ClickHouse client: %w", err)
 	}
 
 	adminManager := admin.NewService(log, chClient, cfg.ClickHouse.Cluster, cfg.ClickHouse.LocalSuffix, admin.TableConfig{
@@ -73,25 +87,25 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 		ScheduledTable:      cfg.ClickHouse.Admin.Scheduled.Table,
 	}, redisClient)
 
-	modelsService, err := models.NewService(log, &cfg.Models, &cfg.ClickHouse)
+	modelsService, err := newModelsService(log, &cfg.Models, &cfg.ClickHouse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create models service: %w", err)
 	}
 
-	externalValidator := validation.NewExternalModelExecutor(log, adminManager)
+	externalValidator := validation.NewExternalModelValidator(log, adminManager)
 	validator := validation.NewDependencyValidator(log, adminManager, externalValidator, modelsService.GetDAG())
 
-	coordinatorService, err := coordinator.NewService(log, redisOptions, modelsService.GetDAG(), adminManager, validator)
+	coordinatorService, err := newCoordinatorService(log, redisOptions, modelsService.GetDAG(), adminManager, validator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create coordinator service: %w", err)
 	}
 
-	schedulerService, err := scheduler.NewService(log, &cfg.Scheduler, redisOptions, modelsService.GetDAG(), coordinatorService, adminManager)
+	schedulerService, err := newSchedulerService(log, &cfg.Scheduler, redisOptions, modelsService.GetDAG(), coordinatorService, adminManager)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scheduler service: %w", err)
 	}
 
-	workerService, err := worker.NewService(log, &cfg.Worker, chClient, adminManager, modelsService, redisOptions, validator)
+	workerService, err := newWorkerService(log, &cfg.Worker, chClient, adminManager, modelsService, redisOptions, validator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create worker service: %w", err)
 	}
@@ -120,7 +134,7 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 	// Create frontend handler if enabled
 	var frontendHandler http.Handler
 	if cfg.Frontend.Enabled {
-		frontendHandler, err = frontend.NewHandler(frontendCfg)
+		frontendHandler, err = newFrontendHandler(frontendCfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create frontend handler: %w", err)
 		}
@@ -151,10 +165,8 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 }
 
 // Start initializes and starts the worker application
-func (a *Service) Start() error {
+func (a *Service) Start(ctx context.Context) error {
 	a.log.Info("Starting CBT Engine...")
-
-	ctx := context.Background()
 
 	// Start metrics server
 	observability.StartMetricsServer(a.config.MetricsAddr)
@@ -180,11 +192,12 @@ func (a *Service) Start() error {
 		return fmt.Errorf("failed to start models: %w", err)
 	}
 
-	// Create live override applier now that DAG is built
-	cacheManager := a.admin.GetCacheManager()
-	if cacheManager != nil {
+	// Create live override applier now that DAG is built. The admin service
+	// satisfies liveconfig.OverrideReader directly; it only has a working cache
+	// (and thus overrides) when a Redis client was configured.
+	if a.redisClient != nil {
 		liveOverrides := liveconfig.NewApplier(
-			a.models.GetDAG(), cacheManager, a.log,
+			a.models.GetDAG(), a.admin, a.log,
 		)
 
 		// Apply any persisted overrides from Redis before scheduler starts
@@ -234,15 +247,7 @@ func (a *Service) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Helper function to stop a service
-	stopService := func(name string, stopFunc func() error) {
-		if stopFunc == nil {
-			return
-		}
-		if err := stopFunc(); err != nil {
-			a.log.WithError(err).Errorf("Failed to stop %s", name)
-		}
-	}
+	stopService := a.stopService
 
 	// Stop all services.
 	// 1. Stop scheduler first (stop creating new tasks)
@@ -292,6 +297,18 @@ func (a *Service) Stop() error {
 	}
 
 	return nil
+}
+
+// stopService stops a single service, logging (but not propagating) any error.
+// A nil stopFunc is a no-op so callers need not guard optional services.
+func (a *Service) stopService(name string, stopFunc func() error) {
+	if stopFunc == nil {
+		return
+	}
+
+	if err := stopFunc(); err != nil {
+		a.log.WithError(err).Errorf("Failed to stop %s", name)
+	}
 }
 
 func (a *Service) startHealthCheck() {

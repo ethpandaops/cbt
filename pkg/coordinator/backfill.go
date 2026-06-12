@@ -471,8 +471,8 @@ func (s *service) processSingleGap(ctx context.Context, trans models.Transformat
 	}).Info("Enqueueing backfill task for gap")
 
 	// checkAndEnqueuePositionWithTrigger handles deduplication via IsTaskPendingOrRunning
-	s.checkAndEnqueuePositionWithTrigger(ctx, trans, pos, intervalToUse, string(DirectionBack))
-	return true
+	// and reports whether a task was actually enqueued for this gap.
+	return s.checkAndEnqueuePositionWithTrigger(ctx, trans, pos, intervalToUse, string(DirectionBack))
 }
 
 // logIntervalAdjustment logs debug info about interval adjustments for gap processing.

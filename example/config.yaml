@@ -50,11 +50,10 @@ scheduler:
 # Worker-specific settings (ignored by coordinator and CLI)
 worker:
   concurrency: 10
-  # No model tag filtering in example
-  # modelTags:
-  #   include: []
-  #   exclude: []
-  #   require: []
+  # Optional tag-based model filtering (no filtering in example)
+  # tags:
+  #   - "batch"
+  #   - "analytics"
   shutdownTimeout: 30
 
 # Model configuration with optional default databases

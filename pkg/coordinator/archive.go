@@ -20,10 +20,19 @@ type ArchiveHandler interface {
 	Stop() error
 }
 
+// archiveInspector is the subset of *asynq.Inspector used by the archive handler.
+// It is defined as an interface so the queue-listing error paths can be exercised
+// with a fake; *asynq.Inspector satisfies it directly.
+type archiveInspector interface {
+	Queues() ([]string, error)
+	ListArchivedTasks(queue string, opts ...asynq.ListOption) ([]*asynq.TaskInfo, error)
+	DeleteTask(queue, id string) error
+}
+
 // archiveHandler implements the ArchiveHandler interface
 type archiveHandler struct {
 	log       logrus.FieldLogger
-	inspector *asynq.Inspector
+	inspector archiveInspector
 
 	// Synchronization - per ethPandaOps standards
 	done chan struct{}  // Signal shutdown
@@ -36,7 +45,7 @@ type archiveHandler struct {
 
 // NewArchiveHandler creates a new archive handler
 func NewArchiveHandler(log logrus.FieldLogger, redisOpt *redis.Options) (ArchiveHandler, error) {
-	inspector := asynq.NewInspector(r.NewAsynqRedisOptions(redisOpt))
+	inspector := asynq.NewInspector(r.NewAsynqOptions(redisOpt))
 
 	return &archiveHandler{
 		log:           log.WithField("service", "archive-handler"),

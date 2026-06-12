@@ -15,14 +15,14 @@ func TestModelOverride_UnmarshalYAML(t *testing.T) {
 		name      string
 		yaml      string
 		wantErr   bool
-		checkFunc func(t *testing.T, m *ModelOverride)
+		checkFunc func(t *testing.T, m *Override)
 	}{
 		{
 			name: "override with enabled flag only",
 			yaml: `
 enabled: false
 `,
-			checkFunc: func(t *testing.T, m *ModelOverride) {
+			checkFunc: func(t *testing.T, m *Override) {
 				require.NotNil(t, m.Enabled)
 				assert.False(t, *m.Enabled)
 				assert.Nil(t, m.rawConfig)
@@ -40,7 +40,7 @@ config:
     forwardfill: "@every 10s"
     backfill: "@every 30s"
 `,
-			checkFunc: func(t *testing.T, m *ModelOverride) {
+			checkFunc: func(t *testing.T, m *Override) {
 				require.NotNil(t, m.Enabled)
 				assert.True(t, *m.Enabled)
 				assert.NotNil(t, m.rawConfig)
@@ -55,7 +55,7 @@ config:
   updateInterval: 10m
   maxSecondsOverdue: 300
 `,
-			checkFunc: func(t *testing.T, m *ModelOverride) {
+			checkFunc: func(t *testing.T, m *Override) {
 				require.NotNil(t, m.Enabled)
 				assert.True(t, *m.Enabled)
 				assert.NotNil(t, m.rawConfig)
@@ -68,7 +68,7 @@ config:
   interval:
     min: 50
 `,
-			checkFunc: func(t *testing.T, m *ModelOverride) {
+			checkFunc: func(t *testing.T, m *Override) {
 				assert.Nil(t, m.Enabled)
 				assert.NotNil(t, m.rawConfig)
 			},
@@ -76,7 +76,7 @@ config:
 		{
 			name: "empty override",
 			yaml: `{}`,
-			checkFunc: func(t *testing.T, m *ModelOverride) {
+			checkFunc: func(t *testing.T, m *Override) {
 				assert.Nil(t, m.Enabled)
 				assert.Nil(t, m.rawConfig)
 			},
@@ -85,7 +85,7 @@ config:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var m ModelOverride
+			var m Override
 			err := yaml.Unmarshal([]byte(tt.yaml), &m)
 
 			if tt.wantErr {
@@ -103,9 +103,9 @@ func TestModelOverride_ResolveConfig(t *testing.T) {
 	tests := []struct {
 		name      string
 		yaml      string
-		modelType ModelType
+		modelType Type
 		wantErr   bool
-		checkFunc func(t *testing.T, m *ModelOverride)
+		checkFunc func(t *testing.T, m *Override)
 	}{
 		{
 			name: "resolve transformation config",
@@ -125,8 +125,8 @@ config:
     - override-tag1
     - override-tag2
 `,
-			modelType: ModelTypeTransformation,
-			checkFunc: func(t *testing.T, m *ModelOverride) {
+			modelType: TypeTransformation,
+			checkFunc: func(t *testing.T, m *Override) {
 				require.NotNil(t, m.Config)
 
 				config, ok := m.Config.(*TransformationOverride)
@@ -144,7 +144,7 @@ config:
 				require.NotNil(t, config.Schedules.ForwardFill)
 				assert.Equal(t, "@every 10s", *config.Schedules.ForwardFill)
 				require.NotNil(t, config.Schedules.Backfill)
-				assert.Equal(t, "", *config.Schedules.Backfill) // Empty string means disable
+				assert.Empty(t, *config.Schedules.Backfill) // Empty string means disable
 
 				// Check limits
 				require.NotNil(t, config.Limits)
@@ -166,8 +166,8 @@ config:
     incremental_scan_interval: 5m
     full_scan_interval: 30m
 `,
-			modelType: ModelTypeExternal,
-			checkFunc: func(t *testing.T, m *ModelOverride) {
+			modelType: TypeExternal,
+			checkFunc: func(t *testing.T, m *Override) {
 				require.NotNil(t, m.Config)
 
 				config, ok := m.Config.(*ExternalOverride)
@@ -188,8 +188,8 @@ config:
 			yaml: `
 enabled: false
 `,
-			modelType: ModelTypeTransformation,
-			checkFunc: func(t *testing.T, m *ModelOverride) {
+			modelType: TypeTransformation,
+			checkFunc: func(t *testing.T, m *Override) {
 				assert.Nil(t, m.Config)
 			},
 		},
@@ -199,7 +199,7 @@ enabled: false
 config:
   interval: 100
 `,
-			modelType: ModelType("unknown"),
+			modelType: Type("unknown"),
 			wantErr:   true,
 		},
 		{
@@ -209,8 +209,8 @@ config:
   schedules:
     forwardfill: "@every 1m"
 `,
-			modelType: ModelTypeTransformation,
-			checkFunc: func(t *testing.T, m *ModelOverride) {
+			modelType: TypeTransformation,
+			checkFunc: func(t *testing.T, m *Override) {
 				require.NotNil(t, m.Config)
 
 				config, ok := m.Config.(*TransformationOverride)
@@ -229,7 +229,7 @@ config:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var m ModelOverride
+			var m Override
 			err := yaml.Unmarshal([]byte(tt.yaml), &m)
 			require.NoError(t, err)
 
@@ -248,7 +248,7 @@ config:
 func TestModelOverride_IsDisabled(t *testing.T) {
 	tests := []struct {
 		name     string
-		override *ModelOverride
+		override *Override
 		want     bool
 	}{
 		{
@@ -258,19 +258,19 @@ func TestModelOverride_IsDisabled(t *testing.T) {
 		},
 		{
 			name:     "enabled not set",
-			override: &ModelOverride{},
+			override: &Override{},
 			want:     false,
 		},
 		{
 			name: "explicitly enabled",
-			override: &ModelOverride{
+			override: &Override{
 				Enabled: new(true),
 			},
 			want: false,
 		},
 		{
 			name: "explicitly disabled",
-			override: &ModelOverride{
+			override: &Override{
 				Enabled: new(false),
 			},
 			want: true,
@@ -379,7 +379,7 @@ func TestExternalOverride_ApplyToExternal(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			config := tt.initial
 			if tt.override != nil {
-				tt.override.applyToExternal(config)
+				tt.override.ApplyToExternalConfig(config)
 			}
 			tt.checkFunc(t, config)
 		})
@@ -408,9 +408,9 @@ backfill: ""
 `,
 			checkFunc: func(t *testing.T, s *SchedulesOverride) {
 				require.NotNil(t, s.ForwardFill)
-				assert.Equal(t, "", *s.ForwardFill)
+				assert.Empty(t, *s.ForwardFill)
 				require.NotNil(t, s.Backfill)
-				assert.Equal(t, "", *s.Backfill)
+				assert.Empty(t, *s.Backfill)
 			},
 		},
 		{
@@ -434,7 +434,7 @@ backfill: "@every 2m"
 `,
 			checkFunc: func(t *testing.T, s *SchedulesOverride) {
 				require.NotNil(t, s.ForwardFill)
-				assert.Equal(t, "", *s.ForwardFill) // Disabled
+				assert.Empty(t, *s.ForwardFill) // Disabled
 				require.NotNil(t, s.Backfill)
 				assert.Equal(t, "@every 2m", *s.Backfill) // New schedule
 			},
@@ -529,12 +529,12 @@ config:
     - "override-tag"
 `
 
-	var override ModelOverride
+	var override Override
 	err := yaml.Unmarshal([]byte(yamlContent), &override)
 	require.NoError(t, err)
 
 	// Resolve as transformation type (works for both incremental and scheduled)
-	err = override.ResolveConfig(ModelTypeTransformation)
+	err = override.ResolveConfig(TypeTransformation)
 	require.NoError(t, err)
 
 	require.NotNil(t, override.Config)

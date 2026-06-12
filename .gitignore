@@ -14,22 +14,15 @@
 # Coverage outputs
 coverage.txt
 profile.out
-profile.grind
-
-# goreleaser
-.goreleaser.yaml.new
 
 # Nodejs
 node_modules
 yarn-error.log
 .vscode/
 
-# Ignore password file
-password.txt
-
 # Dist files
 dist
-cbt
+/cbt
 /bin/
 
 # User-specific files (not part of source)
@@ -37,12 +30,6 @@ cbt
 /config.yaml
 /config.local.yaml
 *.db
-
-# lib build artifacts
-libxatu.so
-libxatu.dylib
-libxatu.dll
-libxatu.h
 
 # manual testing
 tmp

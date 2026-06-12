@@ -1,6 +1,6 @@
 package scheduler
 
-//go:generate mockgen -package mock -destination mock/tracker.mock.go -source tracker.go scheduleTracker
+//go:generate go tool mockgen -package mock -destination mock/tracker.mock.go -source tracker.go scheduleTracker
 
 import (
 	"context"
@@ -28,10 +28,6 @@ type scheduleTracker interface {
 	// SetLastRun updates the last execution timestamp for a task
 	// Persists to Redis with no TTL (permanent storage)
 	SetLastRun(ctx context.Context, taskID string, timestamp time.Time) error
-
-	// DeleteLastRun removes the execution timestamp for a task
-	// Used for cleanup when tasks are removed from config
-	DeleteLastRun(ctx context.Context, taskID string) error
 
 	// Close releases resources held by the tracker
 	Close() error
@@ -101,22 +97,6 @@ func (r *redisScheduleTracker) SetLastRun(ctx context.Context, taskID string, ti
 		"task_id":   taskID,
 		"timestamp": timestamp,
 	}).Debug("Updated last run for task")
-
-	return nil
-}
-
-func (r *redisScheduleTracker) DeleteLastRun(ctx context.Context, taskID string) error {
-	key := scheduleKeyPrefix + taskID
-
-	err := r.redis.Del(ctx, key).Err()
-	if err != nil {
-		r.log.WithError(err).
-			WithField("task_id", taskID).
-			Error("Failed to delete last run from Redis")
-		return fmt.Errorf("failed to delete last run for task %s: %w", taskID, err)
-	}
-
-	r.log.WithField("task_id", taskID).Debug("Deleted last run for task")
 
 	return nil
 }

@@ -55,20 +55,6 @@ func (mr *MockscheduleTrackerMockRecorder) Close() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockscheduleTracker)(nil).Close))
 }
 
-// DeleteLastRun mocks base method.
-func (m *MockscheduleTracker) DeleteLastRun(ctx context.Context, taskID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteLastRun", ctx, taskID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteLastRun indicates an expected call of DeleteLastRun.
-func (mr *MockscheduleTrackerMockRecorder) DeleteLastRun(ctx, taskID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLastRun", reflect.TypeOf((*MockscheduleTracker)(nil).DeleteLastRun), ctx, taskID)
-}
-
 // GetLastRun mocks base method.
 func (m *MockscheduleTracker) GetLastRun(ctx context.Context, taskID string) (time.Time, error) {
 	m.ctrl.T.Helper()

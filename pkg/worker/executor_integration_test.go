@@ -79,12 +79,12 @@ func setupIntegrationExecutor(t *testing.T) (*ModelExecutor, clickhouse.ClientIn
 
 	// Create external model for bounds
 	externalSQL := testutil.DefaultExternalBoundsSQL(testSourceDB, testSourceTable)
-	externalModel, err := testutil.NewTestExternalSQL(testSourceDB, testSourceTable, externalSQL)
+	externalModel, err := testutil.NewExternalSQL(testSourceDB, testSourceTable, externalSQL)
 	require.NoError(t, err)
 
 	// Create transformation
 	transformSQL := testutil.DefaultTransformationSQL(testSourceDB, testSourceTable)
-	transformModel, err := testutil.NewTestTransformationSQL(
+	transformModel, err := testutil.NewTransformationSQL(
 		testTargetDB, testTargetTable, transformSQL,
 		testutil.WithDependencies(testSourceDB+"."+testSourceTable),
 		testutil.WithInterval(0, 100),
@@ -92,7 +92,7 @@ func setupIntegrationExecutor(t *testing.T) (*ModelExecutor, clickhouse.ClientIn
 	require.NoError(t, err)
 
 	// Build DAG
-	dag := testutil.TestDAG([]models.Transformation{transformModel}, []models.External{externalModel})
+	dag := testutil.DAG([]models.Transformation{transformModel}, []models.External{externalModel})
 
 	// Create models service mock
 	modelsService := &testModelsService{
@@ -200,7 +200,7 @@ func TestIntegration_ExecuteSQL_SimpleTransformation(t *testing.T) {
 	transformation := modelsService.transformation
 
 	// Create task context
-	taskCtx := &tasks.TaskContext{
+	taskCtx := &tasks.ExecutionContext{
 		Transformation: transformation,
 		Position:       0,
 		Interval:       100,
@@ -226,7 +226,7 @@ func TestIntegration_ExecuteSQL_MultipleIntervals(t *testing.T) {
 
 	// Execute multiple intervals
 	for position := uint64(0); position < 300; position += 100 {
-		taskCtx := &tasks.TaskContext{
+		taskCtx := &tasks.ExecutionContext{
 			Transformation: transformation,
 			Position:       position,
 			Interval:       100,
@@ -249,13 +249,13 @@ func TestIntegration_ExecuteSQL_TableNotExists(t *testing.T) {
 
 	// Create a transformation pointing to non-existent table
 	transformSQL := `INSERT INTO nonexistent.table SELECT 1`
-	transformModel, err := testutil.NewTestTransformationSQL(
+	transformModel, err := testutil.NewTransformationSQL(
 		"nonexistent", "table", transformSQL,
 		testutil.WithDependencies(testSourceDB+"."+testSourceTable),
 	)
 	require.NoError(t, err)
 
-	taskCtx := &tasks.TaskContext{
+	taskCtx := &tasks.ExecutionContext{
 		Transformation: transformModel,
 		Position:       0,
 		Interval:       100,
@@ -276,7 +276,7 @@ func TestIntegration_Validate_TableExists(t *testing.T) {
 	modelsService := executor.models.(*testModelsService)
 	transformation := modelsService.transformation
 
-	taskCtx := &tasks.TaskContext{
+	taskCtx := &tasks.ExecutionContext{
 		Transformation: transformation,
 		Position:       0,
 		Interval:       100,
@@ -296,7 +296,7 @@ func TestIntegration_UpdateBounds_FullScan(t *testing.T) {
 	modelID := testSourceDB + "." + testSourceTable
 
 	// Execute full scan
-	err := executor.UpdateBounds(ctx, modelID, ScanTypeFull)
+	err := executor.UpdateBounds(ctx, modelID, tasks.ScanTypeFull)
 	require.NoError(t, err)
 
 	// Verify bounds were cached
@@ -317,7 +317,7 @@ func TestIntegration_UpdateBounds_IncrementalScan(t *testing.T) {
 	modelID := testSourceDB + "." + testSourceTable
 
 	// First do a full scan
-	err := executor.UpdateBounds(ctx, modelID, ScanTypeFull)
+	err := executor.UpdateBounds(ctx, modelID, tasks.ScanTypeFull)
 	require.NoError(t, err)
 
 	// Add more data to source table
@@ -328,7 +328,7 @@ func TestIntegration_UpdateBounds_IncrementalScan(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute incremental scan
-	err = executor.UpdateBounds(ctx, modelID, ScanTypeIncremental)
+	err = executor.UpdateBounds(ctx, modelID, tasks.ScanTypeIncremental)
 	require.NoError(t, err)
 
 	// Verify bounds were updated
@@ -348,7 +348,7 @@ func TestIntegration_UpdateBounds_ZeroProtection(t *testing.T) {
 	modelID := testSourceDB + "." + testSourceTable
 
 	// First do a full scan to populate cache
-	err := executor.UpdateBounds(ctx, modelID, ScanTypeFull)
+	err := executor.UpdateBounds(ctx, modelID, tasks.ScanTypeFull)
 	require.NoError(t, err)
 
 	// Get initial bounds
@@ -360,7 +360,7 @@ func TestIntegration_UpdateBounds_ZeroProtection(t *testing.T) {
 	testutil.TruncateTable(t, client, testSourceDB, testSourceTable)
 
 	// Incremental scan with empty source should preserve existing bounds
-	err = executor.UpdateBounds(ctx, modelID, ScanTypeIncremental)
+	err = executor.UpdateBounds(ctx, modelID, tasks.ScanTypeIncremental)
 	require.NoError(t, err)
 
 	// Verify bounds were preserved (zero protection)
@@ -403,7 +403,7 @@ func TestIntegration_UpdateBounds_IncrementalWithoutInitialScan(t *testing.T) {
 	modelID := testSourceDB + "." + testSourceTable
 
 	// Try incremental scan without initial full scan - should be skipped
-	err := executor.UpdateBounds(ctx, modelID, ScanTypeIncremental)
+	err := executor.UpdateBounds(ctx, modelID, tasks.ScanTypeIncremental)
 	require.NoError(t, err)
 
 	// Verify no cache was created (incremental skipped without initial scan)
@@ -481,11 +481,11 @@ func setupEventsIntegrationExecutor(t *testing.T) (*ModelExecutor, clickhouse.Cl
 
 	// Create external model
 	externalSQL := testutil.DefaultExternalBoundsSQL(testEventsSourceDB, testEventsSource)
-	externalModel, err := testutil.NewTestExternalSQL(testEventsSourceDB, testEventsSource, externalSQL)
+	externalModel, err := testutil.NewExternalSQL(testEventsSourceDB, testEventsSource, externalSQL)
 	require.NoError(t, err)
 
 	// Create empty DAG (will be configured per-test)
-	dag := testutil.TestDAG(nil, []models.External{externalModel})
+	dag := testutil.DAG(nil, []models.External{externalModel})
 
 	modelsService := &testModelsService{
 		dag:             dag,
@@ -517,7 +517,7 @@ func TestIntegration_ExecuteSQL_SimpleAggregation(t *testing.T) {
 
 	// Create transformation
 	transformSQL := testutil.EventsAggregatedSQL(testEventsSourceDB, testEventsSource)
-	transformModel, err := testutil.NewTestTransformationSQL(
+	transformModel, err := testutil.NewTransformationSQL(
 		testAggregatedDB, testAggregatedTable, transformSQL,
 		testutil.WithDependencies(testEventsSourceDB+"."+testEventsSource),
 		testutil.WithInterval(0, 100),
@@ -525,7 +525,7 @@ func TestIntegration_ExecuteSQL_SimpleAggregation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute for position 0-100
-	taskCtx := &tasks.TaskContext{
+	taskCtx := &tasks.ExecutionContext{
 		Transformation: transformModel,
 		Position:       0,
 		Interval:       100,
@@ -554,7 +554,7 @@ func TestIntegration_ExecuteSQL_CumulativeState(t *testing.T) {
 
 	// Populate aggregated table with some data first
 	aggregateSQL := testutil.EventsAggregatedSQL(testEventsSourceDB, testEventsSource)
-	aggregateModel, err := testutil.NewTestTransformationSQL(
+	aggregateModel, err := testutil.NewTransformationSQL(
 		testAggregatedDB, testAggregatedTable, aggregateSQL,
 		testutil.WithDependencies(testEventsSourceDB+"."+testEventsSource),
 		testutil.WithInterval(0, 100),
@@ -563,7 +563,7 @@ func TestIntegration_ExecuteSQL_CumulativeState(t *testing.T) {
 
 	// Execute aggregation for positions 0-200
 	for position := uint64(0); position < 200; position += 100 {
-		taskCtx := &tasks.TaskContext{
+		taskCtx := &tasks.ExecutionContext{
 			Transformation: aggregateModel,
 			Position:       position,
 			Interval:       100,
@@ -578,7 +578,7 @@ func TestIntegration_ExecuteSQL_CumulativeState(t *testing.T) {
 	testutil.CreateEventsByAccountTable(t, client, testByAccountDB, testByAccountTable)
 
 	// Create cumulative transformation
-	cumulativeModel, err := testutil.NewTestCumulativeTransformation(
+	cumulativeModel, err := testutil.NewCumulativeTransformation(
 		testByAccountDB, testByAccountTable,
 		testAggregatedDB, testAggregatedTable,
 		testutil.WithDependencies(testAggregatedDB+"."+testAggregatedTable),
@@ -586,7 +586,7 @@ func TestIntegration_ExecuteSQL_CumulativeState(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute cumulative transformation for first interval (0-100)
-	taskCtx := &tasks.TaskContext{
+	taskCtx := &tasks.ExecutionContext{
 		Transformation: cumulativeModel,
 		Position:       0,
 		Interval:       100,
@@ -604,7 +604,7 @@ func TestIntegration_ExecuteSQL_CumulativeState(t *testing.T) {
 	runningTotal1 := testutil.GetRunningTotal(t, client, testByAccountDB, testByAccountTable, "account_0", 99)
 
 	// Execute cumulative transformation for second interval (100-200)
-	taskCtx = &tasks.TaskContext{
+	taskCtx = &tasks.ExecutionContext{
 		Transformation: cumulativeModel,
 		Position:       100,
 		Interval:       100,
@@ -630,14 +630,14 @@ func TestIntegration_ExecuteSQL_WindowFunctions(t *testing.T) {
 
 	// Populate aggregated table
 	aggregateSQL := testutil.EventsAggregatedSQL(testEventsSourceDB, testEventsSource)
-	aggregateModel, err := testutil.NewTestTransformationSQL(
+	aggregateModel, err := testutil.NewTransformationSQL(
 		testAggregatedDB, testAggregatedTable, aggregateSQL,
 		testutil.WithDependencies(testEventsSourceDB+"."+testEventsSource),
 		testutil.WithInterval(0, 100),
 	)
 	require.NoError(t, err)
 
-	taskCtx := &tasks.TaskContext{
+	taskCtx := &tasks.ExecutionContext{
 		Transformation: aggregateModel,
 		Position:       0,
 		Interval:       100,
@@ -651,7 +651,7 @@ func TestIntegration_ExecuteSQL_WindowFunctions(t *testing.T) {
 	testutil.CreateEventsWithNextTable(t, client, testWithNextDB, testWithNextTable)
 
 	// Create window function transformation
-	windowModel, err := testutil.NewTestWindowFunctionTransformation(
+	windowModel, err := testutil.NewWindowFunctionTransformation(
 		testWithNextDB, testWithNextTable,
 		testAggregatedDB, testAggregatedTable,
 		testutil.WithDependencies(testAggregatedDB+"."+testAggregatedTable),
@@ -659,7 +659,7 @@ func TestIntegration_ExecuteSQL_WindowFunctions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute window function transformation
-	taskCtx = &tasks.TaskContext{
+	taskCtx = &tasks.ExecutionContext{
 		Transformation: windowModel,
 		Position:       0,
 		Interval:       100,
@@ -683,14 +683,14 @@ func TestIntegration_ExecuteSQL_MultiStatement(t *testing.T) {
 
 	// Populate aggregated table
 	aggregateSQL := testutil.EventsAggregatedSQL(testEventsSourceDB, testEventsSource)
-	aggregateModel, err := testutil.NewTestTransformationSQL(
+	aggregateModel, err := testutil.NewTransformationSQL(
 		testAggregatedDB, testAggregatedTable, aggregateSQL,
 		testutil.WithDependencies(testEventsSourceDB+"."+testEventsSource),
 		testutil.WithInterval(0, 100),
 	)
 	require.NoError(t, err)
 
-	taskCtx := &tasks.TaskContext{
+	taskCtx := &tasks.ExecutionContext{
 		Transformation: aggregateModel,
 		Position:       0,
 		Interval:       100,
@@ -705,7 +705,7 @@ func TestIntegration_ExecuteSQL_MultiStatement(t *testing.T) {
 	testutil.CreateHelperLatestStateTable(t, client, testHelperDB, testHelperTable)
 
 	// Create multi-statement transformation
-	multiModel, err := testutil.NewTestMultiStatementTransformation(
+	multiModel, err := testutil.NewMultiStatementTransformation(
 		testWithNextDB, testWithNextTable,
 		testAggregatedDB, testAggregatedTable,
 		testHelperDB, testHelperTable,
@@ -714,7 +714,7 @@ func TestIntegration_ExecuteSQL_MultiStatement(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute multi-statement transformation
-	taskCtx = &tasks.TaskContext{
+	taskCtx = &tasks.ExecutionContext{
 		Transformation: multiModel,
 		Position:       0,
 		Interval:       100,
@@ -742,7 +742,7 @@ func TestIntegration_ExecuteSQL_MultipleIntervalsWithCumulativeState(t *testing.
 
 	// Populate aggregated table with 300 positions worth of data
 	aggregateSQL := testutil.EventsAggregatedSQL(testEventsSourceDB, testEventsSource)
-	aggregateModel, err := testutil.NewTestTransformationSQL(
+	aggregateModel, err := testutil.NewTransformationSQL(
 		testAggregatedDB, testAggregatedTable, aggregateSQL,
 		testutil.WithDependencies(testEventsSourceDB+"."+testEventsSource),
 		testutil.WithInterval(0, 100),
@@ -750,7 +750,7 @@ func TestIntegration_ExecuteSQL_MultipleIntervalsWithCumulativeState(t *testing.
 	require.NoError(t, err)
 
 	for position := uint64(0); position < 300; position += 100 {
-		taskCtx := &tasks.TaskContext{
+		taskCtx := &tasks.ExecutionContext{
 			Transformation: aggregateModel,
 			Position:       position,
 			Interval:       100,
@@ -765,7 +765,7 @@ func TestIntegration_ExecuteSQL_MultipleIntervalsWithCumulativeState(t *testing.
 	testutil.CreateEventsByAccountTable(t, client, testByAccountDB, testByAccountTable)
 
 	// Create cumulative transformation
-	cumulativeModel, err := testutil.NewTestCumulativeTransformation(
+	cumulativeModel, err := testutil.NewCumulativeTransformation(
 		testByAccountDB, testByAccountTable,
 		testAggregatedDB, testAggregatedTable,
 		testutil.WithDependencies(testAggregatedDB+"."+testAggregatedTable),
@@ -775,7 +775,7 @@ func TestIntegration_ExecuteSQL_MultipleIntervalsWithCumulativeState(t *testing.
 	// Execute cumulative transformation for 3 intervals
 	var runningTotals []int64
 	for position := uint64(0); position < 300; position += 100 {
-		taskCtx := &tasks.TaskContext{
+		taskCtx := &tasks.ExecutionContext{
 			Transformation: cumulativeModel,
 			Position:       position,
 			Interval:       100,
@@ -862,15 +862,16 @@ func setupExternalBoundsExecutor(
 		redisConn.Client,
 	)
 
-	// Create external model with custom SQL and intervals
-	externalModel, err := testutil.NewTestExternalSQLWithEnv(
-		database, table, externalSQL, env,
+	// Create external model with custom SQL and intervals.
+	// Environment variables reach the executor via testModelsService.globalEnv below.
+	externalModel, err := testutil.NewExternalSQL(
+		database, table, externalSQL,
 		testutil.WithCacheIntervals(incrementalInterval, fullInterval),
 	)
 	require.NoError(t, err)
 
 	// Build DAG with external model
-	dag := testutil.TestDAG(nil, []models.External{externalModel})
+	dag := testutil.DAG(nil, []models.External{externalModel})
 
 	modelsService := &testModelsService{
 		dag:             dag,
@@ -914,7 +915,7 @@ func TestIntegration_UpdateBounds_SlowFullScan(t *testing.T) {
 
 	// Time the full scan
 	fullScanStart := time.Now()
-	err := executor.UpdateBounds(ctx, modelID, ScanTypeFull)
+	err := executor.UpdateBounds(ctx, modelID, tasks.ScanTypeFull)
 	require.NoError(t, err)
 	fullScanDuration := time.Since(fullScanStart)
 
@@ -928,7 +929,7 @@ func TestIntegration_UpdateBounds_SlowFullScan(t *testing.T) {
 
 	// Time the incremental scan (should be faster since it only scans a subset)
 	incrementalStart := time.Now()
-	err = executor.UpdateBounds(ctx, modelID, ScanTypeIncremental)
+	err = executor.UpdateBounds(ctx, modelID, tasks.ScanTypeIncremental)
 	require.NoError(t, err)
 	incrementalDuration := time.Since(incrementalStart)
 
@@ -965,7 +966,7 @@ func TestIntegration_UpdateBounds_ConcurrentNeverCorrupts(t *testing.T) {
 	modelID := testSourceDB + "." + testSourceTable
 
 	// Initialize with full scan
-	err := executor.UpdateBounds(ctx, modelID, ScanTypeFull)
+	err := executor.UpdateBounds(ctx, modelID, tasks.ScanTypeFull)
 	require.NoError(t, err)
 
 	// Get initial bounds
@@ -995,7 +996,7 @@ func TestIntegration_UpdateBounds_ConcurrentNeverCorrupts(t *testing.T) {
 				case <-ctx.Done():
 					return
 				default:
-					if err := executor.UpdateBounds(ctx, modelID, ScanTypeFull); err != nil {
+					if err := executor.UpdateBounds(ctx, modelID, tasks.ScanTypeFull); err != nil {
 						if ctx.Err() == nil { // Don't count context cancellation as error
 							errorCount.Add(1)
 						}
@@ -1016,7 +1017,7 @@ func TestIntegration_UpdateBounds_ConcurrentNeverCorrupts(t *testing.T) {
 				case <-ctx.Done():
 					return
 				default:
-					if err := executor.UpdateBounds(ctx, modelID, ScanTypeIncremental); err != nil {
+					if err := executor.UpdateBounds(ctx, modelID, tasks.ScanTypeIncremental); err != nil {
 						if ctx.Err() == nil {
 							errorCount.Add(1)
 						}
@@ -1094,7 +1095,7 @@ func TestIntegration_UpdateBounds_ConditionalSQL(t *testing.T) {
 	modelID := testSourceDB + "." + testSourceTable
 
 	// Full scan should query min() from data
-	err := executor.UpdateBounds(ctx, modelID, ScanTypeFull)
+	err := executor.UpdateBounds(ctx, modelID, tasks.ScanTypeFull)
 	require.NoError(t, err)
 
 	cache, err := adminSvc.GetExternalBounds(ctx, modelID)
@@ -1114,7 +1115,7 @@ func TestIntegration_UpdateBounds_ConditionalSQL(t *testing.T) {
 	require.NoError(t, err)
 
 	// Incremental scan should use previous_min (not query it again)
-	err = executor.UpdateBounds(ctx, modelID, ScanTypeIncremental)
+	err = executor.UpdateBounds(ctx, modelID, tasks.ScanTypeIncremental)
 	require.NoError(t, err)
 
 	cache, err = adminSvc.GetExternalBounds(ctx, modelID)
@@ -1151,7 +1152,7 @@ func TestIntegration_UpdateBounds_EnvironmentVariables(t *testing.T) {
 	modelID := testNetworkEventsDB + "." + testNetworkEventsTable
 
 	// Run full scan - should only see mainnet data
-	err := executor.UpdateBounds(ctx, modelID, ScanTypeFull)
+	err := executor.UpdateBounds(ctx, modelID, tasks.ScanTypeFull)
 	require.NoError(t, err)
 
 	cache, err := adminSvc.GetExternalBounds(ctx, modelID)
@@ -1187,7 +1188,7 @@ func TestIntegration_UpdateBounds_ZeroProtectionEnhanced(t *testing.T) {
 	modelID := testSourceDB + "." + testSourceTable
 
 	// Initial full scan to populate cache
-	err := executor.UpdateBounds(ctx, modelID, ScanTypeFull)
+	err := executor.UpdateBounds(ctx, modelID, tasks.ScanTypeFull)
 	require.NoError(t, err)
 
 	initialCache, err := adminSvc.GetExternalBounds(ctx, modelID)
@@ -1201,7 +1202,7 @@ func TestIntegration_UpdateBounds_ZeroProtectionEnhanced(t *testing.T) {
 	testutil.TruncateTable(t, client, testSourceDB, testSourceTable)
 
 	// Incremental scan with empty source should preserve existing bounds
-	err = executor.UpdateBounds(ctx, modelID, ScanTypeIncremental)
+	err = executor.UpdateBounds(ctx, modelID, tasks.ScanTypeIncremental)
 	require.NoError(t, err)
 
 	cache, err := adminSvc.GetExternalBounds(ctx, modelID)
@@ -1213,7 +1214,7 @@ func TestIntegration_UpdateBounds_ZeroProtectionEnhanced(t *testing.T) {
 	assert.Equal(t, initialCache.Max, cache.Max, "Max should be preserved on zero result")
 
 	// Full scan with no data should also protect bounds
-	err = executor.UpdateBounds(ctx, modelID, ScanTypeFull)
+	err = executor.UpdateBounds(ctx, modelID, tasks.ScanTypeFull)
 	require.NoError(t, err)
 
 	cache, err = adminSvc.GetExternalBounds(ctx, modelID)
@@ -1250,7 +1251,7 @@ func TestIntegration_UpdateBounds_InitialScanCompleteFlow(t *testing.T) {
 	assert.Nil(t, cache, "No cache should exist initially")
 
 	// Try incremental scan without initial full scan - should be skipped
-	err = executor.UpdateBounds(ctx, modelID, ScanTypeIncremental)
+	err = executor.UpdateBounds(ctx, modelID, tasks.ScanTypeIncremental)
 	require.NoError(t, err)
 
 	// Verify no cache was created (incremental skipped without initial scan)
@@ -1259,7 +1260,7 @@ func TestIntegration_UpdateBounds_InitialScanCompleteFlow(t *testing.T) {
 	assert.Nil(t, cache, "Incremental scan without initial scan should not create cache")
 
 	// Run full scan - should set InitialScanComplete = true
-	err = executor.UpdateBounds(ctx, modelID, ScanTypeFull)
+	err = executor.UpdateBounds(ctx, modelID, tasks.ScanTypeFull)
 	require.NoError(t, err)
 
 	cache, err = adminSvc.GetExternalBounds(ctx, modelID)
@@ -1277,7 +1278,7 @@ func TestIntegration_UpdateBounds_InitialScanCompleteFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now incremental scan should succeed
-	err = executor.UpdateBounds(ctx, modelID, ScanTypeIncremental)
+	err = executor.UpdateBounds(ctx, modelID, tasks.ScanTypeIncremental)
 	require.NoError(t, err)
 
 	cache, err = adminSvc.GetExternalBounds(ctx, modelID)
@@ -1309,7 +1310,7 @@ func TestIntegration_UpdateBounds_AsymmetricZeroProtection(t *testing.T) {
 	modelID := testSourceDB + "." + testSourceTable
 
 	// Initial full scan to populate cache with real bounds
-	err := executor.UpdateBounds(ctx, modelID, ScanTypeFull)
+	err := executor.UpdateBounds(ctx, modelID, tasks.ScanTypeFull)
 	require.NoError(t, err)
 
 	initialCache, err := adminSvc.GetExternalBounds(ctx, modelID)
@@ -1321,7 +1322,7 @@ func TestIntegration_UpdateBounds_AsymmetricZeroProtection(t *testing.T) {
 
 	// Now run incremental scan - SQL will return previous_min but 0 for max
 	// This simulates the bug where scan window has no data
-	err = executor.UpdateBounds(ctx, modelID, ScanTypeIncremental)
+	err = executor.UpdateBounds(ctx, modelID, tasks.ScanTypeIncremental)
 	require.NoError(t, err)
 
 	// Bounds should be PRESERVED, not corrupted to (0, 0)
@@ -1353,7 +1354,7 @@ func TestIntegration_UpdateBounds_MinGreaterThanMaxProtection(t *testing.T) {
 	modelID := testSourceDB + "." + testSourceTable
 
 	// Initial full scan to populate cache with real bounds
-	err := executor.UpdateBounds(ctx, modelID, ScanTypeFull)
+	err := executor.UpdateBounds(ctx, modelID, tasks.ScanTypeFull)
 	require.NoError(t, err)
 
 	initialCache, err := adminSvc.GetExternalBounds(ctx, modelID)
@@ -1364,7 +1365,7 @@ func TestIntegration_UpdateBounds_MinGreaterThanMaxProtection(t *testing.T) {
 	assert.Equal(t, uint64(499), initialCache.Max)
 
 	// Now run incremental scan - SQL will return min=600, max=200 (invalid)
-	err = executor.UpdateBounds(ctx, modelID, ScanTypeIncremental)
+	err = executor.UpdateBounds(ctx, modelID, tasks.ScanTypeIncremental)
 	require.NoError(t, err)
 
 	// Bounds should be PRESERVED, not set to invalid (600, 200)

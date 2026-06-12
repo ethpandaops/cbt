@@ -106,12 +106,12 @@ func setupIntegrationCoordinator(t *testing.T) (Service, admin.Service, *testuti
 
 	// Create external model for bounds
 	externalSQL := testutil.DefaultExternalBoundsSQL(testSourceDB, testSourceTable)
-	externalModel, err := testutil.NewTestExternalSQL(testSourceDB, testSourceTable, externalSQL)
+	externalModel, err := testutil.NewExternalSQL(testSourceDB, testSourceTable, externalSQL)
 	require.NoError(t, err)
 
 	// Create transformation
 	transformSQL := testutil.DefaultTransformationSQL(testSourceDB, testSourceTable)
-	transformModel, err := testutil.NewTestTransformationSQL(
+	transformModel, err := testutil.NewTransformationSQL(
 		testTargetDB, testTargetTable, transformSQL,
 		testutil.WithDependencies(testSourceDB+"."+testSourceTable),
 		testutil.WithInterval(0, 100),
@@ -119,7 +119,7 @@ func setupIntegrationCoordinator(t *testing.T) (Service, admin.Service, *testuti
 	require.NoError(t, err)
 
 	// Build DAG
-	dag := testutil.TestDAG([]models.Transformation{transformModel}, []models.External{externalModel})
+	dag := testutil.DAG([]models.Transformation{transformModel}, []models.External{externalModel})
 
 	// Create test validator
 	validator := &testValidator{
@@ -158,7 +158,7 @@ func TestIntegration_ProcessForward_InitialPosition(t *testing.T) {
 
 	// Create transformation for testing
 	transformSQL := testutil.DefaultTransformationSQL(testSourceDB, testSourceTable)
-	transformModel, err := testutil.NewTestTransformationSQL(
+	transformModel, err := testutil.NewTransformationSQL(
 		testTargetDB, testTargetTable, transformSQL,
 		testutil.WithDependencies(testSourceDB+"."+testSourceTable),
 		testutil.WithInterval(0, 100),
@@ -457,7 +457,7 @@ func TestIntegration_ServiceLifecycle(t *testing.T) {
 	)
 
 	// Empty DAG for this test
-	dag := testutil.TestDAG(nil, nil)
+	dag := testutil.DAG(nil, nil)
 
 	validator := &testValidator{
 		validateResult: validation.Result{CanProcess: true},
@@ -604,8 +604,8 @@ func setupChainedCoordinator(t *testing.T) (Service, admin.Service, *testutil.Re
 	)
 
 	// Create transformation chain
-	chainCfg := testutil.DefaultTestChainConfig()
-	external, level1, level2, dag, err := testutil.NewTestTransformationChain(chainCfg)
+	chainCfg := testutil.DefaultChainConfig()
+	external, level1, level2, dag, err := testutil.NewTransformationChain(chainCfg)
 	require.NoError(t, err)
 
 	// Set up external bounds
@@ -758,8 +758,8 @@ func TestIntegration_DAG_TransformationDependencies(t *testing.T) {
 	)
 
 	// Create transformation chain
-	chainCfg := testutil.DefaultTestChainConfig()
-	external, level1, level2, dag, err := testutil.NewTestTransformationChain(chainCfg)
+	chainCfg := testutil.DefaultChainConfig()
+	external, level1, level2, dag, err := testutil.NewTransformationChain(chainCfg)
 	require.NoError(t, err)
 
 	// Verify DAG structure

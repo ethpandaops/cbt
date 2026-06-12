@@ -2,12 +2,12 @@ package coordinator
 
 import (
 	"context"
-	"errors"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/ethpandaops/cbt/internal/testutil"
+	"github.com/ethpandaops/cbt/internal/testutil/adminfake"
 	"github.com/ethpandaops/cbt/pkg/admin"
 	"github.com/ethpandaops/cbt/pkg/models"
 	"github.com/ethpandaops/cbt/pkg/models/transformation"
@@ -20,20 +20,13 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-// Test errors
-var (
-	errMockDAGError       = errors.New("mock DAG error")
-	errNotATransformation = errors.New("not a transformation")
-	errNotImplemented     = errors.New("not implemented")
-)
-
 // Test service creation (ethPandaOps requirement)
 func TestNewService(t *testing.T) {
 	log := logrus.New()
 	// Use nil for Redis options - we're not testing Redis connectivity
 	var redisOpt *redis.Options
-	mockDAG := &mockDAGReader{}
-	mockAdmin := &mockAdminService{}
+	mockDAG := &testutil.FakeDAGReader{}
+	mockAdmin := &adminfake.FakeAdminService{}
 	mockValidator := validation.NewMockValidator()
 
 	svc, err := NewService(log, redisOpt, mockDAG, mockAdmin, mockValidator)
@@ -48,8 +41,8 @@ func TestNewService(t *testing.T) {
 func TestServiceCreation(t *testing.T) {
 	log := logrus.New()
 	var redisOpt *redis.Options
-	mockDAG := &mockDAGReader{}
-	mockAdmin := &mockAdminService{}
+	mockDAG := &testutil.FakeDAGReader{}
+	mockAdmin := &adminfake.FakeAdminService{}
 	mockValidator := validation.NewMockValidator()
 
 	svc, err := NewService(log, redisOpt, mockDAG, mockAdmin, mockValidator)
@@ -84,11 +77,11 @@ func TestProcessForward(t *testing.T) {
 		Addr: mr.Addr(),
 	}
 
-	mockDAG := &mockDAGReader{
-		nodes: make(map[string]models.Node),
+	mockDAG := &testutil.FakeDAGReader{
+		NodeByID: make(map[string]models.Node),
 	}
-	mockAdmin := &mockAdminService{
-		lastPositions: make(map[string]uint64),
+	mockAdmin := &adminfake.FakeAdminService{
+		LastPositions: make(map[string]uint64),
 	}
 	mockValidator := validation.NewMockValidator()
 
@@ -104,9 +97,8 @@ func TestProcessForward(t *testing.T) {
 	defer svc.Stop()
 
 	// Create a mock transformation
-	mockTrans := &mockTransformation{
-		id:       "test.model",
-		interval: 100,
+	mockTrans := &testutil.FakeTransformation{
+		ID: "test.model",
 	}
 
 	// Test that Process doesn't panic
@@ -129,11 +121,11 @@ func TestProcessBackfill(t *testing.T) {
 		Addr: mr.Addr(),
 	}
 
-	mockDAG := &mockDAGReader{
-		nodes: make(map[string]models.Node),
+	mockDAG := &testutil.FakeDAGReader{
+		NodeByID: make(map[string]models.Node),
 	}
-	mockAdmin := &mockAdminService{
-		lastPositions: make(map[string]uint64),
+	mockAdmin := &adminfake.FakeAdminService{
+		LastPositions: make(map[string]uint64),
 	}
 	mockValidator := validation.NewMockValidator()
 
@@ -149,9 +141,8 @@ func TestProcessBackfill(t *testing.T) {
 	defer svc.Stop()
 
 	// Create a mock transformation
-	mockTrans := &mockTransformation{
-		id:       "test.model",
-		interval: 100,
+	mockTrans := &testutil.FakeTransformation{
+		ID: "test.model",
 	}
 
 	// Test that Process doesn't panic with backfill direction
@@ -165,23 +156,23 @@ func BenchmarkServiceCreation(b *testing.B) {
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel)
 	var redisOpt *redis.Options
-	mockDAG := &mockDAGReader{
-		nodes: map[string]models.Node{
+	mockDAG := &testutil.FakeDAGReader{
+		NodeByID: map[string]models.Node{
 			"model.bench": {
 				NodeType: models.NodeTypeTransformation,
-				Model:    &mockTransformation{id: "model.bench", interval: 100},
+				Model:    &testutil.FakeTransformation{ID: "model.bench"},
 			},
 		},
 	}
-	mockAdmin := &mockAdminService{
-		lastPositions: map[string]uint64{
+	mockAdmin := &adminfake.FakeAdminService{
+		LastPositions: map[string]uint64{
 			"model.bench": 10000,
 		},
 	}
 	mockValidator := validation.NewMockValidator()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_, err := NewService(log, redisOpt, mockDAG, mockAdmin, mockValidator)
 		if err != nil {
 			b.Fatal(err)
@@ -190,206 +181,6 @@ func BenchmarkServiceCreation(b *testing.B) {
 }
 
 // Mock implementations for testing
-
-type mockDAGReader struct {
-	nodes map[string]models.Node
-	mu    sync.RWMutex
-}
-
-func (m *mockDAGReader) GetNode(id string) (models.Node, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if node, ok := m.nodes[id]; ok {
-		return node, nil
-	}
-	return models.Node{}, errMockDAGError
-}
-
-func (m *mockDAGReader) GetTransformationNode(id string) (models.Transformation, error) {
-	node, err := m.GetNode(id)
-	if err != nil {
-		return nil, err
-	}
-	if trans, ok := node.Model.(models.Transformation); ok {
-		return trans, nil
-	}
-	return nil, errNotATransformation
-}
-
-func (m *mockDAGReader) GetExternalNode(_ string) (models.External, error) {
-	return nil, errNotImplemented
-}
-
-func (m *mockDAGReader) GetDependencies(_ string) []string { return []string{} }
-func (m *mockDAGReader) GetStructuredDependencies(_ string) []transformation.Dependency {
-	return nil
-}
-func (m *mockDAGReader) GetDependents(_ string) []string                 { return []string{} }
-func (m *mockDAGReader) GetAllDependencies(_ string) []string            { return []string{} }
-func (m *mockDAGReader) GetAllDependents(_ string) []string              { return []string{} }
-func (m *mockDAGReader) GetTransformationNodes() []models.Transformation { return nil }
-func (m *mockDAGReader) GetExternalNodes() []models.Node                 { return []models.Node{} }
-func (m *mockDAGReader) IsPathBetween(_, _ string) bool                  { return false }
-
-type mockAdminService struct {
-	lastPositions  map[string]uint64
-	firstPositions map[string]uint64
-	gaps           map[string][]admin.GapInfo
-	externalBounds map[string]*admin.BoundsCache
-	mu             sync.RWMutex
-}
-
-func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, modelID string) (uint64, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if pos, ok := m.lastPositions[modelID]; ok {
-		return pos, nil
-	}
-	return 0, nil
-}
-
-func (m *mockAdminService) GetLastProcessedPosition(_ context.Context, modelID string) (uint64, error) {
-	// For mock purposes, return the last position if it exists, otherwise 0
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if pos, ok := m.lastPositions[modelID]; ok {
-		// In real implementation, this would be just the position without interval
-		// For testing, we'll return the position directly
-		return pos, nil
-	}
-	return 0, nil
-}
-
-func (m *mockAdminService) GetFirstPosition(_ context.Context, modelID string) (uint64, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if pos, ok := m.firstPositions[modelID]; ok {
-		return pos, nil
-	}
-	return 0, nil
-}
-
-func (m *mockAdminService) RecordCompletion(_ context.Context, modelID string, position, _ uint64) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.lastPositions[modelID] = position
-	return nil
-}
-
-func (m *mockAdminService) FindGaps(_ context.Context, modelID string, _, _, _ uint64) ([]admin.GapInfo, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if gaps, ok := m.gaps[modelID]; ok {
-		return gaps, nil
-	}
-	return []admin.GapInfo{}, nil
-}
-
-func (m *mockAdminService) GetExternalBounds(_ context.Context, modelID string) (*admin.BoundsCache, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if bounds, ok := m.externalBounds[modelID]; ok {
-		return bounds, nil
-	}
-	return nil, nil
-}
-
-func (m *mockAdminService) SetExternalBounds(_ context.Context, cache *admin.BoundsCache) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.externalBounds == nil {
-		m.externalBounds = make(map[string]*admin.BoundsCache)
-	}
-	m.externalBounds[cache.ModelID] = cache
-	return nil
-}
-
-func (m *mockAdminService) DeleteExternalBounds(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64) (bool, error) {
-	return false, nil
-}
-
-func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetIncrementalAdminDatabase() string {
-	return "admin"
-}
-
-func (m *mockAdminService) GetIncrementalAdminTable() string {
-	return "cbt"
-}
-
-func (m *mockAdminService) GetScheduledAdminDatabase() string {
-	return "admin"
-}
-
-func (m *mockAdminService) GetScheduledAdminTable() string {
-	return "cbt_scheduled"
-}
-
-func (m *mockAdminService) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
-	return nil
-}
-
-func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
-	return nil, nil
-}
-
-func (m *mockAdminService) DeletePeriod(_ context.Context, _ string, _, _ uint64) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
-	return []admin.ProcessedRange{}, nil
-}
-
-func (m *mockAdminService) GetAllProcessedRanges(_ context.Context, _ []string) (map[string][]admin.ProcessedRange, error) {
-	return make(map[string][]admin.ProcessedRange), nil
-}
-
-func (m *mockAdminService) GetAllLastScheduledExecutions(_ context.Context, _ []string) (map[string]*time.Time, error) {
-	return make(map[string]*time.Time), nil
-}
-func (m *mockAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
-	return &mockCoordinatorBoundsLock{}, nil
-}
-
-func (m *mockAdminService) GetConfigOverride(_ context.Context, _ string) (*admin.ConfigOverride, error) {
-	return nil, nil
-}
-
-func (m *mockAdminService) GetAllConfigOverrides(_ context.Context) ([]admin.ConfigOverride, error) {
-	return nil, nil
-}
-
-func (m *mockAdminService) SetConfigOverride(_ context.Context, _ *admin.ConfigOverride) error {
-	return nil
-}
-
-func (m *mockAdminService) DeleteConfigOverride(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockAdminService) DeleteAllConfigOverrides(_ context.Context) error {
-	return nil
-}
-
-func (m *mockAdminService) GetConfigOverrideVersion(_ context.Context) (int64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetCacheManager() *admin.CacheManager {
-	return nil
-}
-
-type mockCoordinatorBoundsLock struct{}
-
-func (m *mockCoordinatorBoundsLock) Unlock(_ context.Context) error { return nil }
 
 // compositeHandler combines generated mocks to satisfy type assertions for
 // transformation.Handler, IntervalHandler, and ScheduleHandler interfaces.
@@ -428,43 +219,6 @@ func (c *compositeHandler) setupDefaultExpectations() {
 	}).AnyTimes()
 	c.MockHandler.EXPECT().RecordCompletion(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 }
-
-// Mock transformation for testing
-type mockTransformation struct {
-	id       string
-	interval uint64
-	config   *transformation.Config // Allow custom config for testing
-	handler  transformation.Handler // Mock handler for testing
-}
-
-func (m *mockTransformation) GetID() string { return m.id }
-func (m *mockTransformation) GetConfig() *transformation.Config {
-	if m.config != nil {
-		return m.config
-	}
-	// Default config for new architecture
-	return &transformation.Config{
-		Type:     transformation.TypeIncremental,
-		Database: "test_db",
-		Table:    "test_table",
-	}
-}
-func (m *mockTransformation) GetHandler() transformation.Handler {
-	return m.handler
-}
-func (m *mockTransformation) GetValue() string                  { return "" }
-func (m *mockTransformation) GetDependencies() []string         { return []string{} }
-func (m *mockTransformation) GetSQL() string                    { return "" }
-func (m *mockTransformation) GetType() string                   { return "transformation" }
-func (m *mockTransformation) GetEnvironmentVariables() []string { return []string{} }
-func (m *mockTransformation) SetDefaultDatabase(defaultDB string) {
-	if m.config != nil && m.config.Database == "" {
-		m.config.Database = defaultDB
-	}
-}
-
-// Ensure mockTransformation implements the Transformation interface
-var _ models.Transformation = (*mockTransformation)(nil)
 
 // Test adjustIntervalForDependencies - the core logic for partial interval support
 func TestAdjustIntervalForDependencies(t *testing.T) {
@@ -573,14 +327,14 @@ func TestAdjustIntervalForDependencies(t *testing.T) {
 			handler.MockScheduleHandler.EXPECT().GetLimits().Return(nil).AnyTimes()
 
 			// Setup mock transformation
-			trans := &mockTransformation{
-				id: "test.model",
-				config: &transformation.Config{
+			trans := &testutil.FakeTransformation{
+				ID: "test.model",
+				Config: transformation.Config{
 					Type:     transformation.TypeIncremental,
 					Database: "test",
 					Table:    "model",
 				},
-				handler: handler,
+				Handler: handler,
 			}
 
 			// Create service
@@ -778,16 +532,16 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 			handler.MockScheduleHandler.EXPECT().IsBackfillEnabled().Return(false).AnyTimes()
 			handler.MockScheduleHandler.EXPECT().GetLimits().Return(nil).AnyTimes()
 
-			trans := &mockTransformation{
-				id:      "test.model",
-				handler: handler,
+			trans := &testutil.FakeTransformation{
+				ID:      "test.model",
+				Handler: handler,
 			}
 
 			// Create a testable service that tracks enqueued tasks
 			testService := &testableService{
 				log:       logrus.NewEntry(logrus.New()),
 				validator: mockValidator,
-				admin:     &mockAdminService{},
+				admin:     &adminfake.FakeAdminService{},
 			}
 
 			// Test the actual gap skipping functionality
@@ -795,7 +549,7 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 			testService.processForwardWithGapSkipping(ctx, trans, tt.startPos, tt.maxLimit)
 
 			// Verify the positions that were validated
-			assert.Equal(t, len(tt.expectedPositions), len(mockValidator.ValidateCalls), "Should call validation for expected number of positions")
+			assert.Len(t, mockValidator.ValidateCalls, len(tt.expectedPositions), "Should call validation for expected number of positions")
 
 			for i, expectedPos := range tt.expectedPositions {
 				if i < len(mockValidator.ValidateCalls) {
@@ -810,7 +564,7 @@ func TestProcessForwardWithGapSkipping(t *testing.T) {
 					processableCount++
 				}
 			}
-			assert.Equal(t, processableCount, len(testService.enqueuedTasks), "Should enqueue tasks for processable positions")
+			assert.Len(t, testService.enqueuedTasks, processableCount, "Should enqueue tasks for processable positions")
 		})
 	}
 }
@@ -1017,14 +771,14 @@ func TestCalculateBackfillScanRange(t *testing.T) {
 			handler.MockScheduleHandler.EXPECT().GetLimits().Return(limits).AnyTimes()
 
 			// Setup mock transformation
-			trans := &mockTransformation{
-				id: "test.model",
-				config: &transformation.Config{
+			trans := &testutil.FakeTransformation{
+				ID: "test.model",
+				Config: transformation.Config{
 					Type:     transformation.TypeIncremental,
 					Database: "test",
 					Table:    "model",
 				},
-				handler: handler,
+				Handler: handler,
 			}
 
 			// Create service

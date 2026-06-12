@@ -18,6 +18,496 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
+// MockPositionTracker is a mock of PositionTracker interface.
+type MockPositionTracker struct {
+	ctrl     *gomock.Controller
+	recorder *MockPositionTrackerMockRecorder
+	isgomock struct{}
+}
+
+// MockPositionTrackerMockRecorder is the mock recorder for MockPositionTracker.
+type MockPositionTrackerMockRecorder struct {
+	mock *MockPositionTracker
+}
+
+// NewMockPositionTracker creates a new mock instance.
+func NewMockPositionTracker(ctrl *gomock.Controller) *MockPositionTracker {
+	mock := &MockPositionTracker{ctrl: ctrl}
+	mock.recorder = &MockPositionTrackerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPositionTracker) EXPECT() *MockPositionTrackerMockRecorder {
+	return m.recorder
+}
+
+// ConsolidateHistoricalData mocks base method.
+func (m *MockPositionTracker) ConsolidateHistoricalData(ctx context.Context, modelID string) (uint64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ConsolidateHistoricalData", ctx, modelID)
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ConsolidateHistoricalData indicates an expected call of ConsolidateHistoricalData.
+func (mr *MockPositionTrackerMockRecorder) ConsolidateHistoricalData(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConsolidateHistoricalData", reflect.TypeOf((*MockPositionTracker)(nil).ConsolidateHistoricalData), ctx, modelID)
+}
+
+// DeletePeriod mocks base method.
+func (m *MockPositionTracker) DeletePeriod(ctx context.Context, modelID string, startPos, endPos uint64) (uint64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePeriod", ctx, modelID, startPos, endPos)
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeletePeriod indicates an expected call of DeletePeriod.
+func (mr *MockPositionTrackerMockRecorder) DeletePeriod(ctx, modelID, startPos, endPos any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePeriod", reflect.TypeOf((*MockPositionTracker)(nil).DeletePeriod), ctx, modelID, startPos, endPos)
+}
+
+// FindGaps mocks base method.
+func (m *MockPositionTracker) FindGaps(ctx context.Context, modelID string, minPos, maxPos, interval uint64) ([]admin.GapInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindGaps", ctx, modelID, minPos, maxPos, interval)
+	ret0, _ := ret[0].([]admin.GapInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindGaps indicates an expected call of FindGaps.
+func (mr *MockPositionTrackerMockRecorder) FindGaps(ctx, modelID, minPos, maxPos, interval any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindGaps", reflect.TypeOf((*MockPositionTracker)(nil).FindGaps), ctx, modelID, minPos, maxPos, interval)
+}
+
+// GetAllProcessedRanges mocks base method.
+func (m *MockPositionTracker) GetAllProcessedRanges(ctx context.Context, modelIDs []string) (map[string][]admin.ProcessedRange, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllProcessedRanges", ctx, modelIDs)
+	ret0, _ := ret[0].(map[string][]admin.ProcessedRange)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllProcessedRanges indicates an expected call of GetAllProcessedRanges.
+func (mr *MockPositionTrackerMockRecorder) GetAllProcessedRanges(ctx, modelIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllProcessedRanges", reflect.TypeOf((*MockPositionTracker)(nil).GetAllProcessedRanges), ctx, modelIDs)
+}
+
+// GetCoverage mocks base method.
+func (m *MockPositionTracker) GetCoverage(ctx context.Context, modelID string, startPos, endPos uint64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCoverage", ctx, modelID, startPos, endPos)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCoverage indicates an expected call of GetCoverage.
+func (mr *MockPositionTrackerMockRecorder) GetCoverage(ctx, modelID, startPos, endPos any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCoverage", reflect.TypeOf((*MockPositionTracker)(nil).GetCoverage), ctx, modelID, startPos, endPos)
+}
+
+// GetFirstPosition mocks base method.
+func (m *MockPositionTracker) GetFirstPosition(ctx context.Context, modelID string) (uint64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetFirstPosition", ctx, modelID)
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetFirstPosition indicates an expected call of GetFirstPosition.
+func (mr *MockPositionTrackerMockRecorder) GetFirstPosition(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFirstPosition", reflect.TypeOf((*MockPositionTracker)(nil).GetFirstPosition), ctx, modelID)
+}
+
+// GetIncrementalAdminDatabase mocks base method.
+func (m *MockPositionTracker) GetIncrementalAdminDatabase() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetIncrementalAdminDatabase")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetIncrementalAdminDatabase indicates an expected call of GetIncrementalAdminDatabase.
+func (mr *MockPositionTrackerMockRecorder) GetIncrementalAdminDatabase() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIncrementalAdminDatabase", reflect.TypeOf((*MockPositionTracker)(nil).GetIncrementalAdminDatabase))
+}
+
+// GetIncrementalAdminTable mocks base method.
+func (m *MockPositionTracker) GetIncrementalAdminTable() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetIncrementalAdminTable")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetIncrementalAdminTable indicates an expected call of GetIncrementalAdminTable.
+func (mr *MockPositionTrackerMockRecorder) GetIncrementalAdminTable() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIncrementalAdminTable", reflect.TypeOf((*MockPositionTracker)(nil).GetIncrementalAdminTable))
+}
+
+// GetLastProcessedPosition mocks base method.
+func (m *MockPositionTracker) GetLastProcessedPosition(ctx context.Context, modelID string) (uint64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLastProcessedPosition", ctx, modelID)
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLastProcessedPosition indicates an expected call of GetLastProcessedPosition.
+func (mr *MockPositionTrackerMockRecorder) GetLastProcessedPosition(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLastProcessedPosition", reflect.TypeOf((*MockPositionTracker)(nil).GetLastProcessedPosition), ctx, modelID)
+}
+
+// GetNextUnprocessedPosition mocks base method.
+func (m *MockPositionTracker) GetNextUnprocessedPosition(ctx context.Context, modelID string) (uint64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNextUnprocessedPosition", ctx, modelID)
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNextUnprocessedPosition indicates an expected call of GetNextUnprocessedPosition.
+func (mr *MockPositionTrackerMockRecorder) GetNextUnprocessedPosition(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNextUnprocessedPosition", reflect.TypeOf((*MockPositionTracker)(nil).GetNextUnprocessedPosition), ctx, modelID)
+}
+
+// GetProcessedRanges mocks base method.
+func (m *MockPositionTracker) GetProcessedRanges(ctx context.Context, modelID string) ([]admin.ProcessedRange, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProcessedRanges", ctx, modelID)
+	ret0, _ := ret[0].([]admin.ProcessedRange)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProcessedRanges indicates an expected call of GetProcessedRanges.
+func (mr *MockPositionTrackerMockRecorder) GetProcessedRanges(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProcessedRanges", reflect.TypeOf((*MockPositionTracker)(nil).GetProcessedRanges), ctx, modelID)
+}
+
+// RecordCompletion mocks base method.
+func (m *MockPositionTracker) RecordCompletion(ctx context.Context, modelID string, position, interval uint64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordCompletion", ctx, modelID, position, interval)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordCompletion indicates an expected call of RecordCompletion.
+func (mr *MockPositionTrackerMockRecorder) RecordCompletion(ctx, modelID, position, interval any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordCompletion", reflect.TypeOf((*MockPositionTracker)(nil).RecordCompletion), ctx, modelID, position, interval)
+}
+
+// MockScheduledTracker is a mock of ScheduledTracker interface.
+type MockScheduledTracker struct {
+	ctrl     *gomock.Controller
+	recorder *MockScheduledTrackerMockRecorder
+	isgomock struct{}
+}
+
+// MockScheduledTrackerMockRecorder is the mock recorder for MockScheduledTracker.
+type MockScheduledTrackerMockRecorder struct {
+	mock *MockScheduledTracker
+}
+
+// NewMockScheduledTracker creates a new mock instance.
+func NewMockScheduledTracker(ctrl *gomock.Controller) *MockScheduledTracker {
+	mock := &MockScheduledTracker{ctrl: ctrl}
+	mock.recorder = &MockScheduledTrackerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockScheduledTracker) EXPECT() *MockScheduledTrackerMockRecorder {
+	return m.recorder
+}
+
+// GetAllLastScheduledExecutions mocks base method.
+func (m *MockScheduledTracker) GetAllLastScheduledExecutions(ctx context.Context, modelIDs []string) (map[string]*time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllLastScheduledExecutions", ctx, modelIDs)
+	ret0, _ := ret[0].(map[string]*time.Time)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllLastScheduledExecutions indicates an expected call of GetAllLastScheduledExecutions.
+func (mr *MockScheduledTrackerMockRecorder) GetAllLastScheduledExecutions(ctx, modelIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllLastScheduledExecutions", reflect.TypeOf((*MockScheduledTracker)(nil).GetAllLastScheduledExecutions), ctx, modelIDs)
+}
+
+// GetLastScheduledExecution mocks base method.
+func (m *MockScheduledTracker) GetLastScheduledExecution(ctx context.Context, modelID string) (*time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLastScheduledExecution", ctx, modelID)
+	ret0, _ := ret[0].(*time.Time)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLastScheduledExecution indicates an expected call of GetLastScheduledExecution.
+func (mr *MockScheduledTrackerMockRecorder) GetLastScheduledExecution(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLastScheduledExecution", reflect.TypeOf((*MockScheduledTracker)(nil).GetLastScheduledExecution), ctx, modelID)
+}
+
+// GetScheduledAdminDatabase mocks base method.
+func (m *MockScheduledTracker) GetScheduledAdminDatabase() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetScheduledAdminDatabase")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetScheduledAdminDatabase indicates an expected call of GetScheduledAdminDatabase.
+func (mr *MockScheduledTrackerMockRecorder) GetScheduledAdminDatabase() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetScheduledAdminDatabase", reflect.TypeOf((*MockScheduledTracker)(nil).GetScheduledAdminDatabase))
+}
+
+// GetScheduledAdminTable mocks base method.
+func (m *MockScheduledTracker) GetScheduledAdminTable() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetScheduledAdminTable")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetScheduledAdminTable indicates an expected call of GetScheduledAdminTable.
+func (mr *MockScheduledTrackerMockRecorder) GetScheduledAdminTable() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetScheduledAdminTable", reflect.TypeOf((*MockScheduledTracker)(nil).GetScheduledAdminTable))
+}
+
+// RecordScheduledCompletion mocks base method.
+func (m *MockScheduledTracker) RecordScheduledCompletion(ctx context.Context, modelID string, startDateTime time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordScheduledCompletion", ctx, modelID, startDateTime)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordScheduledCompletion indicates an expected call of RecordScheduledCompletion.
+func (mr *MockScheduledTrackerMockRecorder) RecordScheduledCompletion(ctx, modelID, startDateTime any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordScheduledCompletion", reflect.TypeOf((*MockScheduledTracker)(nil).RecordScheduledCompletion), ctx, modelID, startDateTime)
+}
+
+// MockBoundsStore is a mock of BoundsStore interface.
+type MockBoundsStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockBoundsStoreMockRecorder
+	isgomock struct{}
+}
+
+// MockBoundsStoreMockRecorder is the mock recorder for MockBoundsStore.
+type MockBoundsStoreMockRecorder struct {
+	mock *MockBoundsStore
+}
+
+// NewMockBoundsStore creates a new mock instance.
+func NewMockBoundsStore(ctrl *gomock.Controller) *MockBoundsStore {
+	mock := &MockBoundsStore{ctrl: ctrl}
+	mock.recorder = &MockBoundsStoreMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockBoundsStore) EXPECT() *MockBoundsStoreMockRecorder {
+	return m.recorder
+}
+
+// AcquireBoundsLock mocks base method.
+func (m *MockBoundsStore) AcquireBoundsLock(ctx context.Context, modelID string) (admin.BoundsLock, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AcquireBoundsLock", ctx, modelID)
+	ret0, _ := ret[0].(admin.BoundsLock)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AcquireBoundsLock indicates an expected call of AcquireBoundsLock.
+func (mr *MockBoundsStoreMockRecorder) AcquireBoundsLock(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcquireBoundsLock", reflect.TypeOf((*MockBoundsStore)(nil).AcquireBoundsLock), ctx, modelID)
+}
+
+// DeleteExternalBounds mocks base method.
+func (m *MockBoundsStore) DeleteExternalBounds(ctx context.Context, modelID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteExternalBounds", ctx, modelID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteExternalBounds indicates an expected call of DeleteExternalBounds.
+func (mr *MockBoundsStoreMockRecorder) DeleteExternalBounds(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExternalBounds", reflect.TypeOf((*MockBoundsStore)(nil).DeleteExternalBounds), ctx, modelID)
+}
+
+// GetExternalBounds mocks base method.
+func (m *MockBoundsStore) GetExternalBounds(ctx context.Context, modelID string) (*admin.BoundsCache, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetExternalBounds", ctx, modelID)
+	ret0, _ := ret[0].(*admin.BoundsCache)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetExternalBounds indicates an expected call of GetExternalBounds.
+func (mr *MockBoundsStoreMockRecorder) GetExternalBounds(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExternalBounds", reflect.TypeOf((*MockBoundsStore)(nil).GetExternalBounds), ctx, modelID)
+}
+
+// SetExternalBounds mocks base method.
+func (m *MockBoundsStore) SetExternalBounds(ctx context.Context, cache *admin.BoundsCache) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetExternalBounds", ctx, cache)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetExternalBounds indicates an expected call of SetExternalBounds.
+func (mr *MockBoundsStoreMockRecorder) SetExternalBounds(ctx, cache any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetExternalBounds", reflect.TypeOf((*MockBoundsStore)(nil).SetExternalBounds), ctx, cache)
+}
+
+// MockOverrideStore is a mock of OverrideStore interface.
+type MockOverrideStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockOverrideStoreMockRecorder
+	isgomock struct{}
+}
+
+// MockOverrideStoreMockRecorder is the mock recorder for MockOverrideStore.
+type MockOverrideStoreMockRecorder struct {
+	mock *MockOverrideStore
+}
+
+// NewMockOverrideStore creates a new mock instance.
+func NewMockOverrideStore(ctrl *gomock.Controller) *MockOverrideStore {
+	mock := &MockOverrideStore{ctrl: ctrl}
+	mock.recorder = &MockOverrideStoreMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockOverrideStore) EXPECT() *MockOverrideStoreMockRecorder {
+	return m.recorder
+}
+
+// DeleteAllConfigOverrides mocks base method.
+func (m *MockOverrideStore) DeleteAllConfigOverrides(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAllConfigOverrides", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAllConfigOverrides indicates an expected call of DeleteAllConfigOverrides.
+func (mr *MockOverrideStoreMockRecorder) DeleteAllConfigOverrides(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAllConfigOverrides", reflect.TypeOf((*MockOverrideStore)(nil).DeleteAllConfigOverrides), ctx)
+}
+
+// DeleteConfigOverride mocks base method.
+func (m *MockOverrideStore) DeleteConfigOverride(ctx context.Context, modelID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteConfigOverride", ctx, modelID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteConfigOverride indicates an expected call of DeleteConfigOverride.
+func (mr *MockOverrideStoreMockRecorder) DeleteConfigOverride(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteConfigOverride", reflect.TypeOf((*MockOverrideStore)(nil).DeleteConfigOverride), ctx, modelID)
+}
+
+// GetAllConfigOverrides mocks base method.
+func (m *MockOverrideStore) GetAllConfigOverrides(ctx context.Context) ([]admin.ConfigOverride, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllConfigOverrides", ctx)
+	ret0, _ := ret[0].([]admin.ConfigOverride)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllConfigOverrides indicates an expected call of GetAllConfigOverrides.
+func (mr *MockOverrideStoreMockRecorder) GetAllConfigOverrides(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllConfigOverrides", reflect.TypeOf((*MockOverrideStore)(nil).GetAllConfigOverrides), ctx)
+}
+
+// GetConfigOverride mocks base method.
+func (m *MockOverrideStore) GetConfigOverride(ctx context.Context, modelID string) (*admin.ConfigOverride, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetConfigOverride", ctx, modelID)
+	ret0, _ := ret[0].(*admin.ConfigOverride)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetConfigOverride indicates an expected call of GetConfigOverride.
+func (mr *MockOverrideStoreMockRecorder) GetConfigOverride(ctx, modelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfigOverride", reflect.TypeOf((*MockOverrideStore)(nil).GetConfigOverride), ctx, modelID)
+}
+
+// GetConfigOverrideVersion mocks base method.
+func (m *MockOverrideStore) GetConfigOverrideVersion(ctx context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetConfigOverrideVersion", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetConfigOverrideVersion indicates an expected call of GetConfigOverrideVersion.
+func (mr *MockOverrideStoreMockRecorder) GetConfigOverrideVersion(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfigOverrideVersion", reflect.TypeOf((*MockOverrideStore)(nil).GetConfigOverrideVersion), ctx)
+}
+
+// SetConfigOverride mocks base method.
+func (m *MockOverrideStore) SetConfigOverride(ctx context.Context, override *admin.ConfigOverride) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetConfigOverride", ctx, override)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetConfigOverride indicates an expected call of SetConfigOverride.
+func (mr *MockOverrideStoreMockRecorder) SetConfigOverride(ctx, override any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetConfigOverride", reflect.TypeOf((*MockOverrideStore)(nil).SetConfigOverride), ctx, override)
+}
+
 // MockService is a mock of Service interface.
 type MockService struct {
 	ctrl     *gomock.Controller
@@ -187,20 +677,6 @@ func (m *MockService) GetAllProcessedRanges(ctx context.Context, modelIDs []stri
 func (mr *MockServiceMockRecorder) GetAllProcessedRanges(ctx, modelIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllProcessedRanges", reflect.TypeOf((*MockService)(nil).GetAllProcessedRanges), ctx, modelIDs)
-}
-
-// GetCacheManager mocks base method.
-func (m *MockService) GetCacheManager() *admin.CacheManager {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetCacheManager")
-	ret0, _ := ret[0].(*admin.CacheManager)
-	return ret0
-}
-
-// GetCacheManager indicates an expected call of GetCacheManager.
-func (mr *MockServiceMockRecorder) GetCacheManager() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCacheManager", reflect.TypeOf((*MockService)(nil).GetCacheManager))
 }
 
 // GetConfigOverride mocks base method.

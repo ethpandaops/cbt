@@ -1,15 +1,12 @@
 package worker
 
 import (
-	"context"
 	"fmt"
 	"testing"
-	"time"
 
-	"github.com/ethpandaops/cbt/pkg/admin"
-	"github.com/ethpandaops/cbt/pkg/clickhouse"
+	"github.com/ethpandaops/cbt/internal/testutil"
+	"github.com/ethpandaops/cbt/internal/testutil/adminfake"
 	"github.com/ethpandaops/cbt/pkg/models"
-	"github.com/ethpandaops/cbt/pkg/models/transformation"
 	"github.com/ethpandaops/cbt/pkg/validation"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -56,10 +53,10 @@ func TestNewService(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			log := logrus.New()
-			mockCH := &mockClickhouseClient{}
-			mockAdmin := &mockAdminService{}
-			mockModels := &mockModelsService{
-				transformations: []models.Transformation{},
+			mockCH := &testutil.FakeClickHouseClient{}
+			mockAdmin := &adminfake.FakeAdminService{}
+			mockModels := &testutil.FakeModelsService{
+				Transformations: []models.Transformation{},
 			}
 			var redisOpt *redis.Options // nil for unit tests
 			mockValidator := validation.NewMockValidator()
@@ -87,10 +84,10 @@ func TestServiceInitialization(t *testing.T) {
 		Concurrency:     5,
 		ShutdownTimeout: 30,
 	}
-	mockCH := &mockClickhouseClient{}
-	mockAdmin := &mockAdminService{}
-	mockModels := &mockModelsService{
-		transformations: []models.Transformation{},
+	mockCH := &testutil.FakeClickHouseClient{}
+	mockAdmin := &adminfake.FakeAdminService{}
+	mockModels := &testutil.FakeModelsService{
+		Transformations: []models.Transformation{},
 	}
 	var redisOpt *redis.Options
 	mockValidator := validation.NewMockValidator()
@@ -165,21 +162,21 @@ func TestConfigValidate(t *testing.T) {
 
 // Test filteredTransformations function
 func TestFilteredTransformations(t *testing.T) {
-	trans1 := &mockTransformation{
-		id:   "model.test1",
-		tags: []string{"tag1", "tag2"},
+	trans1 := &testutil.FakeTransformation{
+		ID:   "model.test1",
+		Tags: []string{"tag1", "tag2"},
 	}
-	trans2 := &mockTransformation{
-		id:   "model.test2",
-		tags: []string{"tag2", "tag3"},
+	trans2 := &testutil.FakeTransformation{
+		ID:   "model.test2",
+		Tags: []string{"tag2", "tag3"},
 	}
-	trans3 := &mockTransformation{
-		id:   "model.test3",
-		tags: []string{"tag3", "tag4"},
+	trans3 := &testutil.FakeTransformation{
+		ID:   "model.test3",
+		Tags: []string{"tag3", "tag4"},
 	}
 
-	mockModels := &mockModelsService{
-		transformations: []models.Transformation{trans1, trans2, trans3},
+	mockModels := &testutil.FakeModelsService{
+		Transformations: []models.Transformation{trans1, trans2, trans3},
 	}
 
 	tests := []struct {
@@ -227,13 +224,13 @@ func TestFilteredTransformations(t *testing.T) {
 // matching tags are only returned once (regression test for duplicate bug fix).
 func TestFilteredTransformations_NoDuplicates(t *testing.T) {
 	// Transformation has both tag1 and tag2
-	trans := &mockTransformation{
-		id:   "model.multi_tag",
-		tags: []string{"tag1", "tag2", "tag3"},
+	trans := &testutil.FakeTransformation{
+		ID:   "model.multi_tag",
+		Tags: []string{"tag1", "tag2", "tag3"},
 	}
 
-	mockModels := &mockModelsService{
-		transformations: []models.Transformation{trans},
+	mockModels := &testutil.FakeModelsService{
+		Transformations: []models.Transformation{trans},
 	}
 
 	tests := []struct {
@@ -275,8 +272,8 @@ func TestFilteredTransformations_NoDuplicates(t *testing.T) {
 // TestFilteredTransformations_EdgeCases tests edge cases and boundary conditions.
 func TestFilteredTransformations_EdgeCases(t *testing.T) {
 	t.Run("empty transformations list", func(t *testing.T) {
-		mockModels := &mockModelsService{
-			transformations: []models.Transformation{},
+		mockModels := &testutil.FakeModelsService{
+			Transformations: []models.Transformation{},
 		}
 
 		result := filteredTransformations(mockModels, []string{"tag1"})
@@ -284,9 +281,9 @@ func TestFilteredTransformations_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("nil tags slice", func(t *testing.T) {
-		trans := &mockTransformation{id: "model.test", tags: []string{"tag1"}}
-		mockModels := &mockModelsService{
-			transformations: []models.Transformation{trans},
+		trans := &testutil.FakeTransformation{ID: "model.test", Tags: []string{"tag1"}}
+		mockModels := &testutil.FakeModelsService{
+			Transformations: []models.Transformation{trans},
 		}
 
 		// nil tags should behave like empty tags - return all
@@ -295,13 +292,13 @@ func TestFilteredTransformations_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("transformation with nil handler", func(t *testing.T) {
-		trans := &mockTransformation{
-			id:      "model.nil_handler",
-			tags:    []string{"tag1"},
-			handler: nil, // Explicitly nil - GetHandler will return mockHandler with tags
+		trans := &testutil.FakeTransformation{
+			ID:      "model.nil_handler",
+			Tags:    []string{"tag1"},
+			Handler: nil, // Explicitly nil - GetHandler will return mockHandler with tags
 		}
-		mockModels := &mockModelsService{
-			transformations: []models.Transformation{trans},
+		mockModels := &testutil.FakeModelsService{
+			Transformations: []models.Transformation{trans},
 		}
 
 		result := filteredTransformations(mockModels, []string{"tag1"})
@@ -310,12 +307,12 @@ func TestFilteredTransformations_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("transformation with empty tags", func(t *testing.T) {
-		trans := &mockTransformation{
-			id:   "model.no_tags",
-			tags: []string{}, // Empty tags
+		trans := &testutil.FakeTransformation{
+			ID:   "model.no_tags",
+			Tags: []string{}, // Empty tags
 		}
-		mockModels := &mockModelsService{
-			transformations: []models.Transformation{trans},
+		mockModels := &testutil.FakeModelsService{
+			Transformations: []models.Transformation{trans},
 		}
 
 		result := filteredTransformations(mockModels, []string{"tag1"})
@@ -323,12 +320,12 @@ func TestFilteredTransformations_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("case sensitivity", func(t *testing.T) {
-		trans := &mockTransformation{
-			id:   "model.case_test",
-			tags: []string{"Tag1", "TAG2"},
+		trans := &testutil.FakeTransformation{
+			ID:   "model.case_test",
+			Tags: []string{"Tag1", "TAG2"},
 		}
-		mockModels := &mockModelsService{
-			transformations: []models.Transformation{trans},
+		mockModels := &testutil.FakeModelsService{
+			Transformations: []models.Transformation{trans},
 		}
 
 		// Tags are case-sensitive
@@ -340,12 +337,12 @@ func TestFilteredTransformations_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("special characters in tags", func(t *testing.T) {
-		trans := &mockTransformation{
-			id:   "model.special",
-			tags: []string{"tag-with-dashes", "tag_with_underscores", "tag.with.dots"},
+		trans := &testutil.FakeTransformation{
+			ID:   "model.special",
+			Tags: []string{"tag-with-dashes", "tag_with_underscores", "tag.with.dots"},
 		}
-		mockModels := &mockModelsService{
-			transformations: []models.Transformation{trans},
+		mockModels := &testutil.FakeModelsService{
+			Transformations: []models.Transformation{trans},
 		}
 
 		tests := []string{"tag-with-dashes", "tag_with_underscores", "tag.with.dots"}
@@ -366,13 +363,13 @@ func TestFilteredTransformations_LargeScale(t *testing.T) {
 			for j := range 5 {
 				tags[j] = fmt.Sprintf("tag_%d_%d", i%10, j) // Creates groups of similar tags
 			}
-			transformations[i] = &mockTransformation{
-				id:   fmt.Sprintf("model.test_%d", i),
-				tags: tags,
+			transformations[i] = &testutil.FakeTransformation{
+				ID:   fmt.Sprintf("model.test_%d", i),
+				Tags: tags,
 			}
 		}
 
-		mockModels := &mockModelsService{transformations: transformations}
+		mockModels := &testutil.FakeModelsService{Transformations: transformations}
 
 		// Filter by tags that should match ~100 transformations each
 		result := filteredTransformations(mockModels, []string{"tag_0_0", "tag_1_0"})
@@ -382,12 +379,12 @@ func TestFilteredTransformations_LargeScale(t *testing.T) {
 	})
 
 	t.Run("few transformations many tags", func(t *testing.T) {
-		trans := &mockTransformation{
-			id:   "model.many_tags",
-			tags: []string{"target_tag"},
+		trans := &testutil.FakeTransformation{
+			ID:   "model.many_tags",
+			Tags: []string{"target_tag"},
 		}
-		mockModels := &mockModelsService{
-			transformations: []models.Transformation{trans},
+		mockModels := &testutil.FakeModelsService{
+			Transformations: []models.Transformation{trans},
 		}
 
 		// 100 filter tags, only one matches
@@ -409,13 +406,13 @@ func TestFilteredTransformations_LargeScale(t *testing.T) {
 			for j := range 10 {
 				tags[j] = fmt.Sprintf("tag_%d", (i*10+j)%100) // 100 unique tags total
 			}
-			transformations[i] = &mockTransformation{
-				id:   fmt.Sprintf("model.test_%d", i),
-				tags: tags,
+			transformations[i] = &testutil.FakeTransformation{
+				ID:   fmt.Sprintf("model.test_%d", i),
+				Tags: tags,
 			}
 		}
 
-		mockModels := &mockModelsService{transformations: transformations}
+		mockModels := &testutil.FakeModelsService{Transformations: transformations}
 
 		// Filter by 50 tags
 		filterTags := make([]string, 50)
@@ -427,7 +424,7 @@ func TestFilteredTransformations_LargeScale(t *testing.T) {
 		// Result count depends on tag distribution, just verify no panic
 		assert.NotNil(t, result)
 		// With our distribution, most transformations should match
-		assert.Greater(t, len(result), 0)
+		assert.NotEmpty(t, result)
 	})
 }
 
@@ -435,13 +432,13 @@ func TestFilteredTransformations_LargeScale(t *testing.T) {
 func TestFilteredTransformations_OrderPreservation(t *testing.T) {
 	transformations := make([]models.Transformation, 100)
 	for i := range 100 {
-		transformations[i] = &mockTransformation{
-			id:   fmt.Sprintf("model.test_%03d", i), // Zero-padded for easy sorting verification
-			tags: []string{"common_tag"},
+		transformations[i] = &testutil.FakeTransformation{
+			ID:   fmt.Sprintf("model.test_%03d", i), // Zero-padded for easy sorting verification
+			Tags: []string{"common_tag"},
 		}
 	}
 
-	mockModels := &mockModelsService{transformations: transformations}
+	mockModels := &testutil.FakeModelsService{Transformations: transformations}
 
 	result := filteredTransformations(mockModels, []string{"common_tag"})
 
@@ -464,19 +461,19 @@ func BenchmarkFilteredTransformations(b *testing.B) {
 		for j := range 5 {
 			tags[j] = fmt.Sprintf("tag_%d_%d", i%50, j)
 		}
-		transformations[i] = &mockTransformation{
-			id:   fmt.Sprintf("model.test_%d", i),
-			tags: tags,
+		transformations[i] = &testutil.FakeTransformation{
+			ID:   fmt.Sprintf("model.test_%d", i),
+			Tags: tags,
 		}
 	}
-	mockModels := &mockModelsService{transformations: transformations}
+	mockModels := &testutil.FakeModelsService{Transformations: transformations}
 	filterTags := []string{
 		"tag_0_0", "tag_1_0", "tag_2_0", "tag_3_0", "tag_4_0",
 		"tag_5_0", "tag_6_0", "tag_7_0", "tag_8_0", "tag_9_0",
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_ = filteredTransformations(mockModels, filterTags)
 	}
 }
@@ -499,25 +496,25 @@ func BenchmarkFilteredTransformations_Scaling(b *testing.B) {
 	for _, bm := range benchmarks {
 		b.Run(bm.name, func(b *testing.B) {
 			transformations := make([]models.Transformation, bm.numTransformations)
-			for i := 0; i < bm.numTransformations; i++ {
+			for i := range bm.numTransformations {
 				tags := make([]string, bm.tagsPerTrans)
-				for j := 0; j < bm.tagsPerTrans; j++ {
+				for j := range bm.tagsPerTrans {
 					tags[j] = fmt.Sprintf("tag_%d_%d", i%50, j)
 				}
-				transformations[i] = &mockTransformation{
-					id:   fmt.Sprintf("model.test_%d", i),
-					tags: tags,
+				transformations[i] = &testutil.FakeTransformation{
+					ID:   fmt.Sprintf("model.test_%d", i),
+					Tags: tags,
 				}
 			}
-			mockModels := &mockModelsService{transformations: transformations}
+			mockModels := &testutil.FakeModelsService{Transformations: transformations}
 
 			filterTags := make([]string, bm.numFilterTags)
-			for i := 0; i < bm.numFilterTags; i++ {
+			for i := range bm.numFilterTags {
 				filterTags[i] = fmt.Sprintf("tag_%d_0", i)
 			}
 
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for range b.N {
 				_ = filteredTransformations(mockModels, filterTags)
 			}
 		})
@@ -533,239 +530,19 @@ func BenchmarkNewService(b *testing.B) {
 		Concurrency:     5,
 		ShutdownTimeout: 30,
 	}
-	mockCH := &mockClickhouseClient{}
-	mockAdmin := &mockAdminService{}
-	mockModels := &mockModelsService{
-		transformations: []models.Transformation{},
+	mockCH := &testutil.FakeClickHouseClient{}
+	mockAdmin := &adminfake.FakeAdminService{}
+	mockModels := &testutil.FakeModelsService{
+		Transformations: []models.Transformation{},
 	}
 	var redisOpt *redis.Options
 	mockValidator := validation.NewMockValidator()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		_, err := NewService(log, cfg, mockCH, mockAdmin, mockModels, redisOpt, mockValidator)
 		if err != nil {
 			b.Fatal(err)
 		}
 	}
 }
-
-// Mock implementations for testing
-
-type mockClickhouseClient struct{}
-
-func (m *mockClickhouseClient) QueryOne(_ context.Context, _ string, _ any) error { return nil }
-func (m *mockClickhouseClient) QueryMany(_ context.Context, _ string, _ any) error {
-	return nil
-}
-func (m *mockClickhouseClient) Execute(_ context.Context, _ string) error { return nil }
-func (m *mockClickhouseClient) BulkInsert(_ context.Context, _ string, _ any) error {
-	return nil
-}
-func (m *mockClickhouseClient) Start() error { return nil }
-func (m *mockClickhouseClient) Stop() error  { return nil }
-
-var _ clickhouse.ClientInterface = (*mockClickhouseClient)(nil)
-
-type mockAdminService struct{}
-
-func (m *mockAdminService) GetNextUnprocessedPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-func (m *mockAdminService) GetLastProcessedPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-func (m *mockAdminService) GetFirstPosition(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-func (m *mockAdminService) RecordCompletion(_ context.Context, _ string, _, _ uint64) error {
-	return nil
-}
-func (m *mockAdminService) GetCoverage(_ context.Context, _ string, _, _ uint64) (bool, error) {
-	return true, nil
-}
-func (m *mockAdminService) FindGaps(_ context.Context, _ string, _, _, _ uint64) ([]admin.GapInfo, error) {
-	return []admin.GapInfo{}, nil
-}
-func (m *mockAdminService) ConsolidateHistoricalData(_ context.Context, _ string) (uint64, error) {
-	return 0, nil
-}
-func (m *mockAdminService) GetExternalBounds(_ context.Context, _ string) (*admin.BoundsCache, error) {
-	return nil, nil
-}
-func (m *mockAdminService) SetExternalBounds(_ context.Context, _ *admin.BoundsCache) error {
-	return nil
-}
-
-func (m *mockAdminService) DeleteExternalBounds(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockAdminService) GetIncrementalAdminDatabase() string { return "admin_db" }
-func (m *mockAdminService) GetIncrementalAdminTable() string    { return "admin_table" }
-func (m *mockAdminService) GetScheduledAdminDatabase() string   { return "admin" }
-func (m *mockAdminService) GetScheduledAdminTable() string      { return "cbt_scheduled" }
-func (m *mockAdminService) RecordScheduledCompletion(_ context.Context, _ string, _ time.Time) error {
-	return nil
-}
-func (m *mockAdminService) GetLastScheduledExecution(_ context.Context, _ string) (*time.Time, error) {
-	return nil, nil
-}
-
-func (m *mockAdminService) DeletePeriod(_ context.Context, _ string, _, _ uint64) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetProcessedRanges(_ context.Context, _ string) ([]admin.ProcessedRange, error) {
-	return []admin.ProcessedRange{}, nil
-}
-
-func (m *mockAdminService) GetAllProcessedRanges(_ context.Context, _ []string) (map[string][]admin.ProcessedRange, error) {
-	return make(map[string][]admin.ProcessedRange), nil
-}
-
-func (m *mockAdminService) GetAllLastScheduledExecutions(_ context.Context, _ []string) (map[string]*time.Time, error) {
-	return make(map[string]*time.Time), nil
-}
-func (m *mockAdminService) AcquireBoundsLock(_ context.Context, _ string) (admin.BoundsLock, error) {
-	return &mockServiceBoundsLock{}, nil
-}
-
-func (m *mockAdminService) GetConfigOverride(_ context.Context, _ string) (*admin.ConfigOverride, error) {
-	return nil, nil
-}
-
-func (m *mockAdminService) GetAllConfigOverrides(_ context.Context) ([]admin.ConfigOverride, error) {
-	return nil, nil
-}
-
-func (m *mockAdminService) SetConfigOverride(_ context.Context, _ *admin.ConfigOverride) error {
-	return nil
-}
-
-func (m *mockAdminService) DeleteConfigOverride(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockAdminService) DeleteAllConfigOverrides(_ context.Context) error {
-	return nil
-}
-
-func (m *mockAdminService) GetConfigOverrideVersion(_ context.Context) (int64, error) {
-	return 0, nil
-}
-
-func (m *mockAdminService) GetCacheManager() *admin.CacheManager {
-	return nil
-}
-
-// mockServiceBoundsLock implements admin.BoundsLock for testing
-type mockServiceBoundsLock struct{}
-
-func (m *mockServiceBoundsLock) Unlock(_ context.Context) error {
-	return nil
-}
-
-var _ admin.BoundsLock = (*mockServiceBoundsLock)(nil)
-var _ admin.Service = (*mockAdminService)(nil)
-
-type mockModelsService struct {
-	transformations []models.Transformation
-}
-
-func (m *mockModelsService) Start() error { return nil }
-func (m *mockModelsService) Stop() error  { return nil }
-func (m *mockModelsService) GetDAG() models.DAGReader {
-	return &mockDAGReader{transformations: m.transformations}
-}
-func (m *mockModelsService) RenderTransformation(_ models.Transformation, _, _ uint64, _ time.Time) (string, error) {
-	return "", nil
-}
-func (m *mockModelsService) RenderExternal(_ models.External, _ map[string]any) (string, error) {
-	return "", nil
-}
-func (m *mockModelsService) GetTransformationEnvironmentVariables(_ models.Transformation, _, _ uint64, _ time.Time) (*[]string, error) {
-	vars := []string{}
-	return &vars, nil
-}
-
-var _ models.Service = (*mockModelsService)(nil)
-
-// Mock handler for testing
-type mockHandler struct {
-	tags []string
-}
-
-func (m *mockHandler) Type() transformation.Type {
-	return transformation.TypeIncremental
-}
-
-func (m *mockHandler) Config() any {
-	return &transformation.Config{
-		Type:     transformation.TypeIncremental,
-		Database: "test_db",
-		Table:    "test_table",
-	}
-}
-
-func (m *mockHandler) Validate() error {
-	return nil
-}
-
-func (m *mockHandler) ShouldTrackPosition() bool {
-	return true
-}
-
-func (m *mockHandler) GetTemplateVariables(_ context.Context, _ transformation.TaskInfo) map[string]any {
-	return map[string]any{}
-}
-
-func (m *mockHandler) GetAdminTable() transformation.AdminTable {
-	return transformation.AdminTable{
-		Database: "admin",
-		Table:    "cbt",
-	}
-}
-
-func (m *mockHandler) RecordCompletion(_ context.Context, _ any, _ string, _ transformation.TaskInfo) error {
-	return nil
-}
-
-func (m *mockHandler) GetTags() []string {
-	return m.tags
-}
-
-type mockTransformation struct {
-	id      string
-	tags    []string
-	handler transformation.Handler
-}
-
-func (m *mockTransformation) GetID() string { return m.id }
-func (m *mockTransformation) GetConfig() *transformation.Config {
-	return &transformation.Config{
-		Type:     transformation.TypeIncremental,
-		Database: "test_db",
-		Table:    "test_table",
-	}
-}
-func (m *mockTransformation) GetHandler() transformation.Handler {
-	if m.handler != nil {
-		return m.handler
-	}
-	// Return a mock handler with tags
-	return &mockHandler{tags: m.tags}
-}
-func (m *mockTransformation) GetValue() string                  { return "" }
-func (m *mockTransformation) GetDependencies() []string         { return []string{} }
-func (m *mockTransformation) GetSQL() string                    { return "" }
-func (m *mockTransformation) GetType() string                   { return "transformation" }
-func (m *mockTransformation) GetEnvironmentVariables() []string { return []string{} }
-func (m *mockTransformation) SetDefaultDatabase(_ string) {
-	// No-op for mock
-}
-
-var _ models.Transformation = (*mockTransformation)(nil)
-
-// mockDAGReader is defined in executor_test.go and shared across tests
-// We'll use the more comprehensive version from executor_test.go

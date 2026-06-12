@@ -17,6 +17,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// shutdownTimeout bounds graceful shutdown of the HTTP server. It is a package
+// variable so tests can shorten it to exercise the shutdown error path.
+//
+//nolint:gochecknoglobals // Overridable seam for testing the shutdown timeout path.
+var shutdownTimeout = 10 * time.Second
+
 // Service defines the API service interface
 type Service interface {
 	Start(ctx context.Context) error
@@ -118,7 +124,7 @@ func (s *service) Stop() error {
 
 	s.log.Info("Stopping API and frontend server")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
 	if err := s.server.Shutdown(ctx); err != nil {

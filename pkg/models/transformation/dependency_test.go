@@ -5,7 +5,129 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
+
+// depHolder embeds a Dependency so the dependency node itself (rather than the
+// document) drives UnmarshalYAML, allowing scalar/sequence/mapping cases.
+type depHolder struct {
+	Dep Dependency `yaml:"dep"`
+}
+
+func TestDependencyUnmarshalYAML(t *testing.T) {
+	tests := []struct {
+		name      string
+		yamlData  string
+		wantErr   bool
+		errIs     error
+		wantGroup bool
+		wantDeps  []string
+		wantOne   string
+	}{
+		{
+			name:      "single string dependency",
+			yamlData:  "dep: external.table1\n",
+			wantGroup: false,
+			wantOne:   "external.table1",
+		},
+		{
+			name:      "array of string dependencies",
+			yamlData:  "dep:\n  - external.table1\n  - external.table2\n",
+			wantGroup: true,
+			wantDeps:  []string{"external.table1", "external.table2"},
+		},
+		{
+			name:     "empty array rejected",
+			yamlData: "dep: []\n",
+			wantErr:  true,
+			errIs:    ErrEmptyDependencyGroup,
+		},
+		{
+			name:     "non-string scalar rejected",
+			yamlData: "dep: 42\n",
+			wantErr:  true,
+			errIs:    ErrInvalidDependencyType,
+		},
+		{
+			name:     "array with non-string scalar item rejected",
+			yamlData: "dep:\n  - external.table1\n  - 42\n",
+			wantErr:  true,
+			errIs:    ErrInvalidDependencyArrayItem,
+		},
+		{
+			name:     "array with non-scalar item rejected",
+			yamlData: "dep:\n  - [nested]\n",
+			wantErr:  true,
+			errIs:    ErrInvalidDependencyArrayItem,
+		},
+		{
+			name:     "mapping node rejected",
+			yamlData: "dep:\n  key: value\n",
+			wantErr:  true,
+			errIs:    ErrInvalidDependencyType,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var holder depHolder
+			err := yaml.Unmarshal([]byte(tt.yamlData), &holder)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errIs != nil {
+					require.ErrorIs(t, err, tt.errIs)
+				}
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantGroup, holder.Dep.IsGroup)
+			if tt.wantGroup {
+				assert.Equal(t, tt.wantDeps, holder.Dep.GroupDeps)
+			} else {
+				assert.Equal(t, tt.wantOne, holder.Dep.SingleDep)
+			}
+		})
+	}
+}
+
+func TestDependencyUnmarshalYAML_UnknownNodeKind(t *testing.T) {
+	// A node with an unrecognized Kind (0) exercises the defensive default
+	// branch, which the YAML decoder never produces on its own.
+	var dep Dependency
+	node := &yaml.Node{Kind: yaml.Kind(0)}
+
+	err := dep.UnmarshalYAML(node)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrInvalidDependencyType)
+}
+
+func TestDependencyGetAllDependencies(t *testing.T) {
+	tests := []struct {
+		name     string
+		dep      Dependency
+		expected []string
+	}{
+		{
+			name:     "single dependency",
+			dep:      Dependency{IsGroup: false, SingleDep: "db.table"},
+			expected: []string{"db.table"},
+		},
+		{
+			name:     "group dependency",
+			dep:      Dependency{IsGroup: true, GroupDeps: []string{"db.a", "db.b"}},
+			expected: []string{"db.a", "db.b"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.dep.GetAllDependencies())
+		})
+	}
+}
 
 func TestDeepCopyDependencies(t *testing.T) {
 	tests := []struct {
@@ -184,11 +306,11 @@ func TestSubstituteDependencyPlaceholders(t *testing.T) {
 			originalDeps := SubstituteDependencyPlaceholders(tt.deps, tt.externalDB, tt.transformationDB)
 
 			// Verify the returned original dependencies
-			require.Equal(t, len(tt.wantOriginal), len(originalDeps))
+			require.Len(t, originalDeps, len(tt.wantOriginal))
 			assert.Equal(t, tt.wantOriginal, originalDeps)
 
 			// Verify the input slice was modified correctly
-			require.Equal(t, len(tt.wantModified), len(tt.deps))
+			require.Len(t, tt.deps, len(tt.wantModified))
 			assert.Equal(t, tt.wantModified, tt.deps)
 		})
 	}

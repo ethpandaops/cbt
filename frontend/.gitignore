@@ -14,7 +14,7 @@ dist-ssr
 
 # production
 /build/frontend
-/build/stats.html
+/stats.html
 storybook-static
 
 # Editor directories and files

@@ -151,7 +151,7 @@ func TestCreateClickHouseOptions_NoDatabaseInURL(t *testing.T) {
 	require.NoError(t, err)
 
 	// No database specified - CBT uses fully-qualified table names
-	assert.Equal(t, "", options.Auth.Database)
+	assert.Empty(t, options.Auth.Database)
 }
 
 func TestCreateClickHouseOptions_ConnectionPool(t *testing.T) {

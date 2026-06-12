@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"strings"
 	"sync"
 	"time"
 
@@ -13,11 +12,8 @@ import (
 	"github.com/ethpandaops/cbt/pkg/coordinator"
 	"github.com/ethpandaops/cbt/pkg/liveconfig"
 	"github.com/ethpandaops/cbt/pkg/models"
-	"github.com/ethpandaops/cbt/pkg/models/transformation/incremental"
-	"github.com/ethpandaops/cbt/pkg/observability"
 	r "github.com/ethpandaops/cbt/pkg/redis"
 	"github.com/ethpandaops/cbt/pkg/tasks"
-	"github.com/ethpandaops/cbt/pkg/worker"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -36,17 +32,13 @@ const (
 	TransformationTypeScheduled = "scheduled"
 	// maxJitterSeconds is the maximum jitter in seconds to prevent thundering herd.
 	maxJitterSeconds = 10
+	// defaultLiveOverridePollInterval is how often the live override poller runs.
+	defaultLiveOverridePollInterval = 5 * time.Second
 )
 
 var (
 	// ErrNotScheduledType is returned when transformation is not a scheduled type
 	ErrNotScheduledType = errors.New("transformation is not a scheduled type")
-	// ErrCoordinatorNoQueueSupport is returned when coordinator doesn't support queue management
-	ErrCoordinatorNoQueueSupport = errors.New("coordinator doesn't support queue management")
-	// ErrQueueManagerNil is returned when queue manager is nil
-	ErrQueueManagerNil = errors.New("queue manager is nil")
-	// ErrQueueNoTransformationSupport is returned when queue doesn't support transformation enqueueing
-	ErrQueueNoTransformationSupport = errors.New("queue manager doesn't support transformation enqueueing")
 	// ErrInvalidExternalTaskType is returned when the external task type format is invalid
 	ErrInvalidExternalTaskType = errors.New("invalid external task type format")
 )
@@ -88,11 +80,26 @@ type service struct {
 	inspector *asynq.Inspector
 
 	tracker      scheduleTracker
+	tickerMu     sync.Mutex // Guards ticker/tickerCancel (election loop, override poller, Stop)
 	ticker       tickerService
 	tickerCancel context.CancelFunc // To stop ticker when demoted
 
 	elector       LeaderElector
 	liveOverrides *liveconfig.Applier
+
+	// sleep performs the anti-thundering-herd jitter wait before an initial
+	// external scan. It is a field so tests can replace the real time.Sleep
+	// with a no-op; production always uses time.Sleep.
+	sleep func(time.Duration)
+
+	// liveOverridePollInterval controls how often pollLiveOverrides checks for
+	// live config changes. It is a field so tests can use a short interval;
+	// production uses defaultLiveOverridePollInterval.
+	liveOverridePollInterval time.Duration
+
+	// newTicker constructs the ticker service on leader promotion. It is a field
+	// so tests can inject a fake ticker; production uses newTickerService.
+	newTicker func(tasks []scheduledTask) tickerService
 }
 
 // NewService creates a new scheduler service
@@ -101,7 +108,7 @@ func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, da
 		return nil, err
 	}
 
-	asynqRedis := r.NewAsynqRedisOptions(redisOpt)
+	asynqRedis := r.NewAsynqOptions(redisOpt)
 
 	// Create client for enqueueing tasks
 	client := asynq.NewClient(asynqRedis)
@@ -129,7 +136,7 @@ func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, da
 	// Create schedule tracker
 	tracker := newScheduleTracker(log, redisClient)
 
-	return &service{
+	s := &service{
 		log:  log.WithField("service", "scheduler"), // Add service-specific field per ethPandaOps
 		cfg:  cfg,
 		done: make(chan struct{}),
@@ -139,15 +146,23 @@ func NewService(log logrus.FieldLogger, cfg *Config, redisOpt *redis.Options, da
 		coordinator: coord,
 		admin:       adminService,
 
-		client:       client,
-		server:       server,
-		mux:          mux,
-		inspector:    inspector,
-		tracker:      tracker,
-		ticker:       nil, // Created on leader promotion
-		tickerCancel: nil,
-		elector:      elector,
-	}, nil
+		client:                   client,
+		server:                   server,
+		mux:                      mux,
+		inspector:                inspector,
+		tracker:                  tracker,
+		ticker:                   nil, // Created on leader promotion
+		tickerCancel:             nil,
+		elector:                  elector,
+		sleep:                    time.Sleep,
+		liveOverridePollInterval: defaultLiveOverridePollInterval,
+	}
+
+	s.newTicker = func(scheduledTasks []scheduledTask) tickerService {
+		return newTickerService(s.log, s.tracker, s.client, scheduledTasks)
+	}
+
+	return s, nil
 }
 
 // Start initializes and starts the scheduler service
@@ -164,20 +179,23 @@ func (s *service) Start(ctx context.Context) error {
 	}
 
 	// Handle leader election events
-	s.wg.Add(1)
-	go s.handleLeaderElection(ctx)
-
-	// Start server in background (always runs for processing scheduled tasks)
 	s.wg.Go(func() {
-		if runErr := s.server.Run(s.mux); runErr != nil {
-			s.log.WithError(runErr).Error("Scheduler server stopped with error")
-		}
+		s.handleLeaderElection(ctx)
 	})
+
+	// Start server in background (always runs for processing scheduled tasks).
+	// Start (not Run) is required: Run blocks waiting for OS signals that the
+	// engine already handles, which would keep this goroutine alive forever
+	// and force every Stop() into the shutdown timeout.
+	if err := s.server.Start(s.mux); err != nil {
+		return fmt.Errorf("failed to start scheduler server: %w", err)
+	}
 
 	// Start live override polling on all instances
 	if s.liveOverrides != nil {
-		s.wg.Add(1)
-		go s.pollLiveOverrides(ctx)
+		s.wg.Go(func() {
+			s.pollLiveOverrides(ctx)
+		})
 	}
 
 	s.log.Info("Scheduler service started (participating in leader election)")
@@ -189,6 +207,11 @@ func (s *service) Start(ctx context.Context) error {
 func (s *service) Stop() error {
 	// Signal all goroutines to stop
 	close(s.done)
+
+	// Stop the ticker if this instance is leader. The ticker context derives
+	// from the Start context (a background context in production), so without
+	// this the ticker goroutine never exits and wg.Wait below always times out.
+	s.stopTicker()
 
 	// Stop leader election first
 	if s.elector != nil {
@@ -239,23 +262,8 @@ func (s *service) Stop() error {
 
 // handleLeaderElection manages scheduler lifecycle based on leader election events
 func (s *service) handleLeaderElection(ctx context.Context) {
-	defer s.wg.Done()
-
-	// Access the promoted/demoted channels through type assertion
-	// This is safe because we control the elector implementation
-	type channelProvider interface {
-		PromotedChan() <-chan struct{}
-		DemotedChan() <-chan struct{}
-	}
-
-	provider, ok := s.elector.(channelProvider)
-	if !ok {
-		s.log.Error("Leader elector does not provide channels")
-		return
-	}
-
-	promoted := provider.PromotedChan()
-	demoted := provider.DemotedChan()
+	promoted := s.elector.PromotedChan()
+	demoted := s.elector.DemotedChan()
 
 	for {
 		select {
@@ -272,13 +280,17 @@ func (s *service) handleLeaderElection(ctx context.Context) {
 			scheduledTasks := s.buildScheduledTasks()
 
 			// Create ticker service with current task list
-			s.ticker = newTickerService(s.log, s.tracker, s.client, scheduledTasks)
+			ticker := s.newTicker(scheduledTasks)
+			tickerCtx, cancel := context.WithCancel(ctx) //nolint:gosec // G118 - cancel is stored in s.tickerCancel and called on demotion or Stop
+
+			s.tickerMu.Lock()
+			s.ticker = ticker
+			s.tickerCancel = cancel
+			s.tickerMu.Unlock()
 
 			// Start ticker in goroutine
-			tickerCtx, cancel := context.WithCancel(ctx) //nolint:gosec // G118 - cancel is stored in s.tickerCancel and called on demotion
-			s.tickerCancel = cancel
 			s.wg.Go(func() {
-				if err := s.ticker.Start(tickerCtx); err != nil && !errors.Is(err, context.Canceled) {
+				if err := ticker.Start(tickerCtx); err != nil && !errors.Is(err, context.Canceled) {
 					s.log.WithError(err).Error("Ticker service error")
 				}
 			})
@@ -289,388 +301,30 @@ func (s *service) handleLeaderElection(ctx context.Context) {
 		case <-demoted:
 			s.log.Info("Demoted from leader, stopping ticker service")
 
-			// Stop ticker
-			if s.tickerCancel != nil {
-				s.tickerCancel()
-				s.tickerCancel = nil
-			}
-			if s.ticker != nil {
-				if err := s.ticker.Stop(); err != nil {
-					s.log.WithError(err).Error("Failed to stop ticker")
-				}
-				s.ticker = nil
-			}
+			s.stopTicker()
 		}
 	}
 }
 
-// buildScheduledTasks constructs the list of scheduled tasks from DAG config
-func (s *service) buildScheduledTasks() []scheduledTask {
-	systemTasks := s.buildSystemScheduledTasks()
-	externalTasks := s.buildExternalScheduledTasks()
-	transformationTasks := s.buildTransformationScheduledTasks()
+// stopTicker cancels and stops the running ticker, if any. It is called from
+// the election loop on demotion and from Stop() at shutdown; the mutex makes
+// the two paths safe to race and the second call a no-op.
+func (s *service) stopTicker() {
+	s.tickerMu.Lock()
+	defer s.tickerMu.Unlock()
 
-	scheduledTasks := make(
-		[]scheduledTask,
-		0,
-		len(systemTasks)+len(externalTasks)+len(transformationTasks),
-	)
-	scheduledTasks = append(scheduledTasks, systemTasks...)
-	scheduledTasks = append(scheduledTasks, externalTasks...)
-	scheduledTasks = append(scheduledTasks, transformationTasks...)
-
-	return scheduledTasks
-}
-
-// buildSystemScheduledTasks creates scheduled tasks for system operations
-func (s *service) buildSystemScheduledTasks() []scheduledTask {
-	var scheduledTasks []scheduledTask
-
-	// Consolidation task
-	if s.cfg.Consolidation != "" {
-		interval, err := parseScheduleInterval(s.cfg.Consolidation)
-		if err != nil {
-			s.log.WithError(err).Error("Invalid consolidation schedule")
-		} else {
-			scheduledTasks = append(scheduledTasks, scheduledTask{
-				ID:       ConsolidationTaskType,
-				Schedule: s.cfg.Consolidation,
-				Interval: interval,
-				Task:     asynq.NewTask(ConsolidationTaskType, nil),
-				Queue:    QueueName,
-			})
-		}
+	if s.tickerCancel != nil {
+		s.tickerCancel()
+		s.tickerCancel = nil
 	}
 
-	return scheduledTasks
-}
-
-// buildExternalScheduledTasks creates scheduled tasks for external model scans
-func (s *service) buildExternalScheduledTasks() []scheduledTask {
-	var scheduledTasks []scheduledTask
-
-	for _, node := range s.dag.GetExternalNodes() {
-		model, ok := node.Model.(models.External)
-		if !ok {
-			continue
+	if s.ticker != nil {
+		if err := s.ticker.Stop(); err != nil {
+			s.log.WithError(err).Error("Failed to stop ticker")
 		}
 
-		config := model.GetConfig()
-		if config.Cache == nil {
-			continue
-		}
-
-		modelID := model.GetID()
-
-		// Incremental scan
-		if config.Cache.IncrementalScanInterval > 0 {
-			schedule := fmt.Sprintf("@every %s", config.Cache.IncrementalScanInterval.String())
-			taskID := fmt.Sprintf("%s%s:incremental", ExternalTaskPrefix, modelID)
-			scheduledTasks = append(scheduledTasks, scheduledTask{
-				ID:       taskID,
-				Schedule: schedule,
-				Interval: config.Cache.IncrementalScanInterval,
-				Task:     asynq.NewTask(taskID, nil),
-				Queue:    QueueName,
-			})
-		}
-
-		// Full scan
-		if config.Cache.FullScanInterval > 0 {
-			schedule := fmt.Sprintf("@every %s", config.Cache.FullScanInterval.String())
-			taskID := fmt.Sprintf("%s%s:full", ExternalTaskPrefix, modelID)
-			scheduledTasks = append(scheduledTasks, scheduledTask{
-				ID:       taskID,
-				Schedule: schedule,
-				Interval: config.Cache.FullScanInterval,
-				Task:     asynq.NewTask(taskID, nil),
-				Queue:    QueueName,
-			})
-		}
+		s.ticker = nil
 	}
-
-	return scheduledTasks
-}
-
-// buildTransformationScheduledTasks creates scheduled tasks for transformations
-func (s *service) buildTransformationScheduledTasks() []scheduledTask {
-	var scheduledTasks []scheduledTask
-
-	for _, node := range s.dag.GetTransformationNodes() {
-		trans := node
-		modelID := trans.GetID()
-		handler := trans.GetHandler()
-		config := trans.GetConfig()
-
-		// Handle scheduled transformations
-		if config.Type == TransformationTypeScheduled {
-			type scheduleProvider interface {
-				GetSchedule() string
-			}
-			provider, ok := handler.(scheduleProvider)
-			if !ok || provider == nil {
-				continue
-			}
-
-			schedule := provider.GetSchedule()
-			if schedule == "" {
-				continue
-			}
-
-			interval, err := parseScheduleInterval(schedule)
-			if err != nil {
-				s.log.WithError(err).
-					WithField("model_id", modelID).
-					Error("Invalid schedule")
-				continue
-			}
-
-			taskID := fmt.Sprintf("%s%s:scheduled", TransformationTaskPrefix, modelID)
-			scheduledTasks = append(scheduledTasks, scheduledTask{
-				ID:       taskID,
-				Schedule: schedule,
-				Interval: interval,
-				Task:     asynq.NewTask(taskID, nil),
-				Queue:    QueueName,
-			})
-			continue
-		}
-
-		// Handle incremental transformations
-		if handler == nil {
-			continue
-		}
-
-		type configProvider interface {
-			Config() any
-		}
-		cfgProvider, ok := handler.(configProvider)
-		if !ok {
-			continue
-		}
-
-		cfg, ok := cfgProvider.Config().(*incremental.Config)
-		if !ok || cfg.Schedules == nil {
-			continue
-		}
-
-		// Forward fill
-		if cfg.Schedules.ForwardFill != "" {
-			interval, err := parseScheduleInterval(cfg.Schedules.ForwardFill)
-			if err != nil {
-				s.log.WithError(err).
-					WithField("model_id", modelID).
-					Error("Invalid forward fill schedule")
-			} else {
-				taskID := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
-				scheduledTasks = append(scheduledTasks, scheduledTask{
-					ID:       taskID,
-					Schedule: cfg.Schedules.ForwardFill,
-					Interval: interval,
-					Task:     asynq.NewTask(taskID, nil),
-					Queue:    QueueName,
-				})
-			}
-		}
-
-		// Backfill
-		if cfg.Schedules.Backfill != "" {
-			interval, err := parseScheduleInterval(cfg.Schedules.Backfill)
-			if err != nil {
-				s.log.WithError(err).
-					WithField("model_id", modelID).
-					Error("Invalid backfill schedule")
-			} else {
-				taskID := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
-				scheduledTasks = append(scheduledTasks, scheduledTask{
-					ID:       taskID,
-					Schedule: cfg.Schedules.Backfill,
-					Interval: interval,
-					Task:     asynq.NewTask(taskID, nil),
-					Queue:    QueueName,
-				})
-			}
-		}
-	}
-
-	return scheduledTasks
-}
-
-// registerAllHandlers registers all task handlers on the mux (called once at startup)
-func (s *service) registerAllHandlers() {
-	transformations := s.dag.GetTransformationNodes()
-	externalModels := s.dag.GetExternalNodes()
-
-	// Register transformation task handlers
-	for _, transformation := range transformations {
-		s.registerTransformationHandlers(transformation)
-	}
-
-	// Register external model task handlers
-	for _, node := range externalModels {
-		if model, ok := node.Model.(models.External); ok {
-			s.registerExternalHandlers(model)
-		}
-	}
-
-	// Register system task handlers
-	s.registerSystemHandlers()
-}
-
-// registerTransformationHandlers registers task handlers for a single transformation
-func (s *service) registerTransformationHandlers(transformation models.Transformation) {
-	config := transformation.GetConfig()
-	modelID := transformation.GetID()
-	handler := transformation.GetHandler()
-
-	// Handle scheduled transformations
-	if config.Type == TransformationTypeScheduled {
-		scheduledTask := fmt.Sprintf("%s%s:scheduled", TransformationTaskPrefix, modelID)
-		s.mux.HandleFunc(scheduledTask, s.HandleScheduledTransformation)
-		s.log.WithField("model_id", modelID).Debug("Registered scheduled transformation handler")
-		return
-	}
-
-	// Handle incremental transformations
-	if handler == nil {
-		return
-	}
-
-	if _, ok := handler.Config().(*incremental.Config); !ok {
-		return
-	}
-
-	// Always register both forward and backfill handlers regardless of current
-	// schedule config. Schedules can be enabled at runtime via config overrides,
-	// and the handlers themselves already guard against disabled schedules.
-	forwardTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionForward)
-	s.mux.HandleFunc(forwardTask, s.HandleScheduledForward)
-	s.log.WithField("model_id", modelID).Debug("Registered forward fill handler")
-
-	backfillTask := fmt.Sprintf("%s%s:%s", TransformationTaskPrefix, modelID, coordinator.DirectionBack)
-	s.mux.HandleFunc(backfillTask, s.HandleScheduledBackfill)
-	s.log.WithField("model_id", modelID).Debug("Registered backfill handler")
-}
-
-// registerExternalHandlers registers task handlers for a single external model
-func (s *service) registerExternalHandlers(model models.External) {
-	config := model.GetConfig()
-	modelID := model.GetID()
-
-	if config.Cache == nil {
-		return
-	}
-
-	if config.Cache.IncrementalScanInterval > 0 {
-		incrementalTask := fmt.Sprintf("%s%s:incremental", ExternalTaskPrefix, modelID)
-		s.mux.HandleFunc(incrementalTask, s.HandleExternalIncremental)
-		s.log.WithField("model_id", modelID).Debug("Registered external incremental handler")
-	}
-
-	if config.Cache.FullScanInterval > 0 {
-		fullTask := fmt.Sprintf("%s%s:full", ExternalTaskPrefix, modelID)
-		s.mux.HandleFunc(fullTask, s.HandleExternalFull)
-		s.log.WithField("model_id", modelID).Debug("Registered external full scan handler")
-	}
-}
-
-// registerSystemHandlers registers system task handlers
-func (s *service) registerSystemHandlers() {
-	if s.cfg.Consolidation != "" {
-		s.mux.HandleFunc(ConsolidationTaskType, s.HandleConsolidation)
-		s.log.Debug("Registered consolidation handler")
-	}
-}
-
-// extractModelID extracts the model ID from a task type
-// Example: "transformation:analytics.block_propagation:forward" -> "analytics.block_propagation"
-func extractModelID(taskType string) string {
-	// Only extract model ID from transformation tasks
-	if !strings.HasPrefix(taskType, TransformationTaskPrefix) {
-		// Handle tasks without the transformation prefix (like consolidation)
-		if strings.Contains(taskType, ":") {
-			// Legacy format without prefix: "test.model:forward"
-			parts := strings.Split(taskType, ":")
-			return parts[0]
-		}
-		// Not a transformation task (e.g., "consolidation")
-		return ""
-	}
-
-	trimmed := strings.TrimPrefix(taskType, TransformationTaskPrefix)
-	parts := strings.Split(trimmed, ":")
-	if len(parts) > 0 {
-		return parts[0]
-	}
-	return ""
-}
-
-// extractExternalTaskComponents extracts the model ID from external task types.
-// External tasks follow the format: external:{model_id}:suffix
-// Returns the model ID and an error if the format is invalid.
-func extractExternalTaskComponents(taskType string) (modelID string, err error) {
-	parts := strings.Split(taskType, ":")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("%w: %s", ErrInvalidExternalTaskType, taskType)
-	}
-
-	return parts[1], nil
-}
-
-// HandleScheduledForward processes scheduled forward fill checks
-func (s *service) HandleScheduledForward(_ context.Context, t *asynq.Task) error {
-	modelID := extractModelID(t.Type())
-
-	if s.isModelDisabled(modelID) {
-		s.log.WithField("model_id", modelID).Debug("Skipping forward fill for live-disabled model")
-
-		return nil
-	}
-
-	trans, err := s.dag.GetTransformationNode(modelID)
-	if err != nil {
-		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get transformation node")
-
-		return err
-	}
-
-	s.log.WithField("model_id", modelID).Debug("Processing scheduled forward check")
-
-	// This triggers the existing forward fill logic
-	s.coordinator.Process(trans, coordinator.DirectionForward)
-
-	// Record metrics
-	observability.RecordScheduledTaskExecution(modelID, string(coordinator.DirectionForward), "success")
-
-	return nil
-}
-
-// HandleExternalIncremental processes incremental scan for external model
-func (s *service) HandleExternalIncremental(_ context.Context, t *asynq.Task) error {
-	modelID, err := extractExternalTaskComponents(t.Type())
-	if err != nil {
-		return err
-	}
-
-	s.log.WithField("model_id", modelID).Debug("Running incremental scan for external model")
-
-	// Process the incremental scan
-	s.coordinator.ProcessExternalScan(modelID, worker.ScanTypeIncremental)
-	return nil
-}
-
-// HandleExternalFull processes full scan for external model
-func (s *service) HandleExternalFull(_ context.Context, t *asynq.Task) error {
-	modelID, err := extractExternalTaskComponents(t.Type())
-	if err != nil {
-		return err
-	}
-
-	s.log.WithField("model_id", modelID).Debug("Running full scan for external model")
-
-	// Process the full scan
-	s.coordinator.ProcessExternalScan(modelID, worker.ScanTypeFull)
-	return nil
 }
 
 // triggerInitialExternalScans checks for external models without cache and triggers initial scans
@@ -724,148 +378,15 @@ func (s *service) triggerInitialExternalScans(ctx context.Context) {
 				}).Info("Triggering initial full scan for external model")
 
 				// Sleep with jitter
-				time.Sleep(jitter)
+				s.sleep(jitter)
 
 				// Trigger full scan immediately
-				s.coordinator.ProcessExternalScan(modelID, worker.ScanTypeFull)
+				s.coordinator.ProcessExternalScan(modelID, tasks.ScanTypeFull)
 			}
 		} else {
 			s.log.Debug("Admin service is nil, cannot check external bounds")
 		}
 	}
-}
-
-// HandleScheduledBackfill processes scheduled backfill scans
-func (s *service) HandleScheduledBackfill(_ context.Context, t *asynq.Task) error {
-	modelID := extractModelID(t.Type())
-
-	if s.isModelDisabled(modelID) {
-		s.log.WithField("model_id", modelID).Debug("Skipping backfill for live-disabled model")
-
-		return nil
-	}
-
-	trans, err := s.dag.GetTransformationNode(modelID)
-	if err != nil {
-		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get transformation node")
-
-		return err
-	}
-
-	s.log.WithField("model_id", modelID).Debug("Processing scheduled backfill scan")
-
-	// This triggers the existing backfill logic
-	s.coordinator.Process(trans, coordinator.DirectionBack)
-
-	// Record metrics
-	observability.RecordScheduledTaskExecution(modelID, string(coordinator.DirectionBack), "success")
-
-	return nil
-}
-
-// HandleConsolidation triggers admin table consolidation
-func (s *service) HandleConsolidation(ctx context.Context, _ *asynq.Task) error {
-	s.log.Info("Running admin table consolidation")
-
-	// Call the coordinator to actually run the consolidation
-	// This ensures only one instance handles it at a time via asynq
-	if consolidator, ok := s.coordinator.(interface{ RunConsolidation(context.Context) }); ok {
-		consolidator.RunConsolidation(ctx)
-		s.log.Info("Admin consolidation completed")
-	} else {
-		s.log.Debug("Coordinator doesn't support consolidation")
-	}
-
-	return nil
-}
-
-// HandleScheduledTransformation handles the execution of scheduled (cron-based) transformations
-func (s *service) HandleScheduledTransformation(_ context.Context, t *asynq.Task) error {
-	modelID := extractModelID(t.Type())
-
-	if s.isModelDisabled(modelID) {
-		s.log.WithField("model_id", modelID).Debug("Skipping scheduled transformation for live-disabled model")
-
-		return nil
-	}
-
-	trans, err := s.dag.GetTransformationNode(modelID)
-	if err != nil {
-		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to get transformation node")
-		return err
-	}
-
-	config := trans.GetConfig()
-
-	// Verify this is a scheduled transformation
-	if !config.IsScheduledType() {
-		s.log.WithField("model_id", modelID).Error("Task is not a scheduled transformation")
-		return fmt.Errorf("%w: %s", ErrNotScheduledType, modelID)
-	}
-
-	currentTime := time.Now()
-	s.log.WithFields(logrus.Fields{
-		"model_id":       modelID,
-		"type":           "scheduled",
-		"execution_time": currentTime.Format(time.RFC3339),
-	}).Debug("Processing scheduled transformation")
-
-	// For scheduled transformations, we create a scheduled task payload
-	taskPayload := tasks.ScheduledTaskPayload{
-		Type:          tasks.TaskTypeScheduled,
-		ModelID:       modelID,
-		ExecutionTime: currentTime,
-		EnqueuedAt:    currentTime,
-	}
-
-	// Try to enqueue through coordinator's queue manager
-	err = s.enqueueScheduledTask(taskPayload)
-	if err != nil {
-		s.log.WithError(err).WithField("model_id", modelID).Error("Failed to enqueue scheduled transformation task")
-		return err
-	}
-
-	s.log.WithFields(logrus.Fields{
-		"model_id":       modelID,
-		"execution_time": currentTime.Format(time.RFC3339),
-	}).Info("Enqueued scheduled transformation task")
-
-	return nil
-}
-
-// enqueueScheduledTask attempts to enqueue a scheduled transformation task
-func (s *service) enqueueScheduledTask(payload tasks.TaskPayload) error {
-	// Check if coordinator has GetQueueManager method
-	type queueManagerGetter interface {
-		GetQueueManager() any
-	}
-
-	qmGetter, ok := s.coordinator.(queueManagerGetter)
-	if !ok {
-		return ErrCoordinatorNoQueueSupport
-	}
-
-	queueManager := qmGetter.GetQueueManager()
-	if queueManager == nil {
-		return ErrQueueManagerNil
-	}
-
-	// Check if queue manager supports EnqueueTransformation
-	type transformationEnqueuer interface {
-		EnqueueTransformation(payload tasks.TaskPayload, opts ...asynq.Option) error
-	}
-
-	enqueuer, ok := queueManager.(transformationEnqueuer)
-	if !ok {
-		return ErrQueueNoTransformationSupport
-	}
-
-	// Both scheduled and incremental transformations use the same uniqueness strategy:
-	// The unique ID is based on model_id:direction
-	// For scheduled: just model_id (preventing overlapping runs of same scheduled task)
-	// For incremental: model_id:direction (preventing duplicate forward/backfill tasks)
-	// Use 1 second uniqueness - just prevents rapid-fire duplicates, task ID handles actual deduplication
-	return enqueuer.EnqueueTransformation(payload, asynq.Unique(1*time.Second))
 }
 
 // SetLiveOverrides sets the live override applier. Must be called before Start.
@@ -877,9 +398,7 @@ func (s *service) SetLiveOverrides(lo *liveconfig.Applier) {
 // Runs on all instances. When changes are detected and this instance is the
 // leader, it rebuilds the ticker task list.
 func (s *service) pollLiveOverrides(ctx context.Context) {
-	defer s.wg.Done()
-
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(s.liveOverridePollInterval)
 	defer ticker.Stop()
 
 	for {
@@ -896,23 +415,17 @@ func (s *service) pollLiveOverrides(ctx context.Context) {
 				continue
 			}
 
-			if changed && s.ticker != nil {
+			if changed {
 				// Leader: rebuild task list with updated config
-				newTasks := s.buildScheduledTasks()
-				s.ticker.UpdateTasks(newTasks)
-				s.log.Info("Rebuilt scheduled tasks after live override change")
+				s.tickerMu.Lock()
+				if s.ticker != nil {
+					s.ticker.UpdateTasks(s.buildScheduledTasks())
+					s.log.Info("Rebuilt scheduled tasks after live override change")
+				}
+				s.tickerMu.Unlock()
 			}
 		}
 	}
-}
-
-// isModelDisabled checks if a model is live-disabled via config overrides.
-func (s *service) isModelDisabled(modelID string) bool {
-	if s.liveOverrides == nil {
-		return false
-	}
-
-	return s.liveOverrides.IsModelDisabled(modelID)
 }
 
 // Ensure service implements the interface

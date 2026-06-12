@@ -1,6 +1,6 @@
 package models
 
-//go:generate mockgen -package mock -destination mock/dag.mock.go -source dag.go DAGReader
+//go:generate go tool mockgen -package mock -destination mock/dag.mock.go -source dag.go DAGReader
 
 import (
 	"errors"
@@ -20,10 +20,10 @@ var (
 	ErrNotTransformationModel = errors.New("model is not a transformation model")
 	// ErrInvalidNodeType is returned when a node has an invalid type
 	ErrInvalidNodeType = errors.New("invalid node type")
-	// ErrInvalidExternalModelType is returned when an external model has an invalid type
-	ErrInvalidExternalModelType = errors.New("invalid external model type")
-	// ErrInvalidTransformationModelType is returned when a transformation model has an invalid type
-	ErrInvalidTransformationModelType = errors.New("invalid transformation model type")
+	// ErrInvalidExternalNodeType is returned when an external node has an invalid model type
+	ErrInvalidExternalNodeType = errors.New("invalid external model type")
+	// ErrInvalidTransformationNodeType is returned when a transformation node has an invalid model type
+	ErrInvalidTransformationNodeType = errors.New("invalid transformation model type")
 	// ErrIncompatibleIntervalType is returned when incremental model cannot depend on model with different interval_type
 	ErrIncompatibleIntervalType = errors.New("incremental model cannot depend on model with different interval_type")
 )
@@ -317,7 +317,7 @@ func (d *DependencyGraph) GetExternalNode(modelID string) (External, error) {
 	if node.NodeType == NodeTypeExternal {
 		external, ok := node.Model.(External)
 		if !ok {
-			return nil, fmt.Errorf("%w for %s", ErrInvalidExternalModelType, modelID)
+			return nil, fmt.Errorf("%w for %s", ErrInvalidExternalNodeType, modelID)
 		}
 		return external, nil
 	}
@@ -340,7 +340,7 @@ func (d *DependencyGraph) GetTransformationNode(modelID string) (Transformation,
 	if node.NodeType == NodeTypeTransformation {
 		trans, ok := node.Model.(Transformation)
 		if !ok {
-			return nil, fmt.Errorf("%w for %s", ErrInvalidTransformationModelType, modelID)
+			return nil, fmt.Errorf("%w for %s", ErrInvalidTransformationNodeType, modelID)
 		}
 		return trans, nil
 	}

@@ -10,32 +10,37 @@ const (
 	DirectionForward = "forward"
 	// DirectionBack represents backfill processing
 	DirectionBack = "back"
+
+	// ScanTypeIncremental is the incremental scan type for external models
+	ScanTypeIncremental = "incremental"
+	// ScanTypeFull is the full scan type for external models
+	ScanTypeFull = "full"
 )
 
-// TaskType indicates whether this is a scheduled or incremental task
-type TaskType string
+// Type indicates whether this is a scheduled or incremental task
+type Type string
 
 const (
-	// TaskTypeIncremental represents incremental position-based tasks
-	TaskTypeIncremental TaskType = "incremental"
-	// TaskTypeScheduled represents scheduled cron-based tasks
-	TaskTypeScheduled TaskType = "scheduled"
-	// TaskTypeExternal represents external model scan tasks
-	TaskTypeExternal TaskType = "external"
+	// TypeIncremental represents incremental position-based tasks
+	TypeIncremental Type = "incremental"
+	// TypeScheduled represents scheduled cron-based tasks
+	TypeScheduled Type = "scheduled"
+	// TypeExternal represents external model scan tasks
+	TypeExternal Type = "external"
 )
 
-// TaskPayload is the common interface for all task payloads
-type TaskPayload interface {
+// Payload is the common interface for all task payloads
+type Payload interface {
 	GetModelID() string
 	GetEnqueuedAt() time.Time
-	GetType() TaskType
+	GetType() Type
 	UniqueID() string
 	QueueName() string
 }
 
-// IncrementalTaskPayload represents a position-based incremental task
-type IncrementalTaskPayload struct {
-	Type       TaskType  `json:"type"`
+// IncrementalPayload represents a position-based incremental task
+type IncrementalPayload struct {
+	Type       Type      `json:"type"`
 	ModelID    string    `json:"model_id"`
 	Position   uint64    `json:"position"`
 	Interval   uint64    `json:"interval"`
@@ -46,22 +51,22 @@ type IncrementalTaskPayload struct {
 // GetModelID returns the model ID
 //
 //nolint:gocritic // value receiver is intentional for immutable payload semantics.
-func (p IncrementalTaskPayload) GetModelID() string { return p.ModelID }
+func (p IncrementalPayload) GetModelID() string { return p.ModelID }
 
 // GetEnqueuedAt returns the enqueued time
 //
 //nolint:gocritic // value receiver is intentional for immutable payload semantics.
-func (p IncrementalTaskPayload) GetEnqueuedAt() time.Time { return p.EnqueuedAt }
+func (p IncrementalPayload) GetEnqueuedAt() time.Time { return p.EnqueuedAt }
 
 // GetType returns the task type
 //
 //nolint:gocritic // value receiver is intentional for immutable payload semantics.
-func (p IncrementalTaskPayload) GetType() TaskType { return TaskTypeIncremental }
+func (p IncrementalPayload) GetType() Type { return TypeIncremental }
 
 // QueueName returns the queue name for this task
 //
 //nolint:gocritic // value receiver is intentional for immutable payload semantics.
-func (p IncrementalTaskPayload) QueueName() string { return p.ModelID }
+func (p IncrementalPayload) QueueName() string { return p.ModelID }
 
 // UniqueID returns a unique identifier for this task
 // Uses model.id:direction to ensure only one task per direction can run at a time.
@@ -69,13 +74,13 @@ func (p IncrementalTaskPayload) QueueName() string { return p.ModelID }
 // and leverages the natural separation between forward fill (frontier) and backfill (historical gaps).
 //
 //nolint:gocritic // value receiver is intentional for immutable payload semantics.
-func (p IncrementalTaskPayload) UniqueID() string {
+func (p IncrementalPayload) UniqueID() string {
 	return fmt.Sprintf("%s:%s", p.ModelID, p.Direction)
 }
 
-// ScheduledTaskPayload represents a scheduled cron-based task
-type ScheduledTaskPayload struct {
-	Type          TaskType  `json:"type"`
+// ScheduledPayload represents a scheduled cron-based task
+type ScheduledPayload struct {
+	Type          Type      `json:"type"`
 	ModelID       string    `json:"model_id"`
 	ExecutionTime time.Time `json:"execution_time"`
 	EnqueuedAt    time.Time `json:"enqueued_at"`
@@ -84,24 +89,24 @@ type ScheduledTaskPayload struct {
 // GetModelID returns the model ID
 //
 //nolint:gocritic // value receiver is intentional for immutable payload semantics.
-func (p ScheduledTaskPayload) GetModelID() string { return p.ModelID }
+func (p ScheduledPayload) GetModelID() string { return p.ModelID }
 
 // GetEnqueuedAt returns the enqueued time
 //
 //nolint:gocritic // value receiver is intentional for immutable payload semantics.
-func (p ScheduledTaskPayload) GetEnqueuedAt() time.Time { return p.EnqueuedAt }
+func (p ScheduledPayload) GetEnqueuedAt() time.Time { return p.EnqueuedAt }
 
 // GetType returns the task type
 //
 //nolint:gocritic // value receiver is intentional for immutable payload semantics.
-func (p ScheduledTaskPayload) GetType() TaskType { return TaskTypeScheduled }
+func (p ScheduledPayload) GetType() Type { return TypeScheduled }
 
 // QueueName returns the queue name for this task
 //
 //nolint:gocritic // value receiver is intentional for immutable payload semantics.
-func (p ScheduledTaskPayload) QueueName() string { return p.ModelID }
+func (p ScheduledPayload) QueueName() string { return p.ModelID }
 
 // UniqueID returns a unique identifier for this task
 //
 //nolint:gocritic // value receiver is intentional for immutable payload semantics.
-func (p ScheduledTaskPayload) UniqueID() string { return p.ModelID }
+func (p ScheduledPayload) UniqueID() string { return p.ModelID }

@@ -20,7 +20,7 @@ const (
 // ConfigOverride represents a live configuration override stored in Redis.
 type ConfigOverride struct {
 	ModelID   string          `json:"model_id"`
-	ModelType string          `json:"model_type"` // "transformation" or "external"
+	Type      string          `json:"model_type"` // "transformation" or "external"
 	Enabled   *bool           `json:"enabled,omitempty"`
 	Override  json.RawMessage `json:"override"`
 	UpdatedAt time.Time       `json:"updated_at"`
