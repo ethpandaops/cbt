@@ -75,6 +75,8 @@ func NewService(log *logrus.Logger, cfg *Config) (*Service, error) {
 
 	redisClient := redis.NewClient(redisOptions)
 
+	cfg.setClickHousePoolDefaults()
+
 	chClient, err := clickhouse.NewClient(log, &cfg.ClickHouse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup ClickHouse client: %w", err)
@@ -315,15 +317,8 @@ func (a *Service) startHealthCheck() {
 	a.log.WithField("addr", a.config.HealthCheckAddr).Info("Starting health check server")
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("OK"))
-	})
-
-	mux.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("OK"))
-	})
+	mux.HandleFunc("/health", a.handleHealth)
+	mux.HandleFunc("/ready", a.handleHealth)
 
 	a.healthServer = &http.Server{
 		Addr:              a.config.HealthCheckAddr,
@@ -336,6 +331,24 @@ func (a *Service) startHealthCheck() {
 			a.log.WithError(err).Error("Health check server failed")
 		}
 	}()
+}
+
+// handleHealth fails once the ClickHouse connection pool has stalled, so the
+// liveness probe restarts a pod whose pool can no longer serve any query.
+func (a *Service) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	if hc, ok := a.chClient.(clickhouse.HealthChecker); ok {
+		if err := hc.Healthy(); err != nil {
+			a.log.WithError(err).Warn("Health check failed")
+
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(err.Error()))
+
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("OK"))
 }
 
 func (a *Service) startPProf() {

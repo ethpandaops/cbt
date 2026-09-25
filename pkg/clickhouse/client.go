@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -24,12 +25,21 @@ const (
 	PortNativeTLS = "9440"
 )
 
+// acquireTimeout bounds how long a call waits for a pooled connection. The
+// driver reuses DialTimeout for this, so it also caps dialing a new connection.
+const acquireTimeout = 10 * time.Second
+
+// poolStallMargin is added on top of the longest legitimate connection hold
+// before a pool with no progress is reported unhealthy.
+const poolStallMargin = time.Minute
+
 // Define static errors.
 var (
 	ErrDestMustBePointerToSlice = errors.New("dest must be a pointer to a slice")
 	ErrDestMustBePointer        = errors.New("dest must be a pointer")
 	ErrDataMustBeSlice          = errors.New("data must be a slice")
 	ErrResponse                 = errors.New("clickhouse error")
+	ErrPoolStalled              = errors.New("clickhouse connection pool stalled")
 )
 
 // ClientInterface defines the methods for interacting with ClickHouse.
@@ -48,6 +58,12 @@ type ClientInterface interface {
 	Stop() error
 }
 
+// HealthChecker is implemented by clients that can report whether their
+// connection pool is still able to hand out connections.
+type HealthChecker interface {
+	Healthy() error
+}
+
 // client implements the ClientInterface using the official ClickHouse driver.
 type client struct {
 	log           logrus.FieldLogger
@@ -55,6 +71,11 @@ type client struct {
 	debug         bool
 	queryTimeout  time.Duration
 	insertTimeout time.Duration
+
+	// Pool health tracking, as unix nanoseconds. See Healthy.
+	stallThreshold     time.Duration
+	lastProgress       atomic.Int64
+	lastAcquireTimeout atomic.Int64
 }
 
 // openConn opens a ClickHouse connection from the given options. It is a package
@@ -82,12 +103,14 @@ func NewClient(logger *logrus.Logger, cfg *Config) (ClientInterface, error) {
 	}
 
 	c := &client{
-		log:           logger.WithField("component", "clickhouse"),
-		conn:          conn,
-		debug:         cfg.Debug,
-		queryTimeout:  cfg.QueryTimeout,
-		insertTimeout: cfg.InsertTimeout,
+		log:            logger.WithField("component", "clickhouse"),
+		conn:           conn,
+		debug:          cfg.Debug,
+		queryTimeout:   cfg.QueryTimeout,
+		insertTimeout:  cfg.InsertTimeout,
+		stallThreshold: max(cfg.QueryTimeout, cfg.InsertTimeout) + acquireTimeout + poolStallMargin,
 	}
+	c.lastProgress.Store(time.Now().UnixNano())
 
 	return c, nil
 }
@@ -96,11 +119,14 @@ func (c *client) Start() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := c.conn.Ping(ctx); err != nil {
+	err := c.conn.Ping(ctx)
+	c.trackPool(err)
+
+	if err != nil {
 		return fmt.Errorf("failed to connect to ClickHouse: %w", err)
 	}
 
-	c.log.Info("Connected to ClickHouse")
+	c.log.WithField("max_open_conns", c.conn.Stats().MaxOpenConns).Info("Connected to ClickHouse")
 
 	return nil
 }
@@ -137,7 +163,10 @@ func (c *client) QueryOne(ctx context.Context, query string, dest any) error {
 	sliceType := reflect.SliceOf(elemType)
 	slicePtr := reflect.New(sliceType)
 
-	if err := c.conn.Select(ctx, slicePtr.Interface(), query); err != nil {
+	err := c.conn.Select(ctx, slicePtr.Interface(), query)
+	c.trackPool(err)
+
+	if err != nil {
 		return fmt.Errorf("query failed: %w", err)
 	}
 
@@ -162,7 +191,10 @@ func (c *client) QueryMany(ctx context.Context, query string, dest any) error {
 		c.log.WithField("query", truncateQuery(query)).Debug("Executing query")
 	}
 
-	if err := c.conn.Select(ctx, dest, query); err != nil {
+	err := c.conn.Select(ctx, dest, query)
+	c.trackPool(err)
+
+	if err != nil {
 		return fmt.Errorf("query failed: %w", err)
 	}
 
@@ -177,7 +209,10 @@ func (c *client) Execute(ctx context.Context, query string) error {
 		c.log.WithField("query", truncateQuery(query)).Debug("Executing query")
 	}
 
-	if err := c.conn.Exec(ctx, query); err != nil {
+	err := c.conn.Exec(ctx, query)
+	c.trackPool(err)
+
+	if err != nil {
 		return fmt.Errorf("execution failed: %w", err)
 	}
 
@@ -205,9 +240,19 @@ func (c *client) BulkInsert(ctx context.Context, table string, data any) error {
 	}
 
 	batch, err := c.conn.PrepareBatch(ctx, "INSERT INTO "+table)
+	c.trackPool(err)
+
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
+
+	// The batch holds a pooled connection until it is sent or aborted, and some
+	// AppendStruct failures return without releasing it.
+	defer func() {
+		if !batch.IsSent() {
+			_ = batch.Abort()
+		}
+	}()
 
 	for i := range dataVal.Len() {
 		item := dataVal.Index(i).Interface()
@@ -221,6 +266,42 @@ func (c *client) BulkInsert(ctx context.Context, table string, data any) error {
 	}
 
 	return nil
+}
+
+// trackPool records whether a driver call got past connection acquisition.
+// Anything other than an acquire timeout counts as progress, so query errors
+// and an unreachable server never make the pool look stalled.
+func (c *client) trackPool(err error) {
+	now := time.Now().UnixNano()
+
+	if errors.Is(err, clickhouse.ErrAcquireConnTimeout) {
+		c.lastAcquireTimeout.Store(now)
+
+		return
+	}
+
+	c.lastProgress.Store(now)
+}
+
+// Healthy reports an error when the connection pool has stopped handing out
+// connections: callers are still timing out on acquire, and nothing has
+// acquired one for longer than any query or insert can legitimately hold it.
+// That means the pool's slots are leaked rather than busy, which only a
+// restart recovers from.
+func (c *client) Healthy() error {
+	now := time.Now()
+
+	lastTimeout := c.lastAcquireTimeout.Load()
+	if lastTimeout == 0 || now.Sub(time.Unix(0, lastTimeout)) > c.stallThreshold {
+		return nil
+	}
+
+	stalledFor := now.Sub(time.Unix(0, c.lastProgress.Load()))
+	if stalledFor < c.stallThreshold {
+		return nil
+	}
+
+	return fmt.Errorf("%w: no connection acquired for %s", ErrPoolStalled, stalledFor.Round(time.Second))
 }
 
 // createClickHouseOptions builds connection options from config.
@@ -255,7 +336,7 @@ func createClickHouseOptions(cfg *Config) (*clickhouse.Options, error) {
 		Settings: clickhouse.Settings{
 			"max_execution_time": int(cfg.QueryTimeout.Seconds()),
 		},
-		DialTimeout: 10 * time.Second,
+		DialTimeout: acquireTimeout,
 		ReadTimeout: cfg.QueryTimeout,
 	}
 
