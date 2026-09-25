@@ -25,6 +25,10 @@ var (
 	ErrFrontendAddrRequired = errors.New("frontend address is required when frontend is enabled")
 )
 
+// poolAPIHeadroom is the number of ClickHouse connections reserved for API,
+// admin and consolidation queries on top of worker and scheduler concurrency.
+const poolAPIHeadroom = 10
+
 // validateModelsConfig is a seam over models.Config.Validate so tests can drive
 // the (otherwise unreachable) models validation error path in Config.Validate.
 //
@@ -118,6 +122,20 @@ func (c *FrontendConfig) Validate() error {
 		return ErrFrontendAddrRequired
 	}
 	return nil
+}
+
+// setClickHousePoolDefaults sizes the ClickHouse connection pool from the
+// engine's concurrency when it is not configured. The driver's default of 10
+// is shared by every worker and scheduler task plus the API, so tasks would
+// otherwise queue on acquire and fail with acquire timeouts under load.
+func (c *Config) setClickHousePoolDefaults() {
+	if c.ClickHouse.MaxOpenConns <= 0 {
+		c.ClickHouse.MaxOpenConns = c.Worker.Concurrency + c.Scheduler.Concurrency + poolAPIHeadroom
+	}
+
+	if c.ClickHouse.MaxIdleConns <= 0 {
+		c.ClickHouse.MaxIdleConns = c.ClickHouse.MaxOpenConns
+	}
 }
 
 // Validate validates the configuration

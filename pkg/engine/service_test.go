@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -526,6 +527,25 @@ func TestStartHealthCheckEndpoints(t *testing.T) {
 		assert.Equal(t, http.StatusOK, status)
 		assert.Equal(t, "OK", body)
 	}
+}
+
+// stalledClickHouse is a ClickHouse client whose connection pool reports a stall.
+type stalledClickHouse struct {
+	testutil.FakeClickHouseClient
+}
+
+func (c *stalledClickHouse) Healthy() error { return clickhouse.ErrPoolStalled }
+
+func TestHealthCheckFailsWhenPoolStalled(t *testing.T) {
+	t.Parallel()
+
+	svc := &Service{log: quietLogger(), chClient: &stalledClickHouse{}}
+
+	rec := httptest.NewRecorder()
+	svc.handleHealth(rec, httptest.NewRequest(http.MethodGet, "/health", http.NoBody))
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Contains(t, rec.Body.String(), clickhouse.ErrPoolStalled.Error())
 }
 
 func TestStartServersBindError(t *testing.T) {

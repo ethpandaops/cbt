@@ -46,8 +46,10 @@ clickhouse:
   debug: false
 
   # Connection pool settings (optional)
-  # maxOpenConns: 10
-  # maxIdleConns: 5
+  # maxOpenConns defaults to worker.concurrency + scheduler.concurrency + 10
+  # (headroom for API/admin queries); maxIdleConns defaults to maxOpenConns.
+  # maxOpenConns: 30
+  # maxIdleConns: 30
   # connMaxLifetime: 1h
 
   # TLS settings (optional, for secure connections)

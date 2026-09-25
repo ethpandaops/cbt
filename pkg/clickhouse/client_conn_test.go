@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"errors"
+	"io"
 	"reflect"
 	"testing"
 	"time"
@@ -98,6 +99,12 @@ func (f *fakeConn) QueryRow(_ context.Context, _ string, _ ...any) driver.Row { 
 func (f *fakeConn) AsyncInsert(_ context.Context, _ string, _ bool, _ ...any) error {
 	return nil
 }
+func (f *fakeConn) QueryFormat(_ context.Context, _, _ string, _ ...any) (io.ReadCloser, error) {
+	return nil, nil //nolint:nilnil // unused in tests
+}
+func (f *fakeConn) InsertFormat(_ context.Context, _, _ string, _ io.Reader) error {
+	return nil
+}
 func (f *fakeConn) Stats() driver.Stats { return driver.Stats{} }
 
 var _ driver.Conn = (*fakeConn)(nil)
@@ -109,6 +116,7 @@ type fakeBatch struct {
 
 	appendCount int
 	sendCalled  bool
+	abortCalled bool
 }
 
 func (b *fakeBatch) AppendStruct(_ any) error {
@@ -123,8 +131,13 @@ func (b *fakeBatch) Send() error {
 	return b.sendErr
 }
 
+func (b *fakeBatch) Abort() error {
+	b.abortCalled = true
+
+	return nil
+}
+
 // Unused interface methods.
-func (b *fakeBatch) Abort() error                    { return nil }
 func (b *fakeBatch) Append(_ ...any) error           { return nil }
 func (b *fakeBatch) Column(_ int) driver.BatchColumn { return nil }
 func (b *fakeBatch) Flush() error                    { return nil }
@@ -137,13 +150,17 @@ var _ driver.Batch = (*fakeBatch)(nil)
 
 // newTestClient builds a *client wired to the supplied fake conn.
 func newTestClient(conn driver.Conn, debug bool) *client {
-	return &client{
-		log:           logrus.New().WithField("component", "clickhouse-test"),
-		conn:          conn,
-		debug:         debug,
-		queryTimeout:  time.Second,
-		insertTimeout: time.Second,
+	c := &client{
+		log:            logrus.New().WithField("component", "clickhouse-test"),
+		conn:           conn,
+		debug:          debug,
+		queryTimeout:   time.Second,
+		insertTimeout:  time.Second,
+		stallThreshold: time.Minute,
 	}
+	c.lastProgress.Store(time.Now().UnixNano())
+
+	return c
 }
 
 func TestNewClient(t *testing.T) {
@@ -180,6 +197,9 @@ func TestNewClient(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, 30*time.Second, impl.queryTimeout)
 		assert.True(t, impl.debug)
+		// Longest hold (5m insert timeout) + acquire timeout + margin.
+		assert.Equal(t, 5*time.Minute+acquireTimeout+poolStallMargin, impl.stallThreshold)
+		require.NoError(t, impl.Healthy())
 	})
 }
 
@@ -352,12 +372,14 @@ func TestClient_BulkInsert(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to prepare batch")
 	})
 
-	t.Run("append error", func(t *testing.T) {
+	t.Run("append error aborts batch", func(t *testing.T) {
 		conn := &fakeConn{batch: &fakeBatch{appendErr: errFake}}
 		c := newTestClient(conn, false)
 		err := c.BulkInsert(context.Background(), "t", []row{{ID: 1}})
 		require.ErrorIs(t, err, errFake)
 		assert.Contains(t, err.Error(), "failed to append row 0")
+		// Abort releases the batch's pooled connection.
+		assert.True(t, conn.batch.abortCalled)
 	})
 
 	t.Run("send error", func(t *testing.T) {
@@ -376,5 +398,55 @@ func TestClient_BulkInsert(t *testing.T) {
 		assert.Equal(t, "INSERT INTO mydb.t", conn.prepareQuery)
 		assert.Equal(t, 2, conn.batch.appendCount)
 		assert.True(t, conn.batch.sendCalled)
+		assert.False(t, conn.batch.abortCalled)
+	})
+}
+
+func TestClient_Healthy(t *testing.T) {
+	ago := func(d time.Duration) int64 { return time.Now().Add(-d).UnixNano() }
+
+	t.Run("healthy without acquire timeouts", func(t *testing.T) {
+		c := newTestClient(&fakeConn{}, false)
+		c.lastProgress.Store(ago(time.Hour))
+		require.NoError(t, c.Healthy())
+	})
+
+	t.Run("healthy while connections are still acquired", func(t *testing.T) {
+		c := newTestClient(&fakeConn{}, false)
+		c.lastAcquireTimeout.Store(ago(0))
+		c.lastProgress.Store(ago(time.Second))
+		require.NoError(t, c.Healthy())
+	})
+
+	t.Run("stalled when acquires time out and nothing progresses", func(t *testing.T) {
+		c := newTestClient(&fakeConn{}, false)
+		c.lastProgress.Store(ago(2 * time.Minute))
+		c.lastAcquireTimeout.Store(ago(time.Second))
+
+		err := c.Healthy()
+		require.ErrorIs(t, err, ErrPoolStalled)
+		assert.Contains(t, err.Error(), "no connection acquired for 2m")
+	})
+
+	t.Run("healthy when the last acquire timeout is stale", func(t *testing.T) {
+		c := newTestClient(&fakeConn{}, false)
+		c.lastProgress.Store(ago(time.Hour))
+		c.lastAcquireTimeout.Store(ago(2 * time.Minute))
+		require.NoError(t, c.Healthy())
+	})
+
+	t.Run("acquire timeouts are tracked from queries", func(t *testing.T) {
+		conn := &fakeConn{selectErr: clickhouse.ErrAcquireConnTimeout}
+		c := newTestClient(conn, false)
+		c.lastProgress.Store(ago(2 * time.Minute))
+
+		var dest []struct{}
+		require.Error(t, c.QueryMany(context.Background(), "SELECT 1", &dest))
+		require.ErrorIs(t, c.Healthy(), ErrPoolStalled)
+
+		// Any other outcome means a connection was acquired, clearing the stall.
+		conn.selectErr = errFake
+		require.Error(t, c.QueryMany(context.Background(), "SELECT 1", &dest))
+		require.NoError(t, c.Healthy())
 	})
 }

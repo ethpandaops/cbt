@@ -240,3 +240,35 @@ func TestConfigModelsValidateError(t *testing.T) {
 	err := cfg.Validate()
 	require.ErrorIs(t, err, errSeedModels)
 }
+
+func TestSetClickHousePoolDefaults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		open     int
+		idle     int
+		wantOpen int
+		wantIdle int
+	}{
+		{name: "sized from concurrency", wantOpen: 10 + 40 + poolAPIHeadroom, wantIdle: 10 + 40 + poolAPIHeadroom},
+		{name: "idle follows explicit open", open: 25, wantOpen: 25, wantIdle: 25},
+		{name: "explicit values kept", open: 25, idle: 5, wantOpen: 25, wantIdle: 5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &Config{
+				ClickHouse: clickhouse.Config{MaxOpenConns: tt.open, MaxIdleConns: tt.idle},
+				Worker:     worker.Config{Concurrency: 10},
+				Scheduler:  scheduler.Config{Concurrency: 40},
+			}
+			cfg.setClickHousePoolDefaults()
+
+			assert.Equal(t, tt.wantOpen, cfg.ClickHouse.MaxOpenConns)
+			assert.Equal(t, tt.wantIdle, cfg.ClickHouse.MaxIdleConns)
+		})
+	}
+}
