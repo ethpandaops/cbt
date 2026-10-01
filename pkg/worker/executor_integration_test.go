@@ -4,6 +4,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1375,4 +1376,74 @@ func TestIntegration_UpdateBounds_MinGreaterThanMaxProtection(t *testing.T) {
 
 	assert.Equal(t, uint64(0), cache.Min, "Min should be preserved")
 	assert.Equal(t, uint64(499), cache.Max, "Max should be preserved, NOT set to invalid value")
+}
+
+func TestIntegration_UpdateBounds_EmptyExternalPicksUpFirstRows(t *testing.T) {
+	const (
+		database = "gloas"
+		table    = "payload_bid"
+		network  = "sepolia"
+	)
+
+	executor, client, adminSvc, _ := setupExternalBoundsExecutor(
+		t,
+		database, table,
+		slotExternalTemplate,
+		map[string]string{"NETWORK": network},
+		100*time.Millisecond,
+		500*time.Millisecond,
+	)
+	ctx := context.Background()
+
+	require.NoError(t, client.Execute(ctx, "CREATE DATABASE IF NOT EXISTS "+database))
+	require.NoError(t, client.Execute(ctx, `CREATE TABLE `+database+`.`+table+` (
+		slot_start_date_time DateTime,
+		meta_network_name String
+	) ENGINE = MergeTree ORDER BY (slot_start_date_time, meta_network_name)`))
+
+	insertRows := func(network string, from uint64, count int) {
+		t.Helper()
+		require.NoError(t, client.Execute(ctx, fmt.Sprintf(
+			`INSERT INTO %s.%s SELECT toDateTime(%d + number * 12), '%s' FROM numbers(%d)`,
+			database, table, from, network, count,
+		)))
+	}
+
+	scan := func(scanType string) *admin.BoundsCache {
+		t.Helper()
+		require.NoError(t, executor.UpdateBounds(ctx, database+"."+table, scanType))
+
+		cache, err := adminSvc.GetExternalBounds(ctx, database+"."+table)
+		require.NoError(t, err)
+		require.NotNil(t, cache)
+
+		return cache
+	}
+
+	forkTime := uint64(time.Date(2026, 10, 6, 13, 53, 36, 0, time.UTC).Unix())
+
+	// Rows for another network must not show up in this model's bounds.
+	insertRows("mainnet", forkTime-1_000_000, 100)
+
+	cache := scan(tasks.ScanTypeFull)
+	require.Zero(t, cache.Max)
+
+	for range 2 {
+		cache = scan(tasks.ScanTypeIncremental)
+		require.Zero(t, cache.Max)
+	}
+
+	insertRows(network, forkTime, 3)
+
+	cache = scan(tasks.ScanTypeIncremental)
+	assert.Equal(t, forkTime, cache.Min)
+	assert.Equal(t, forkTime+24, cache.Max)
+
+	for i := range uint64(5) {
+		insertRows(network, forkTime+36+i*12, 1)
+
+		cache = scan(tasks.ScanTypeIncremental)
+		require.Equal(t, forkTime, cache.Min)
+		require.Equal(t, forkTime+36+i*12, cache.Max)
+	}
 }
