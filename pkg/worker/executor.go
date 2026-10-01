@@ -72,6 +72,18 @@ func (e *ModelExecutor) UpdateBounds(ctx context.Context, modelID, scanType stri
 		return nil
 	}
 
+	if resolved := resolveScanType(scanType, initialCache); resolved != scanType {
+		e.log.WithFields(logrus.Fields{
+			"model_id":     modelID,
+			"requested":    scanType,
+			"resolved":     resolved,
+			"cache_max":    initialCache.Max,
+			"previous_max": initialCache.PreviousMax,
+		}).Debug("Cached bounds cannot anchor an incremental window, running full scan")
+
+		scanType = resolved
+	}
+
 	// Build cache state for template rendering
 	cacheState := buildCacheState(scanType, initialCache)
 
@@ -197,6 +209,15 @@ func shouldSkipScan(log logrus.FieldLogger, modelID, scanType string, cache *adm
 	}
 
 	return false
+}
+
+// resolveScanType widens an incremental scan to a full scan when the cache has no non-zero max to anchor the window on.
+func resolveScanType(scanType string, cache *admin.BoundsCache) string {
+	if scanType == tasks.ScanTypeIncremental && cache != nil && (cache.Max == 0 || cache.PreviousMax == 0) {
+		return tasks.ScanTypeFull
+	}
+
+	return scanType
 }
 
 // buildCacheState builds the cache state for template rendering

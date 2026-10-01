@@ -424,6 +424,8 @@ The `cache` configuration optimizes how CBT queries external data sources:
 
 When no cache exists (first run), a full scan is always performed. The cache persists in Redis without expiration, ensuring bounds are available even after restarts.
 
+An incremental scan runs as a full scan while the cached `max` or `previous_max` is zero, for example when the table was empty at the last scan, so the first rows to arrive are picked up on the next incremental interval instead of waiting for the next full scan.
+
 ### Transformation Models
 
 CBT supports two types of transformation models, each optimized for different use cases. All transformations must specify their type using the `type` field.
