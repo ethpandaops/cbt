@@ -219,3 +219,26 @@ func TestGetTransformationNodesSkipsRawVertices(t *testing.T) {
 	nodes := dg.GetTransformationNodes()
 	assert.Len(t, nodes, 1)
 }
+
+func TestAddModelDependenciesSharedAcrossORGroups(t *testing.T) {
+	ext1 := &mockExternal{id: "db.relay", typ: external.TypeSQL}
+	ext2 := &mockExternal{id: "db.bid", typ: external.TypeSQL}
+	ext3 := &mockExternal{id: "db.registry", typ: external.TypeSQL}
+
+	// Flattened form of [[db.relay, db.bid], [db.relay, db.registry]].
+	trans := &mockTransformation{
+		id:     "db.model",
+		config: transformation.Config{Database: "db", Table: "model"},
+		handler: &mockHandler{
+			dependencies:   []string{"db.relay", "db.bid", "db.relay", "db.registry"},
+			shouldTrackPos: true,
+		},
+	}
+
+	dg := NewDependencyGraph()
+	require.NoError(t, dg.BuildGraph([]Transformation{trans}, []External{ext1, ext2, ext3}))
+
+	for _, dep := range []string{"db.relay", "db.bid", "db.registry"} {
+		assert.True(t, dg.IsPathBetween(dep, "db.model"), dep)
+	}
+}
