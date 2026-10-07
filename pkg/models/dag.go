@@ -176,8 +176,17 @@ func (d *DependencyGraph) addModelDependencies(model Transformation) error {
 		return nil
 	}
 
+	// A dependency may sit in more than one OR group; it is one edge.
+	seen := make(map[string]struct{})
+
 	allDeps := depProvider.GetFlattenedDependencies()
 	for _, depID := range allDeps {
+		if _, ok := seen[depID]; ok {
+			continue
+		}
+
+		seen[depID] = struct{}{}
+
 		// Validate dependency exists
 		depVertex, err := d.dag.GetVertex(depID)
 		if err != nil {
