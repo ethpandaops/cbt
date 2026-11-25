@@ -36,7 +36,8 @@ jobs:
 
   frontend-test:
     name: Frontend Test
-    runs-on: ubuntu-latest
+    # The pinned Playwright has no browser builds for Ubuntu 26.04 (ubuntu-latest).
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
