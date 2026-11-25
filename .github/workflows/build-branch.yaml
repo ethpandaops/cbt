@@ -77,6 +77,12 @@ jobs:
             release=true
             name=${GITHUB_REF#refs/heads/release/}
           else
+            # Only branches can be published (the Docker Hub mirror accepts
+            # branch and PR refs), so a dispatch on a tag fails here.
+            if [[ -z $GITHUB_HEAD_REF && $GITHUB_REF != refs/heads/* ]]; then
+              echo "::error::${GITHUB_REF} isn't a branch; dispatch this workflow on a branch."
+              exit 1
+            fi
             name=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
             if [[ -n $MANUAL_DOCKER_TAG ]]; then
               name=$MANUAL_DOCKER_TAG
