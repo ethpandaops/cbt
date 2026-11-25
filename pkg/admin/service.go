@@ -164,12 +164,20 @@ func buildTableRef(database, table string) string {
 // ON CLUSTER so the delete reaches whichever shard holds the model's rows; in
 // plain mode it targets the admin table directly. keyPredicate is appended to the
 // WHERE clause (e.g. "(position, interval) IN (...)" or a range condition).
+//
+// In cluster mode the delete sets lightweight_deletes_sync = 0, so the ON CLUSTER
+// task completes once the mutation is queued on each shard instead of waiting for
+// every replica to apply it. With the default, a replica that is restarting or has
+// lost its Keeper session fails that wait, the task exhausts its retries, and it
+// can block the cluster's distributed DDL queue. Replication still applies the
+// delete on that replica once it is back.
 func (a *service) buildKeyedDelete(database, table, keyPredicate string) string {
 	if a.cluster != "" {
 		return fmt.Sprintf(`
 			DELETE FROM `+"`%s`.`%s%s`"+` ON CLUSTER '%s'
 			WHERE database = '%s' AND table = '%s'
 			  AND %s
+			SETTINGS lightweight_deletes_sync = 0
 		`, a.adminDatabase, a.adminTable, a.localSuffix, a.cluster,
 			database, table, keyPredicate)
 	}

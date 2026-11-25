@@ -691,7 +691,12 @@ DELETE FROM
 {{ end }}
 WHERE
   slot_start_date_time BETWEEN fromUnixTimestamp({{ .bounds.start }}) AND fromUnixTimestamp({{ .bounds.end }})
-  AND updated_date_time != fromUnixTimestamp({{ .task.start }});
+  AND updated_date_time != fromUnixTimestamp({{ .task.start }})
+{{ if .clickhouse.cluster }}
+-- Don't wait for every replica inside the ON CLUSTER task: a replica that is
+-- down fails that wait, and the stuck task can block the distributed DDL queue
+SETTINGS lightweight_deletes_sync = 0
+{{ end }};
 ```
 
 ##### Scheduled Transformation Example
