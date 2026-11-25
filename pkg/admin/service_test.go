@@ -815,6 +815,8 @@ func TestConsolidateHistoricalDataClusterMode(t *testing.T) {
 		"DELETE in cluster mode should use ON CLUSTER")
 	assert.Contains(t, deleteQuery, "`admin`.`cbt_incremental_local`",
 		"DELETE in cluster mode should use local suffix")
+	assert.Contains(t, deleteQuery, "SETTINGS lightweight_deletes_sync = 0",
+		"ON CLUSTER DELETE should not wait for every replica inside the DDL task")
 }
 
 // TestConsolidateHistoricalDataExcludesConsolidatedKey verifies the DELETE never
@@ -1508,6 +1510,7 @@ func TestDeletePeriodQueryStructure(t *testing.T) {
 			expectedInDelete: []string{
 				"DELETE FROM `admin`.`cbt_incremental_local`",
 				"ON CLUSTER 'test_cluster'",
+				"SETTINGS lightweight_deletes_sync = 0",
 			},
 		},
 	}
