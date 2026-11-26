@@ -296,6 +296,12 @@ func (e *ModelExecutor) updateBoundsCache(ctx context.Context, modelID string, m
 		prevMax = existingCache.Max
 	}
 
+	// Incremental scans render previous_min as their min, so a full scan's min must carry into it; otherwise the
+	// next incremental scan restores the min from before the full scan and later scans alternate between the two.
+	if isFullScan {
+		prevMin = minBound
+	}
+
 	newCache := &admin.BoundsCache{
 		ModelID:             modelID,
 		Min:                 minBound,
