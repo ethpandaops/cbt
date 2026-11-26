@@ -225,6 +225,34 @@ func TestUpdateBounds_RefreshedEmptyCacheDoesNotRewindMax(t *testing.T) {
 	}
 }
 
+// TestUpdateBounds_FullScanMinSurvivesIncrementalScans covers rows backfilled below the cached min, such as a
+// cannon deriving history after the first scan. The full scan that finds them must keep its min through the
+// incremental scans that follow.
+func TestUpdateBounds_FullScanMinSurvivesIncrementalScans(t *testing.T) {
+	const head = uint64(1_795_670_760)
+
+	h := newSlotScanHarness(t, map[string]string{"NETWORK": "pq-devnet-0"})
+
+	h.table.timestamps = []uint64{head, head + 12}
+
+	bounds := h.scan(tasks.ScanTypeFull)
+	require.Equal(t, head, bounds.Min)
+
+	bounds = h.scan(tasks.ScanTypeIncremental)
+	require.Equal(t, head, bounds.Min)
+
+	backfilled := head - 86_400
+	h.table.timestamps = append(h.table.timestamps, backfilled)
+
+	bounds = h.scan(tasks.ScanTypeFull)
+	require.Equal(t, backfilled, bounds.Min)
+
+	for i := range 4 {
+		bounds = h.scan(tasks.ScanTypeIncremental)
+		require.Equal(t, backfilled, bounds.Min, "incremental scan %d after the full scan", i+1)
+	}
+}
+
 // TestUpdateBounds_IncrementalScanType verifies which scan the template is rendered for
 // given the cached bounds.
 func TestUpdateBounds_IncrementalScanType(t *testing.T) {
